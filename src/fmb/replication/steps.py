@@ -61,20 +61,26 @@ def lock(path: str, provider: str, windows_build: str | None = None) -> dict:
     }
 
 
-def freeze(image: str, provider: str, lock: str, recipe: str) -> dict:
+def freeze(image: str, provider: str, lock: str, recipe: str, study: str | None = None) -> dict:
     from fmb.generation import recipe as recipes
 
-    image_protocol = paper_protocol()["images"][image]
-    config = recipes.paper_config(image, provider)
-    pipeline = _pipeline(config, default_current_root() / "generated",
-                         population_contract=PROJECT_ROOT / image_protocol["population_contract"])
+    if study is None:
+        config = recipes.paper_config(image, provider)
+        contract = PROJECT_ROOT / paper_protocol()["images"][image]["population_contract"]
+    else:
+        from fmb import studies
+
+        definition = studies.load(Path(study)).images[image]
+        config = recipes.study_config(definition.seed, definition.contract, provider)
+        contract = definition.contract
+    pipeline = _pipeline(config, default_current_root() / "generated", population_contract=contract)
     try:
         pipeline.prepare_population()
         frozen = recipes.freeze_recipe(
             Path(recipe), source_root=pipeline.work_dir, config=config,
             population=pipeline.public_population_manifest, assignment=pipeline.private_population_assignment,
             guest_plan=pipeline.population_guest_plan, dependency_lock=recipes.read_json(Path(lock)),
-            activity_seed=image_protocol["activity_seed"], hardware_seed=image_protocol["hardware_seed"],
+            activity_seed=config["population_seed"], hardware_seed=config["population_seed"],
             assignment_origin=None,
         )
     finally:
@@ -93,9 +99,13 @@ def generate(recipe: str, output_root: str, vm_work_root: str | None = None) -> 
     return {"status": "completed", "output_root": output_root}
 
 
-def analyse(config: str) -> dict:
+def analyse(config: str, recipe: str | None = None) -> dict:
     from fmb.pipeline.runner import load_config, run_pipeline
 
+    if recipe is not None:
+        from fmb import studies
+
+        studies.activate(Path(recipe))
     return run_pipeline(load_config(Path(config)))
 
 

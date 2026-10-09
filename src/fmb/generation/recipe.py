@@ -26,6 +26,7 @@ CLOSURE_DATA = ("index/scanners/dfir-ntfs-lock.json",)
 SHA256 = re.compile(r"[0-9a-f]{64}")
 VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]*")
 BOX = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+STUDY_KEYS = {"population_seed", "population_contract"}
 
 
 def _object(value, fields, label):
@@ -58,20 +59,45 @@ def paper_config(image, provider='vmware_desktop', windows_box=None):
     return fixed
 
 
-def validate_paper_config(config):
-    for image in ('I1','I2','I3'):
-        candidates = [paper_config(image)] + [paper_config(image, 'qemu', box) for box in sorted(set(QEMU_BOXES.values()))]
-        if any(digest(config) == digest(candidate) for candidate in candidates):
-            return image
-    raise ValueError('recipe configuration differs from the three fixed paper images')
+def _paper_candidates(image):
+    return [paper_config(image)] + [paper_config(image, 'qemu', box) for box in sorted(set(QEMU_BOXES.values()))]
 
-def validate_resolved_inputs(config, population, assignment, guest_plan):
-    image = validate_paper_config(config)
+
+def _shared(config):
+    return {key: value for key, value in config.items() if key not in STUDY_KEYS}
+
+
+def study_config(seed, contract, provider='vmware_desktop', windows_box=None):
+    config = paper_config('I1', provider, windows_box)
+    config.update(population_seed=seed, population_contract=contract)
+    return config
+
+
+def validate_paper_config(config):
+    from fmb.core.paths import PROJECT_ROOT
+    for image in read_json(PROJECT_ROOT / 'contracts/paper/protocol.json')['images']:
+        if any(digest(config) == digest(candidate) for candidate in _paper_candidates(image)):
+            return image
+    raise ValueError('recipe configuration differs from the fixed paper images')
+
+
+def resolved_contract(config):
     from fmb.generation import population as population_support
     from fmb.core.paths import PROJECT_ROOT
-    protocol = read_json(PROJECT_ROOT / 'contracts/paper/protocol.json')
-    contract = population_support.load_population_contract(
-        PROJECT_ROOT / protocol['images'][image]['population_contract'])
+    if 'population_contract' not in config:
+        image = validate_paper_config(config)
+        protocol = read_json(PROJECT_ROOT / 'contracts/paper/protocol.json')
+        return population_support.load_population_contract(
+            PROJECT_ROOT / protocol['images'][image]['population_contract'])
+    if not any(digest(_shared(config)) == digest(_shared(candidate)) for candidate in _paper_candidates('I1')):
+        raise ValueError("a study image changes only its seed and population; its other generation settings "
+                         "are the paper's")
+    return population_support.register_population_contract(config['population_contract'])
+
+
+def validate_resolved_inputs(config, population, assignment, guest_plan):
+    from fmb.generation import population as population_support
+    contract = resolved_contract(config)
     if not isinstance(population, dict):
         raise ValueError("recipe population differs from its configuration")
     population_support.verify_public_manifest(population)

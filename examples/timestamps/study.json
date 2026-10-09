@@ -1,0 +1,10 @@
+{
+  "schema_version": "fmb_study.v1",
+  "name": "timestamps",
+  "images": {
+    "T1": {
+      "seed": 4242,
+      "population": "population-t1.json"
+    }
+  }
+}

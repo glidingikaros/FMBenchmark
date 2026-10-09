@@ -111,6 +111,48 @@ Generation retries a boot or provisioning failure with the same frozen recipe, u
 (default 3). Images are never bit-identical: each frozen recipe draws a fresh random assignment. What
 replicates is the protocol and the result.
 
+## Your own studies
+
+`fmb study` runs images of your own design through the same generator and pipeline. Set the host up with
+`fmb replicate doctor` and `fmb replicate setup` first.
+
+```bash
+uv run fmb study new studies/timestamps --from I3
+uv run fmb study check studies/timestamps
+uv run fmb study run studies/timestamps
+```
+
+- `new` writes `study.json` with one image (`--image`, default `S1`) and a random seed, and a copy of a
+  paper image's population file (`--from I1`, `I2` or `I3`).
+- In the population file, `scenarios` sets how many objects each anti-forensic technique creates
+  (`configured_count`) and how many it manipulates (`manipulation_count`).
+  `native_pilot_parameters.case_classes` picks each question's supplementary cases and controls, at most
+  as many of each as I3 has. A study can hold several images, each with its own seed and population file.
+- `check` builds every image's population and plan without a VM, and says what does not fit. All
+  fourteen scenarios stay. The two USB scenarios keep three drives with one manipulated, and the two
+  event-log scenarios keep one log each.
+- `run` writes `study-runs/<study>/<image>/` and a `summary.json` like `replicate`'s. Each image is scored
+  against its own ground truth.
+
+`examples/timestamps` is a ready-made study: I3 with twice the timestamp-tampered files and only
+timestamp supplements. A study changes what an image contains. The base image, the guest settings and the
+pipeline stay the paper's.
+
+### Changing the code
+
+New techniques, questions or rules are code changes:
+
+| To add | Change |
+|---|---|
+| A technique | Its Ansible task in `src/fmb/generation/ansible/roles/manipulation/tasks/`, its scenario in `SCENARIO_ANALYSIS` (`src/fmb/generation/population.py`) and in your population file, its definition in `src/fmb/analysis/catalog.py`, and its rule in `src/fmb/analysis/shared_rules.py` |
+| A supplementary case | `CASE_CLASSES` in `src/fmb/generation/pilot_profile.py`, its construction in `src/fmb/generation/ansible/roles/manipulation/files/pilot_challenge.ps1`, and its expected answer in `src/fmb/evaluation/factual_reference.py` |
+| A question | A question pack in `src/fmb/contracts/questions/`, `QIDS` in `src/fmb/core/case_contract.py`, and its rule; collection, preparation and evaluation assume the nine-question roster, so let the tests guide you |
+| An S3 engine or a stage implementation | `ENGINES` in `src/fmb/assessment/stage.py`, or `IMPLEMENTATIONS` in `src/fmb/pipeline/implementations.py` |
+
+`fmb study run` runs changed code. `summary.json` lists the changed files, and each image's preparation
+keeps a copy of the code it ran. `fmb replicate` runs only the released code, and stops before generating
+if any file differs.
+
 ## Licence
 
 MIT (`LICENSE`), except the `$LogFile` driver `tools/dfir_ntfs/fmb_logfile_records.py`, which is

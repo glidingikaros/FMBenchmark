@@ -77,10 +77,11 @@ def completed(root: Path) -> Path | None:
                  if (manifest.parent / "full_scale.vmdk").is_file()), None)
 
 
-def generate(image: str, lock: Path, folder: Path, attempts: int) -> Path:
+def generate(image: str, lock: Path, folder: Path, attempts: int, study: Path | None = None) -> Path:
     recipe = folder / "recipe"
     if not recipe.exists():
-        if step("freeze", image=image, provider=host.provider(), lock=lock, recipe=recipe) != 0:
+        if step("freeze", image=image, provider=host.provider(), lock=lock, recipe=recipe,
+                **({"study": study} if study else {})) != 0:
             raise SystemExit(f"{image}: freezing the recipe failed")
     await_base_clock(recipe)
     for attempt in range(1, attempts + 1):
@@ -103,7 +104,7 @@ def analyse(image: str, generation: Path, folder: Path) -> dict:
                           **({"vm_work_root": str(host.cache() / "vm-work")} if host.MACOS else {})},
               "output": str(folder / "run")}
     (folder / "pipeline.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
-    step("analyse", config=folder / "pipeline.json", log_path=folder / "pipeline.log")
+    step("analyse", config=folder / "pipeline.json", recipe=folder / "recipe", log_path=folder / "pipeline.log")
     return summary(image, folder / "run" / "gates" / "G5.json")
 
 
@@ -124,8 +125,24 @@ def write_summary(output: Path, results: list[dict]) -> None:
     (output / "summary.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
 
-def images(names: list[str], output: Path, attempts: int) -> int:
+def implementation(study) -> dict:
+    from fmb.core import paper_integrity
+
+    changed = paper_integrity.modified_files()
+    if study is None:
+        if changed:
+            raise SystemExit(f"{len(changed)} files differ from the released implementation, such as {changed[0]}. "
+                             "`fmb replicate` reproduces the paper with the released code only; run changed code "
+                             "as your own study with `fmb study run`.")
+        return {}
+    state = "modified" if changed else "released"
+    log(f"study {study.name}: {state} implementation" + (f", {len(changed)} files changed" if changed else ""))
+    return {"study": study.name, "implementation": state, "changed_files": changed}
+
+
+def images(names: list[str], output: Path, attempts: int, study=None) -> int:
     output = output.resolve()
+    provenance = implementation(study)
     output.mkdir(parents=True, exist_ok=True)
     base = host.windows_base()
     if base and base["iso_pinned"] is False:
@@ -135,16 +152,17 @@ def images(names: list[str], output: Path, attempts: int) -> int:
     try:
         lock = dependency_lock(output)
     except SystemExit as error:
-        results = [{"image": image, "admission": "not reached", "error": str(error)} for image in names]
+        results = [provenance | {"image": image, "admission": "not reached", "error": str(error)} for image in names]
         write_summary(output, results)
         raise
     for image in names:
         folder = output / image
         folder.mkdir(exist_ok=True)
         try:
-            results.append(analyse(image, generate(image, lock, folder, attempts), folder))
+            row = analyse(image, generate(image, lock, folder, attempts, study and study.path), folder)
         except SystemExit as error:
-            results.append({"image": image, "admission": "not reached", "error": str(error)})
+            row = {"image": image, "admission": "not reached", "error": str(error)}
+        results.append(provenance | row)
         write_summary(output, results)
     for row in results:
         log(f"{row['image']}: admission {row['admission']}"

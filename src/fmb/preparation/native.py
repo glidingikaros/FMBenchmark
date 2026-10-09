@@ -113,7 +113,9 @@ def collected_kape_root(analysis: Path, index: dict, locate=None) -> Path:
     return roots.pop()
 
 
-def _planned_counts(planned_counts: dict) -> dict:
+def _planned_counts(planned_counts: dict | None) -> dict | None:
+    if planned_counts is None:
+        return None
     planned_counts = {qid: tuple(value) for qid, value in planned_counts.items()}
     if set(planned_counts) != set(QIDS) or any(
         len(v) != 2 or any(type(n) is not int for n in v)
@@ -197,7 +199,7 @@ def _write_case(output: Path, qid: str, presented) -> dict:
 
 
 def prepare_cases(
-    *, analysis: Path, generation: Path, output: Path, planned_counts: dict,
+    *, analysis: Path, generation: Path, output: Path, planned_counts: dict | None,
     questions: list[str] | None = None,
 ) -> dict:
     from fmb.analysis.catalog import TECHNIQUES

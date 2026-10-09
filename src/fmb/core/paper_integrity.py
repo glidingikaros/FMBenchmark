@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 import os
 import time
 
 from fmb.core.hashing import sha256_file
 from fmb.core.sealed_records import read_json, contained_path
+
+_MODIFIED_PERMITTED = False
+
+
+def permit_modified_sources() -> None:
+    global _MODIFIED_PERMITTED
+    _MODIFIED_PERMITTED = True
 
 
 def source_roots():
@@ -50,8 +59,27 @@ def source_files(roots=None):
     return dict(sorted(files.items()))
 
 
+def current_record(roots=None) -> dict:
+    roots = roots or source_roots()
+    sealed = read_json(roots["package"] / "paper-source-manifest.json")
+    return {**sealed, "files": {name: sha256_file(path) for name, path in source_files(roots).items()}}
+
+
+def record_bytes(record: dict) -> bytes:
+    return (json.dumps(record, indent=2, sort_keys=True) + "\n").encode()
+
+
+def modified_files(roots=None) -> list[str]:
+    roots = roots or source_roots()
+    sealed = read_json(roots["package"] / "paper-source-manifest.json")["files"]
+    current = current_record(roots)["files"]
+    return sorted(name for name in sealed.keys() | current.keys() if sealed.get(name) != current.get(name))
+
+
 def verify_sources(manifest_path: Path | None = None, *, roots=None) -> dict:
     roots = roots or source_roots()
+    if _MODIFIED_PERMITTED and manifest_path is None and modified_files(roots):
+        return current_record(roots)
     manifest_path = manifest_path or roots["package"] / "paper-source-manifest.json"
     record = read_json(manifest_path)
     if record.get("schema_version") != "paper_source_manifest.v1":
@@ -76,6 +104,8 @@ def verify_sources(manifest_path: Path | None = None, *, roots=None) -> dict:
 
 def source_manifest_sha256() -> str:
     roots = source_roots()
+    if _MODIFIED_PERMITTED and modified_files(roots):
+        return hashlib.sha256(record_bytes(current_record(roots))).hexdigest()
     manifest = roots["package"] / "paper-source-manifest.json"
     verify_sources(manifest, roots=roots)
     return sha256_file(manifest)

@@ -17,6 +17,7 @@ from fmb.analysis.inputs import (
     normalized_subject_label,
     observation_matches_technique,
 )
+from fmb.core import population_contracts
 from fmb.core.hashing import sha256_file
 from fmb.core.json_io import load_json_object
 from fmb.index.contract.evidence_index import validate_candidate_populations
@@ -110,6 +111,7 @@ def verify_population_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
         BOUNDED_POPULATION_CONTRACT_SHA256,
         *HISTORICAL_POPULATION_CONTRACT_SHA256,
         *EXPERIMENTAL_POPULATION_CONTRACT_SHA256,
+        *population_contracts.registered_hashes(),
     }:
         raise ValueError("population manifest contract hash is not supported")
     expected_hash = _sha256(manifest, "manifest_sha256", label="population manifest")

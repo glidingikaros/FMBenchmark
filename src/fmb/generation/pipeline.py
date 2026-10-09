@@ -20,6 +20,7 @@ from fmb.generation.population import (
     build_guest_plan,
     build_public_manifest,
     load_population_contract,
+    register_population_contract,
     population_scenario_order,
     select_private_assignment,
     validate_guest_receipts,
@@ -302,7 +303,6 @@ class GenerationPipeline:
         if (provider not in {"vmware_desktop", "qemu"} or export_format != "vmdk" or experiment != "full_scale"
                 or case != "positive" or randomize_hw or keep_vm or vmware_bridge is not None
                 or windows_box not in allowed_boxes
-                or population_seed not in {2026091811, 2026091812, 2026091813}
                 or activity_count not in {None, 12}):
             raise ValueError("generation is restricted to the fixed paper configuration")
         windows_box = windows_box or "fmb/windows-11-arm64"
@@ -318,7 +318,8 @@ class GenerationPipeline:
                                      windows_box=windows_box, vmware_bridge=vmware_bridge,
                                      randomize_hw=randomize_hw)
                 frozen_config = self.recipe_bundle["recipe"]["config"]
-                for key in ("clock_policy", "vmware_boot_clock_bias_minutes", "activity_count", "factual_challenge"):
+                for key in ("clock_policy", "vmware_boot_clock_bias_minutes", "activity_count", "factual_challenge",
+                            "population_contract"):
                     if key in frozen_config:
                         actual_config[key] = frozen_config[key]
                 if actual_config != frozen_config:
@@ -337,7 +338,14 @@ class GenerationPipeline:
         self.experiment = experiment
         if population_contract is not None and recipe is not None:
             raise ValueError("a frozen recipe rejects a population-contract override")
-        if population_contract is not None:
+        study_contract = population_contract if isinstance(population_contract, dict) else None
+        if self.recipe_bundle is not None:
+            study_contract = self.recipe_bundle["recipe"]["config"].get("population_contract")
+        if study_contract is None and population_seed not in {2026091811, 2026091812, 2026091813}:
+            raise ValueError("generation is restricted to the fixed paper configuration")
+        if study_contract is not None:
+            self.population_contract = register_population_contract(study_contract)
+        elif population_contract is not None:
             contract_path = Path(population_contract).expanduser().resolve(strict=True)
             source_root = Path(__file__).parent.resolve()
             if (contract_path.parent != source_root

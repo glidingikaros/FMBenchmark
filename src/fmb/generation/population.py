@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 
+from fmb.core import population_contracts
 from fmb.generation import archive_control
 from fmb.generation import pilot_profile
 
@@ -180,8 +182,18 @@ def _instant(text: str) -> datetime | None:
 
 
 def load_population_contract(path: Path = POPULATION_CONTRACT_PATH) -> dict[str, Any]:
+    return validate_population_contract(json.loads(path.read_text(encoding="utf-8")))
 
-    value = json.loads(path.read_text(encoding="utf-8"))
+
+def register_population_contract(value: Mapping[str, Any]) -> dict[str, Any]:
+    contract = validate_population_contract(deepcopy(dict(value)))
+    population_contracts.register(_sha256(contract), contract)
+    return contract
+
+
+def validate_population_contract(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise PopulationError("a population contract must be a JSON object")
     if value.get("schema_version") != "bounded_population.v1":
         raise PopulationError("unsupported bounded-population schema")
     if value.get("native_pilot_profile") not in {None, pilot_profile.PROFILE}:
@@ -467,6 +479,9 @@ def verify_public_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _contract_for_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    registered = population_contracts.registered(str(manifest.get("contract_sha256")))
+    if registered is not None:
+        return registered
     for path in sorted(POPULATION_CONTRACT_PATH.parent.glob("populations*.json")):
         if path.is_file():
             contract = load_population_contract(path)

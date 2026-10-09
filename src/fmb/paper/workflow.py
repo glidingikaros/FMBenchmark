@@ -55,7 +55,7 @@ def prepare(*, analysis: Path, generation: Path, image: str, output: Path, quest
     output.mkdir(parents=True, exist_ok=False)
     prepare_native(
         analysis=analysis, generation=generation, output=output / "prepared",
-        planned_counts=paper_protocol()["images"][image.split("-", 1)[0]]["planned_counts"],
+        planned_counts=paper_protocol()["images"].get(image.split("-", 1)[0], {}).get("planned_counts"),
         questions=questions,
     )
     result = build(
