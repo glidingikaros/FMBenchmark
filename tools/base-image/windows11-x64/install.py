@@ -301,7 +301,11 @@ def wait_ready(vm: Machine | subprocess.Popen, work: Path, winrm_port: int, moni
         if time.monotonic() > deadline:
             raise SystemExit(f"no WinRM ({label})")
         monitor(monitor_port, f"screendump shots/{label}-{tick:03d}.png -f png")
-        log(f"{label} {tick}: qemu cpu {usage.cpu_percent():.0f}%")
+        try:
+            cpu = f"{usage.cpu_percent():.0f}%"
+        except psutil.Error:
+            cpu = "ended (a guest restart, relaunched at the next check)"
+        log(f"{label} {tick}: qemu cpu {cpu}")
         tick += 1
         time.sleep(30)
     serial_news(work)
