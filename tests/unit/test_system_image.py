@@ -145,3 +145,14 @@ def test_collection_accepts_vmdk_and_raw_images_only(tmp_path, name, accepted):
 ])
 def test_a_companion_medium_may_be_raw_when_named_after_its_binding(binding, companion, accepted):
     assert usb_volume._companion_of(binding, companion) is accepted
+
+
+def test_a_generated_folder_keeps_exactly_its_former_readable_files(tmp_path):
+    generation = _generation(tmp_path / "generation", "full_scale.vmdk", f"media_{MEDIA}.vmdk")
+    names = {"manifest.json", "population_manifest.json", "population-manifest.json",
+             "factual-challenge-population.json", "full_scale.vmdk", "native_media.vmdk", "native_media_binding.json",
+             f"media_{MEDIA}.vmdk", f"media_{MEDIA}.json"}
+    expected = {generation.resolve() / name for name in names}
+    image = system_image(json.loads((generation / "manifest.json").read_text()))["file"]
+    assert image == "full_scale.vmdk"
+    assert public_generation_files(generation) == public_generation_files(generation, image) == expected
