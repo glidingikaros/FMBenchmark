@@ -1,5 +1,8 @@
 {
   "seed": 1,
+  "generation": {
+    "clock_bias_minutes": "auto"
+  },
   "schema_version": "bounded_population.v1",
   "experiments": {
     "timestomp": [

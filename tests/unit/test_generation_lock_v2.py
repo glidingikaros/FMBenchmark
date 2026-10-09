@@ -331,3 +331,26 @@ def test_an_image_of_your_own_freezes_and_loads_back(host, tmp_path):
                          dependency_lock=host.build(), activity_seed=image.seed, hardware_seed=image.seed)
     loaded = recipe.load_recipe(directory, source_root=directory / "source" / "generation", verify_dependencies=False)
     assert loaded["recipe"]["config"]["population_contract"] == image.contract
+
+
+def test_an_image_of_your_own_freezes_its_own_seeds_and_settings(host, tmp_path):
+    from fmb.replication import image_files
+
+    image = image_files.load(SOURCE.parents[2] / "images/decoys.json")
+    config = recipe.image_config(image.seed, image.contract, settings={"activity_count": 20, "activity_seed": 5,
+                                                                       "hardware_seed": 6, "clock_bias_minutes": 0})
+    contract = recipe.resolved_contract(config)
+    public = build_public_manifest(experiment="full_scale", seed=image.seed, contract=contract)
+    assignment = select_private_assignment(public, entropy=b"a" * 32)
+    directory = tmp_path / "recipe"
+    recipe.freeze_recipe(directory, source_root=SOURCE, config=config, population=public, assignment=assignment,
+                         guest_plan=build_guest_plan(public, assignment, case="positive"),
+                         dependency_lock=host.build(), activity_seed=5, hardware_seed=6)
+    loaded = recipe.load_recipe(directory, source_root=directory / "source" / "generation", verify_dependencies=False)
+    assert len(loaded["private"]["activity_plan"]) == 20
+    assert loaded["private"]["hardware"] == recipe.resolved_hardware(6)
+    assert loaded["recipe"]["config"]["vmware_boot_clock_bias_minutes"] == 0
+    with pytest.raises(ValueError, match="must match the declared image"):
+        recipe.freeze_recipe(tmp_path / "other", source_root=SOURCE, config=config, population=public,
+                             assignment=assignment, guest_plan=build_guest_plan(public, assignment, case="positive"),
+                             dependency_lock=host.build(), activity_seed=4, hardware_seed=6)

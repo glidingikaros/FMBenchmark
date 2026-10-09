@@ -26,7 +26,10 @@ CLOSURE_DATA = ("index/scanners/dfir-ntfs-lock.json",)
 SHA256 = re.compile(r"[0-9a-f]{64}")
 VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]*")
 BOX = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-POPULATION_KEYS = {"population_seed", "population_contract"}
+POPULATION_KEYS = {"population_seed", "population_contract", "activity_seed", "hardware_seed"}
+SETTING_RANGES = {"activity_count": (1, 500), "vmware_boot_clock_bias_minutes": (-840, 840)}
+GUEST_ZONE = "America/Los_Angeles"
+AUTO_CLOCK_LAG_MINUTES = 2
 
 
 def _object(value, fields, label):
@@ -64,12 +67,25 @@ def _paper_candidates(image):
 
 
 def _shared(config):
-    return {key: value for key, value in config.items() if key not in POPULATION_KEYS}
+    return {key: value for key, value in config.items() if key not in POPULATION_KEYS | set(SETTING_RANGES)}
 
 
-def image_config(seed, contract, provider='vmware_desktop', windows_box=None):
+def auto_clock_bias(now=None):
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    offset = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo(GUEST_ZONE)).utcoffset()
+    return AUTO_CLOCK_LAG_MINUTES - int(offset.total_seconds() // 60)
+
+
+def image_config(seed, contract, provider='vmware_desktop', windows_box=None, settings=None, now=None):
     config = paper_config('I1', provider, windows_box)
     config.update(population_seed=seed, population_contract=contract)
+    settings = dict(settings or {})
+    if settings.get("clock_bias_minutes") == "auto":
+        settings["clock_bias_minutes"] = auto_clock_bias(now)
+    names = {"clock_bias_minutes": "vmware_boot_clock_bias_minutes"}
+    config.update({names.get(key, key): value for key, value in settings.items()})
     return config
 
 
@@ -90,9 +106,19 @@ def resolved_contract(config):
         return population_support.load_population_contract(
             PROJECT_ROOT / protocol['images'][image]['population_contract'])
     if not any(digest(_shared(config)) == digest(_shared(candidate)) for candidate in _paper_candidates('I1')):
-        raise ValueError("an image of your own changes only its seed and population; its other generation "
-                         "settings are the paper's")
+        raise ValueError("an image of your own changes only its seed, population, activity count, clock bias and "
+                         "seeds; its other generation settings are the paper's")
+    for key, (low, high) in SETTING_RANGES.items():
+        if type(config.get(key)) is not int or not low <= config[key] <= high:
+            raise ValueError(f"{key} is an integer from {low} to {high}")
+    for key in ("population_seed", "activity_seed", "hardware_seed"):
+        if key in config and (type(config[key]) is not int or config[key] < 0):
+            raise ValueError(f"{key} is a non-negative integer")
     return population_support.register_population_contract(config['population_contract'])
+
+
+def declared_seeds(config):
+    return config.get("activity_seed", config["population_seed"]), config.get("hardware_seed", config["population_seed"])
 
 
 def validate_resolved_inputs(config, population, assignment, guest_plan):
@@ -449,10 +475,11 @@ def freeze_recipe(destination, *, source_root, config, population, assignment, g
     box, box_version = locked_box(dependency_lock)
     if config["windows_box"] != box:
         raise ValueError("configured box differs from locked base")
-    activity_seed = config["population_seed"] if activity_seed is None else activity_seed
-    hardware_seed = config["population_seed"] if hardware_seed is None else hardware_seed
-    if activity_seed != config["population_seed"] or hardware_seed != config["population_seed"]:
-        raise ValueError("activity and hardware seeds must match the declared paper image")
+    declared = declared_seeds(config)
+    activity_seed = declared[0] if activity_seed is None else activity_seed
+    hardware_seed = declared[1] if hardware_seed is None else hardware_seed
+    if (activity_seed, hardware_seed) != declared:
+        raise ValueError("activity and hardware seeds must match the declared image")
     if box_version != "0":
         raise ValueError("paper generation requires the declared base box version 0")
     private = {"schema_version": PRIVATE_SCHEMA, "population_manifest": population,
@@ -566,8 +593,8 @@ def load_recipe(directory, *, source_root, verify_dependencies=True, tools=None)
                              private["assignment"], private["guest_plan"])
     if recipe["config"]["windows_box"] != locked_box(lock)[0]:
         raise ValueError("recipe Windows box differs from dependency lock")
-    if private["activity_seed"] != recipe["config"]["population_seed"] or private["hardware_seed"] != recipe["config"]["population_seed"]:
-        raise ValueError("paper activity/hardware seeds must equal the population seed")
+    if (private["activity_seed"], private["hardware_seed"]) != declared_seeds(recipe["config"]):
+        raise ValueError("activity and hardware seeds differ from the declared image")
     if private["activity_plan"] != resolved_activity(
         private["activity_seed"], count=recipe["config"]["activity_count"]
     ):

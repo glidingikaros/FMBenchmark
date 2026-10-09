@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from fmb.core.paper_protocol import paper_protocol
@@ -10,6 +10,8 @@ from fmb.core.sealed_records import read_json
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
 IMAGES = Path("images")
 TEMPLATE = "template"
+SETTINGS = {"clock_bias_minutes": (-840, 840, "auto"), "activity_count": (1, 500, None),
+            "activity_seed": (0, 2**63 - 1, None), "hardware_seed": (0, 2**63 - 1, None)}
 PROVIDER_KEYS = {"openai": "OPENAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
 MANIPULATED = {
     "timestomp_01": 2, "ads_injection_01": 2, "prefetch_wipe_01": 1, "security_log_clear_event_01": 1,
@@ -33,6 +35,7 @@ class Image:
     contract: dict
     path: Path
     paper: bool = False
+    settings: dict = field(default_factory=dict)
 
 
 def paper_definition(name: str) -> dict:
@@ -63,6 +66,7 @@ def load(path: Path) -> Image:
     seed = value.pop("seed", None) if isinstance(value, dict) else None
     if type(seed) is not int or seed < 0:
         raise ValueError(f"{path.name}: give the image a seed, a non-negative integer")
+    settings = _settings(value.pop("generation", {}), path.name)
     try:
         contract = population.validate_population_contract(value)
     except ValueError as error:
@@ -79,13 +83,23 @@ def load(path: Path) -> Image:
     for scenario, (configured, reason) in FIXED_OBJECTS.items():
         if contract["scenarios"][scenario]["configured_count"] != configured:
             raise ValueError(f"{path.name}: {scenario} keeps {configured} object(s): {reason}")
-    return Image(path.stem, seed, contract, path)
+    return Image(path.stem, seed, contract, path, settings=settings)
+
+
+def _settings(value, where: str) -> dict:
+    if not isinstance(value, dict) or set(value) - set(SETTINGS):
+        raise ValueError(f"{where}: generation takes only " + ", ".join(SETTINGS))
+    for key, (low, high, extra) in SETTINGS.items():
+        if key in value and value[key] != extra and (type(value[key]) is not int or not low <= value[key] <= high):
+            raise ValueError(f"{where}: generation.{key} is an integer from {low} to {high}"
+                             + (f", or {extra!r}" if extra else ""))
+    return value
 
 
 def check(image: Image) -> str:
     from fmb.generation import population, recipe
 
-    config = recipe.image_config(image.seed, image.contract)
+    config = recipe.image_config(image.seed, image.contract, settings=image.settings)
     try:
         contract = recipe.resolved_contract(config)
         manifest = population.build_public_manifest(experiment=config["experiment"], seed=image.seed,

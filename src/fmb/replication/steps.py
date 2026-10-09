@@ -71,7 +71,7 @@ def freeze(image: str, provider: str, lock: str, recipe: str, image_file: str | 
         from fmb.replication import image_files
 
         own = image_files.load(Path(image_file))
-        config = recipes.image_config(own.seed, own.contract, provider)
+        config = recipes.image_config(own.seed, own.contract, provider, settings=own.settings)
         contract = own.contract
     pipeline = _pipeline(config, default_current_root() / "generated", population_contract=contract)
     try:
@@ -80,7 +80,7 @@ def freeze(image: str, provider: str, lock: str, recipe: str, image_file: str | 
             Path(recipe), source_root=pipeline.work_dir, config=config,
             population=pipeline.public_population_manifest, assignment=pipeline.private_population_assignment,
             guest_plan=pipeline.population_guest_plan, dependency_lock=recipes.read_json(Path(lock)),
-            activity_seed=config["population_seed"], hardware_seed=config["population_seed"],
+            activity_seed=recipes.declared_seeds(config)[0], hardware_seed=recipes.declared_seeds(config)[1],
             assignment_origin=None,
         )
     finally:

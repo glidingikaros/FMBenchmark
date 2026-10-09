@@ -112,8 +112,11 @@ def test_an_image_of_your_own_changes_only_its_seed_and_population():
     config = recipe.image_config(4242, contract)
     assert recipe.resolved_contract(config) == contract
     assert recipe.resolved_contract(recipe.image_config(4242, contract, "qemu", "fmb/windows-11-x64")) == contract
-    with pytest.raises(ValueError, match="only its seed and population"):
-        recipe.resolved_contract(config | {"activity_count": 36})
+    with pytest.raises(ValueError, match="only its seed, population"):
+        recipe.resolved_contract(config | {"experiment": "timestomp"})
+    with pytest.raises(ValueError, match="activity_count is an integer from 1 to 500"):
+        recipe.resolved_contract(config | {"activity_count": 501})
+    assert recipe.resolved_contract(config | {"activity_count": 36}) == contract
     assert recipe.validate_paper_config(recipe.paper_config("I2")) == "I2"
     assert "population_contract" not in recipe.paper_config("I2")
 
@@ -275,3 +278,21 @@ def test_llm_conditions_reach_the_analysis_and_the_summary(tmp_path, monkeypatch
         "conditions": {"sonnet5-high": {"passes": {"1": {}, "2": {}, "3": {}},
                                         "spread": {"exact_min": 0, "exact_max": 1, "f1_min": 0.5, "f1_max": 0.8}}}}}))
     assert run.summary("small", gate)["llm"] == {"sonnet5-high": {"exact": [0, 1], "f1": [0.5, 0.8], "passes": 3}}
+
+
+def test_an_image_may_set_its_clock_bias_activity_and_seeds(tmp_path):
+    from datetime import datetime, timezone
+
+    summer, winter = datetime(2026, 7, 1, tzinfo=timezone.utc), datetime(2026, 1, 15, tzinfo=timezone.utc)
+    assert (recipe.auto_clock_bias(summer), recipe.auto_clock_bias(winter)) == (422, 482)
+    settings = {"clock_bias_minutes": "auto", "activity_count": 40, "activity_seed": 7, "hardware_seed": 8}
+    image = image_files.load(write_image(tmp_path / "busy.json", {**example(), "generation": settings}))
+    assert image.settings == settings and image.contract == example()
+    config = recipe.image_config(image.seed, image.contract, settings=image.settings, now=summer)
+    assert (config["vmware_boot_clock_bias_minutes"], config["activity_count"]) == (422, 40)
+    assert recipe.declared_seeds(config) == (7, 8) and recipe.resolved_contract(config) == image.contract
+    assert recipe.declared_seeds(recipe.paper_config("I1")) == (2026091811, 2026091811)
+    for bad, message in (({"clock_bias_minutes": 900}, "-840 to 840"), ({"activity_count": 0}, "1 to 500"),
+                         ({"noise": 1}, "generation takes only"), ({"hardware_seed": -1}, "hardware_seed")):
+        with pytest.raises(ValueError, match=message):
+            image_files.load(write_image(tmp_path / "bad.json", {**example(), "generation": bad}))

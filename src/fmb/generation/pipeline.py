@@ -303,10 +303,10 @@ class GenerationPipeline:
         if (provider not in {"vmware_desktop", "qemu"} or export_format != "vmdk" or experiment != "full_scale"
                 or case != "positive" or randomize_hw or keep_vm or vmware_bridge is not None
                 or windows_box not in allowed_boxes
-                or activity_count not in {None, 12}):
+                or (activity_count is not None and (type(activity_count) is not int or not 1 <= activity_count <= 500))):
             raise ValueError("generation is restricted to the fixed paper configuration")
         windows_box = windows_box or "fmb/windows-11-arm64"
-        activity_count = 12
+        activity_count = 12 if activity_count is None else activity_count
         self.recipe_bundle = None
         if recipe is not None:
             with _host_phase("source_recipe_verification"):
