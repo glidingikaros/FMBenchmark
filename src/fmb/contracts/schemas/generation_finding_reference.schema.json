@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "generation_finding_reference.schema.json",
+  "title": "Generation Finding Reference",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "reference_contract",
+    "experiment",
+    "case",
+    "population_manifest_sha256",
+    "operation_truth_payload_sha256",
+    "archive_receipt_payload_sha256",
+    "scenarios"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "generation_finding_reference.v1"
+    },
+    "reference_contract": {
+      "const": "broad_native_findings.v1"
+    },
+    "experiment": {
+      "enum": [
+        "timestomp",
+        "full_scale"
+      ]
+    },
+    "case": {
+      "enum": [
+        "positive",
+        "benign"
+      ]
+    },
+    "population_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "operation_truth_payload_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "archive_receipt_payload_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "scenario_id",
+          "candidate_ids"
+        ],
+        "properties": {
+          "scenario_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "candidate_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "maxItems": 14
+    }
+  },
+  "additionalProperties": false
+}

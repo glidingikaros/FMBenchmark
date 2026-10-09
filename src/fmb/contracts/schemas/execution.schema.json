@@ -1,0 +1,1630 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "execution.schema.json",
+  "title": "FMB Execution Contracts",
+  "description": "Validates tool-execution envelopes and rule-engine preflight/report runtime documents.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/rule_engine_preflight"
+    },
+    {
+      "$ref": "#/$defs/rule_engine_report"
+    },
+    {
+      "$ref": "#/$defs/tool_execution_report"
+    },
+    {
+      "$ref": "#/$defs/tool_execution"
+    },
+    {
+      "$ref": "#/$defs/tool_execution_config"
+    },
+    {
+      "$ref": "#/$defs/tool_execution_config_plan"
+    },
+    {
+      "$ref": "#/$defs/run_status"
+    },
+    {
+      "$ref": "#/$defs/run_manifest"
+    },
+    {
+      "$ref": "#/$defs/analysis_smoke_run_bundle"
+    },
+    {
+      "$ref": "#/$defs/analysis_fixture_smoke_report"
+    }
+  ],
+  "$defs": {
+    "engine_preflight": {
+      "type": "object",
+      "required": [
+        "status",
+        "run_scope_rule_sources"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run_scope_rule_sources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "selected_rule_packs": {
+          "type": "array"
+        },
+        "selected_rule_pack_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "rule_engine_preflight": {
+      "title": "Rule Engine Preflight",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "yara",
+        "sigma"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fmb_rule_engine_preflight.v1"
+        },
+        "yara": {
+          "$ref": "#/$defs/engine_preflight"
+        },
+        "sigma": {
+          "$ref": "#/$defs/engine_preflight"
+        }
+      },
+      "additionalProperties": true
+    },
+    "rule_engine_report": {
+      "title": "Rule Engine Report",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "status",
+        "preflight",
+        "executed",
+        "skipped",
+        "rule_pack_audit"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fmb_rule_engine_report.v1"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "preflight": {
+          "type": "object"
+        },
+        "executed": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "rule_pack_audit": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "tool_bundle_manifest": {
+      "title": "FMB External Tool Bundle Manifest",
+      "description": "Defines the manifest for an external tool result bundle, including request and result hashes, collector identity, output root, and artifact inventory.",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "request_id",
+        "request_sha256",
+        "result_sha256",
+        "run_id",
+        "question_id",
+        "collector",
+        "collector_output_root",
+        "artifact_count",
+        "artifacts"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "tool_bundle_manifest.v1"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/tool_bundle_manifest/$defs/sha256"
+        },
+        "result_sha256": {
+          "$ref": "#/$defs/tool_bundle_manifest/$defs/sha256"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "collector": {
+          "type": "string",
+          "enum": [
+            "kape",
+            "uac"
+          ]
+        },
+        "collector_output_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transport_package_sha256": {
+          "$ref": "#/$defs/tool_bundle_manifest/$defs/nullableSha256"
+        },
+        "artifact_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tool_bundle_manifest/$defs/artifact"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "nullableSha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "artifact": {
+          "type": "object",
+          "required": [
+            "artifact_id",
+            "relative_path",
+            "size_bytes",
+            "sha256",
+            "artifact_family",
+            "artifact_families",
+            "artifact_family_declarations"
+          ],
+          "properties": {
+            "artifact_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "relative_path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sha256": {
+              "$ref": "#/$defs/tool_bundle_manifest/$defs/sha256"
+            },
+            "artifact_family": {
+              "type": "string",
+              "minLength": 1
+            },
+            "artifact_families": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "artifact_family_declarations": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/tool_bundle_manifest/$defs/artifactFamilyDeclaration"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "artifactFamilyDeclaration": {
+          "type": "object",
+          "required": [
+            "artifact_family",
+            "source_surface",
+            "coverage_role",
+            "method",
+            "source_field",
+            "basis"
+          ],
+          "properties": {
+            "artifact_family": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source_surface": {
+              "type": "string",
+              "enum": [
+                "raw_collector_target",
+                "kape_module_output",
+                "parser_raw_output",
+                "parser_normalized_output",
+                "tool_log",
+                "collector_output",
+                "collector_plan"
+              ]
+            },
+            "coverage_role": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "supporting_source"
+              ]
+            },
+            "method": {
+              "type": "string",
+              "enum": [
+                "collector_source_declaration",
+                "collector_plan_declaration",
+                "parser_output_declaration"
+              ]
+            },
+            "source_field": {
+              "type": "string",
+              "minLength": 1
+            },
+            "basis": {
+              "type": "string",
+              "minLength": 1
+            },
+            "request_expected": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "tool_run_request": {
+      "title": "FMB External Tool Run Request",
+      "description": "Defines an external tool run request, including question context, expected execution, source evidence, requested collection, rule requests, output contract, and truth firewall.",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "request_id",
+        "run_id",
+        "question",
+        "collector",
+        "expected_execution",
+        "source_evidence",
+        "requested_collection",
+        "rule_requests",
+        "output_contract",
+        "truth_firewall"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "tool_run_request.v1"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question": {
+          "type": "object",
+          "required": [
+            "question_id",
+            "question_text"
+          ],
+          "properties": {
+            "question_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "question_text": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "collector": {
+          "type": "string",
+          "enum": [
+            "kape",
+            "uac"
+          ]
+        },
+        "expected_execution": {
+          "type": "object",
+          "required": [
+            "platform",
+            "tool",
+            "required_capability"
+          ],
+          "properties": {
+            "platform": {
+              "type": "string",
+              "enum": [
+                "windows",
+                "unix_like"
+              ]
+            },
+            "tool": {
+              "type": "string",
+              "enum": [
+                "kape",
+                "uac",
+                "fmb-host-collector"
+              ]
+            },
+            "required_capability": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "source_evidence": {
+          "type": "object",
+          "required": [
+            "evidence_id",
+            "path_hint",
+            "sha256"
+          ],
+          "properties": {
+            "evidence_id": {
+              "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+            },
+            "path_hint": {
+              "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+            },
+            "sha256": {
+              "$ref": "#/$defs/tool_run_request/$defs/nullableSha256"
+            }
+          },
+          "additionalProperties": false
+        },
+        "requested_collection": {
+          "type": "object",
+          "required": [
+            "collector",
+            "output_hint"
+          ],
+          "properties": {
+            "collector": {
+              "type": "string",
+              "enum": [
+                "kape",
+                "uac"
+              ]
+            },
+            "targets": {
+              "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+            },
+            "modules": {
+              "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+            },
+            "profile": {
+              "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+            },
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "expected_artifact_families": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "extra_args": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "command_template": {
+              "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+            },
+            "msource": {
+              "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+            },
+            "mdest": {
+              "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+            },
+            "output_hint": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "rule_requests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "engine",
+              "rule_source"
+            ],
+            "properties": {
+              "engine": {
+                "type": "string",
+                "enum": [
+                  "yara",
+                  "sigma"
+                ]
+              },
+              "rule_source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "backend": {
+                "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+              },
+              "event_input": {
+                "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+              },
+              "scan_roots": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "mapping": {
+                "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+              },
+              "command_template": {
+                "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+              },
+              "match_output": {
+                "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+              },
+              "raw_output": {
+                "$ref": "#/$defs/tool_run_request/$defs/nullableString"
+              },
+              "extra_args": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "output_contract": {
+          "type": "object",
+          "required": [
+            "collector_output_hint",
+            "result_file",
+            "bundle_manifest_file"
+          ],
+          "properties": {
+            "collector_output_hint": {
+              "type": "string",
+              "minLength": 1
+            },
+            "result_file": {
+              "type": "string",
+              "const": "tool_run_result.json"
+            },
+            "bundle_manifest_file": {
+              "type": "string",
+              "const": "tool_bundle_manifest.json"
+            }
+          },
+          "additionalProperties": false
+        },
+        "truth_firewall": {
+          "type": "object",
+          "required": [
+            "ground_truth_allowed",
+            "instance_level_targets_allowed"
+          ],
+          "properties": {
+            "ground_truth_allowed": {
+              "type": "boolean",
+              "const": false
+            },
+            "instance_level_targets_allowed": {
+              "type": "boolean",
+              "const": false
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "nullableString": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nullableSha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "tool_run_result": {
+      "title": "FMB External Tool Run Result",
+      "description": "Defines an external tool run result, including execution environment, tool identity, source evidence, command, output, artifact manifest, and status.",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "request_id",
+        "request_sha256",
+        "run_id",
+        "question_id",
+        "collector",
+        "execution_environment",
+        "tool_identity",
+        "source_evidence",
+        "executed_collection",
+        "command",
+        "output",
+        "artifact_manifest",
+        "status"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "tool_run_result.v1"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/tool_run_result/$defs/sha256"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "collector": {
+          "type": "string",
+          "enum": [
+            "kape",
+            "uac"
+          ]
+        },
+        "execution_environment": {
+          "type": "object",
+          "required": [
+            "platform",
+            "os",
+            "architecture"
+          ],
+          "properties": {
+            "platform": {
+              "type": "string",
+              "minLength": 1
+            },
+            "os": {
+              "type": "string",
+              "minLength": 1
+            },
+            "architecture": {
+              "type": "string",
+              "minLength": 1
+            },
+            "hostname": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "operator": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            }
+          },
+          "additionalProperties": true
+        },
+        "tool_identity": {
+          "type": "object",
+          "required": [
+            "name",
+            "executable_path",
+            "version",
+            "executable_sha256"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "kape",
+                "uac",
+                "fmb-host-collector"
+              ]
+            },
+            "executable_path": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "version": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "executable_sha256": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableSha256"
+            }
+          },
+          "additionalProperties": false
+        },
+        "source_evidence": {
+          "type": "object",
+          "required": [
+            "evidence_id",
+            "path_seen_by_worker",
+            "sha256",
+            "mount_mode",
+            "read_only_asserted"
+          ],
+          "properties": {
+            "evidence_id": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "path_seen_by_worker": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "sha256": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableSha256"
+            },
+            "sha256_expected": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableSha256"
+            },
+            "sha256_observed": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableSha256"
+            },
+            "hash_verified": {
+              "type": "boolean"
+            },
+            "mount_mode": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "read_only_asserted": {
+              "type": "boolean"
+            },
+            "source_drive": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "source_drive_not_boot_drive": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "executed_collection": {
+          "type": "object",
+          "required": [
+            "collector"
+          ],
+          "properties": {
+            "collector": {
+              "type": "string",
+              "enum": [
+                "kape",
+                "uac"
+              ]
+            },
+            "targets": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "modules": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "profile": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "extra_args": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "command": {
+          "type": "object",
+          "required": [
+            "command_line"
+          ],
+          "properties": {
+            "command_line": {
+              "type": "string",
+              "minLength": 1
+            },
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "started_at": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "ended_at": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "duration_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "timestamp_basis": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            }
+          },
+          "additionalProperties": false
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "collector_output_root"
+          ],
+          "properties": {
+            "collector_output_root": {
+              "type": "string",
+              "minLength": 1
+            },
+            "stdout_path": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "stdout_sha256": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableSha256"
+            },
+            "stderr_path": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableString"
+            },
+            "stderr_sha256": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableSha256"
+            }
+          },
+          "additionalProperties": false
+        },
+        "artifact_manifest": {
+          "type": "object",
+          "required": [
+            "path"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "$ref": "#/$defs/tool_run_result/$defs/nullableSha256"
+            }
+          },
+          "additionalProperties": false
+        },
+        "status": {
+          "type": "object",
+          "required": [
+            "exit_code",
+            "result"
+          ],
+          "properties": {
+            "exit_code": {
+              "type": "integer"
+            },
+            "result": {
+              "type": "string",
+              "enum": [
+                "success",
+                "failure"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "nullableSha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "nullableString": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "tool_execution": {
+      "title": "FMB Tool Execution",
+      "description": "Consolidates external tool request, result, and bundle-manifest contracts for tool execution envelopes.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/tool_bundle_manifest"
+        },
+        {
+          "$ref": "#/$defs/tool_run_request"
+        },
+        {
+          "$ref": "#/$defs/tool_run_result"
+        }
+      ]
+    },
+    "tool_execution_report": {
+      "title": "FMB Tool Execution Report",
+      "description": "Summarizes a local tool-execution run and points to the materialized evidence index.",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "run_id",
+        "config_path",
+        "evidence_index",
+        "execution_count",
+        "executions"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "tool_execution_report.v1"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_index": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "executions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "tool_execution_config": {
+      "title": "FMB Tool Execution Config",
+      "description": "Configures collector and rule-engine commands generated from a static run scope.",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "run"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "tool_execution_config.v1"
+        },
+        "run": {
+          "type": "object",
+          "required": [
+            "run_id",
+            "question_id",
+            "question_text",
+            "output_dir"
+          ],
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "question_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "question_text": {
+              "type": "string",
+              "minLength": 1
+            },
+            "output_dir": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "kape": {
+          "type": "object",
+          "required": [
+            "executable",
+            "output",
+            "targets",
+            "modules",
+            "extra_args"
+          ],
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "command_template": {
+              "type": "string",
+              "minLength": 1
+            },
+            "output": {
+              "type": "string",
+              "minLength": 1
+            },
+            "targets": {
+              "type": "string"
+            },
+            "modules": {
+              "type": "string"
+            },
+            "msource": {
+              "type": "string",
+              "minLength": 1
+            },
+            "mdest": {
+              "type": "string",
+              "minLength": 1
+            },
+            "extra_args": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "uac": {
+          "type": "object",
+          "required": [
+            "executable",
+            "command_template",
+            "target",
+            "profile",
+            "output",
+            "extra_args"
+          ],
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "command_template": {
+              "type": "string",
+              "minLength": 1
+            },
+            "target": {
+              "type": "string"
+            },
+            "profile": {
+              "type": "string",
+              "minLength": 1
+            },
+            "output": {
+              "type": "string",
+              "minLength": 1
+            },
+            "extra_args": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "yara": {
+          "type": "object",
+          "required": [
+            "executable",
+            "rule_source",
+            "scan_roots",
+            "match_output",
+            "extra_args",
+            "engine"
+          ],
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "rule_source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scan_roots": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "match_output": {
+              "type": "string",
+              "minLength": 1
+            },
+            "extra_args": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "engine": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "sigma": {
+          "type": "object",
+          "required": [
+            "executable",
+            "backend",
+            "rule_source",
+            "event_input",
+            "match_output",
+            "extra_args",
+            "engine"
+          ],
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "template",
+                "hayabusa",
+                "chainsaw"
+              ]
+            },
+            "command_template": {
+              "type": "string",
+              "minLength": 1
+            },
+            "rule_source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "event_input": {
+              "type": "string",
+              "minLength": 1
+            },
+            "mapping": {
+              "type": "string",
+              "minLength": 1
+            },
+            "match_output": {
+              "type": "string",
+              "minLength": 1
+            },
+            "raw_output": {
+              "type": "string",
+              "minLength": 1
+            },
+            "extra_args": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "engine": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "tool_execution_plan_item": {
+      "type": "object",
+      "required": [
+        "item",
+        "reason",
+        "status"
+      ],
+      "properties": {
+        "item": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "missing_input",
+            "ambiguous_input",
+            "not_applicable"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "tool_execution_config_plan": {
+      "title": "FMB Tool Execution Config Plan",
+      "description": "Operator-facing plan produced alongside a generated tool execution config.",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "status",
+        "run_id",
+        "question_id",
+        "collector",
+        "portable_tool_request",
+        "operator_notes",
+        "deferred",
+        "not_applicable",
+        "next_commands"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "tool_execution_config_plan.v1"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "blocked",
+            "not_applicable"
+          ]
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "collector": {
+          "type": "string",
+          "enum": [
+            "kape",
+            "uac"
+          ]
+        },
+        "portable_tool_request": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operator_notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "deferred": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tool_execution_plan_item"
+          }
+        },
+        "not_applicable": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tool_execution_plan_item"
+          }
+        },
+        "next_commands": {
+          "type": "object",
+          "required": [
+            "external_tool_request",
+            "execute",
+            "assemble"
+          ],
+          "properties": {
+            "external_tool_request": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "execute": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "assemble": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "run_status": {
+      "title": "FMB Run Status",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "run_id",
+        "status",
+        "stages",
+        "artifacts"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "fmb_run_status.v1"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plan_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "staged",
+            "running",
+            "completed",
+            "failed",
+            "aborted"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "execution_mode": {
+          "type": "string",
+            "enum": [
+              "evidence_image_run",
+              "kape_collection_only"
+            ]
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ended_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "current_stage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "status"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "run_manifest": {
+      "title": "FMB Run Manifest",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "run_id",
+        "status",
+        "entrypoints",
+        "layout",
+        "stage_order",
+        "artifact_index",
+        "artifacts"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "fmb_run_manifest.v1"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "updated_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entrypoints": {
+          "type": "object",
+          "required": [
+            "status",
+            "manifest",
+            "report"
+          ],
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "layout": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "stage_order": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "artifact_index": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysis_smoke_run_bundle": {
+      "title": "Analysis Smoke Run Bundle",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "fixture_id",
+        "ground_truth_entries"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "analysis_smoke_run_bundle.v1"
+        },
+        "fixture_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ground_truth_entries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "scenario",
+              "manipulation_type"
+            ],
+            "properties": {
+              "scenario": {
+                "type": "string",
+                "minLength": 1
+              },
+              "manipulation_type": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysis_fixture_smoke_report": {
+      "title": "Analysis Fixture Smoke Report",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "status",
+        "run_id",
+        "plan_id",
+        "generated_at",
+        "fixture",
+        "verification",
+        "outputs"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "analysis_fixture_smoke_report.v1"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plan_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generated_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fixture": {
+          "type": "object"
+        },
+        "import_report": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "verification": {
+          "type": "object",
+          "required": [
+            "passed"
+          ],
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        },
+        "outputs": {
+          "type": "object",
+          "required": [
+            "run",
+            "report"
+          ],
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

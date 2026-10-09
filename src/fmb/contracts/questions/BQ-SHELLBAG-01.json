@@ -1,0 +1,62 @@
+{
+  "schema_version": "fmb.question_pack.v1",
+  "question_id": "BQ-SHELLBAG-01",
+  "order": 3,
+  "group": {
+    "group_id": "stefan_shellbag_path_history",
+    "title": "Shellbag path history",
+    "description": "Assess whether these directory paths retain Shellbag history despite no longer being present."
+  },
+  "definition": {
+    "title": "Directory browsing-history assessment",
+    "question_text": "Assess which directories retain browsing history despite no longer being present."
+  },
+  "components": [
+    {
+      "technique_id": "shellbag_missing_directory",
+      "component_question_id": "Q-DEL-04",
+      "subject_type": "registry_path",
+      "required_artifact_families": [
+        "windows.registry.shellbag",
+        "ntfs.mft"
+      ],
+      "optional_artifact_families": [
+        "ntfs.usn"
+      ],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "ntfs.mft",
+        "ntfs.usn",
+        "windows.registry.shellbag"
+      ]
+    }
+  ],
+  "presentation": {
+    "request_per_card": true,
+    "listing_lookup": true,
+    "transforms": []
+  },
+  "assessment": {
+    "engine": "rules",
+    "components": [
+      "shellbag_missing_directory"
+    ]
+  },
+  "reference": {
+    "supplemental_supported": [
+      "deleted",
+      "moved",
+      "renamed"
+    ],
+    "supplemental_negative": [
+      "present",
+      "present_case",
+      "recreated"
+    ]
+  },
+  "generation": {
+    "scenarios": [
+      "shellbag_path_residue_01"
+    ]
+  }
+}

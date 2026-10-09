@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "shared_evidence.schema.json",
+  "title": "Identical neutral forensic evidence",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task",
+    "question",
+    "coverage",
+    "candidate_roster",
+    "response_schema"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "candidate_roster_shared_evidence.v1"
+    },
+    "task": {
+      "const": "assess_candidate_roster"
+    },
+    "question": {
+      "type": "object",
+      "required": [
+        "question_id",
+        "title",
+        "question_text"
+      ],
+      "properties": {
+        "question_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question_text": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "artifact_family",
+          "status"
+        ],
+        "properties": {
+          "artifact_family": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "partial",
+              "missing",
+              "unsupported"
+            ]
+          },
+          "scope": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "candidate_roster": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "required": [
+          "subject_id",
+          "subject_type",
+          "display_name",
+          "identity",
+          "coverage",
+          "evidence_records"
+        ],
+        "properties": {
+          "subject_id": {
+            "type": "string",
+            "pattern": "^subject:"
+          },
+          "subject_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "identity": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "coverage": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "artifact_family",
+                "collection_status"
+              ],
+              "properties": {
+                "artifact_family": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "scope": {
+                  "type": "object"
+                },
+                "collection_status": {
+                  "enum": [
+                    "complete",
+                    "partial",
+                    "missing",
+                    "unsupported"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "evidence_records": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "artifact_family",
+                "record_type",
+                "subject_ref",
+                "source_record_ref",
+                "fields"
+              ],
+              "properties": {
+                "artifact_family": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "record_type": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "subject_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source_record_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "fields": {
+                  "type": "object"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "response_schema": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

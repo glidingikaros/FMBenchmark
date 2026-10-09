@@ -1,0 +1,108 @@
+---
+- name: Populate TypedPaths for every bounded directory and remove one
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    $ErrorActionPreference = 'Stop'
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $case = [string]$scenarioInput.case
+    if($scenarioInput.native_pilot_profile -cne 'pilot_min.v1'){throw 'Pilot task requires its frozen profile'}
+    if ($case -notin @('positive', 'benign')) {
+      throw "Unsupported generation case"
+    }
+    $populationPaths = @($scenarioInput.population_paths)
+    $paths = @($scenarioInput.operation_refs)
+    $expectedPopulationCount = [int]$scenarioInput.expected_population_count
+    $expectedOperationCount = [int]$scenarioInput.expected_operation_count
+    $operationRefsSha256 = Get-OperationRefsSha256 $paths
+    if (
+      $expectedPopulationCount -lt 1 -or
+      $populationPaths.Count -ne $expectedPopulationCount -or
+      $expectedOperationCount -ne $(if ($case -eq 'positive') { 2 } else { 0 }) -or
+      $paths.Count -ne $expectedOperationCount
+    ) {
+      throw "Path-history population cardinality is invalid"
+    }
+    $typedPaths = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths'
+    New-Item -Path $typedPaths -Force | Out-Null
+    for ($index = 0; $index -lt $populationPaths.Count; $index += 1) {
+      $directory = [string]$populationPaths[$index]
+      $leaf = Join-Path $directory ([string]$scenarioInput.leaf_name)
+      Set-Content -LiteralPath $leaf -Value 'Neutral generated record.' -Encoding Utf8
+      New-ItemProperty -Path $typedPaths -Name ("url{0}" -f ($index + 1)) `
+        -PropertyType String -Value $directory -Force | Out-Null
+    }
+    if ($case -eq 'positive') {
+      foreach($operationPath in $paths) {
+        Invoke-PaperOperation ("Remove-Item -LiteralPath " + (ConvertTo-OperationLiteral $operationPath) + " -Recurse -Force")
+      }
+      $pathPostcondition = @($paths | Where-Object {Test-Path -LiteralPath $_}).Count -eq 0
+    }
+    else {
+      $retainedPaths = @(
+        $populationPaths | Where-Object {
+          Test-Path -LiteralPath ([string]$_) -PathType Container
+        }
+      )
+      $pathPostcondition = $retainedPaths.Count -eq $populationPaths.Count
+    }
+    function Read-PilotDirectoryId([string]$Path) {
+      $output = & fsutil file queryfileid $Path
+      if($LASTEXITCODE -ne 0){throw 'Native folder identity query failed'}
+      $matches = [regex]::Matches(($output -join ' '),'0x[0-9a-fA-F]{16,32}')
+      if($matches.Count -ne 1){throw 'Native folder identity is ambiguous'}
+      return $matches[0].Value.ToLowerInvariant()
+    }
+    $recreatedPath=[string]$scenarioInput.recreated_path
+    if($paths -contains $recreatedPath -or $populationPaths -notcontains $recreatedPath){throw 'Recreation is not a retained pilot path'}
+    $originalId=Read-PilotDirectoryId $recreatedPath
+    Remove-Item -LiteralPath $recreatedPath -Recurse -Force
+    New-Item -ItemType Directory -Path $recreatedPath | Out-Null
+    $replacementId=Read-PilotDirectoryId $recreatedPath
+    if($originalId -ceq $replacementId){throw 'Native folder recreation did not replace the original identity'}
+    $typedProperties = @(
+      (Get-ItemProperty -LiteralPath $typedPaths).PSObject.Properties |
+        Where-Object { $_.Name -match '^url\d+$' }
+    )
+    $typedValues = @($typedProperties | ForEach-Object { [string]$_.Value })
+    $missingTypedPaths = @(
+      $populationPaths | Where-Object { $typedValues -notcontains [string]$_ }
+    )
+    Start-Sleep -Seconds 2
+    $committedProperties = @(
+      (Get-ItemProperty -LiteralPath $typedPaths).PSObject.Properties |
+        Where-Object { $_.Name -match '^url\d+$' }
+    )
+    $committedValues = @($committedProperties | ForEach-Object { [string]$_.Value })
+    $typedPathsCommitted = @(
+      $populationPaths | Where-Object { $committedValues -notcontains [string]$_ }
+    ).Count -eq 0
+    $verified = (
+      $missingTypedPaths.Count -eq 0 -and
+      $typedPathsCommitted -and
+      $pathPostcondition
+    )
+    if (-not $verified) {
+      throw "Path-history postcondition failed"
+    }
+    [ordered]@{
+      scenario_id = 'typed_path_residue_01'
+      case = $case
+      operation_count = $paths.Count
+      operation_refs_sha256 = $operationRefsSha256
+      postcondition_verified = $verified
+      population_count = $populationPaths.Count
+      registry_value_count = $typedProperties.Count
+      typed_paths_committed = $typedPathsCommitted
+      recreated_identity = @{path=$recreatedPath; before=$originalId; after=$replacementId}
+    } | ConvertTo-Json -Compress
+  args:
+    stdin: "{{ generation_inputs.scenario_inputs.typed_path_residue_01 | to_json }}"
+  register: typed_paths_receipt
+  no_log: true
+
+- name: Emit host-captured TypedPaths receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - "{{ typed_paths_receipt.stdout | trim }}"
+      - "GROUND_TRUTH_END"

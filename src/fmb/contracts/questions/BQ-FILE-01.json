@@ -1,0 +1,79 @@
+{
+  "schema_version": "fmb.question_pack.v1",
+  "question_id": "BQ-FILE-01",
+  "order": 7,
+  "group": {
+    "group_id": "stefan_file_integrity",
+    "title": "File integrity",
+    "description": "Assess whether these files show content-length or NTFS allocation inconsistencies."
+  },
+  "definition": {
+    "title": "File structural-integrity assessment",
+    "question_text": "Assess whether these files show content-length or storage-allocation inconsistencies.",
+    "scope": "Assess the content-length or allocation target listed on each card; a target not listed on that card is outside its assessment scope."
+  },
+  "components": [
+    {
+      "technique_id": "bitmap_trailing_data",
+      "component_question_id": "Q-FILE-01",
+      "subject_type": "file",
+      "required_artifact_families": [
+        "ntfs.file_size_allocation",
+        "ntfs.mft",
+        "collected.file.content"
+      ],
+      "optional_artifact_families": [],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "collected.file.content",
+        "ntfs.file_size_allocation",
+        "ntfs.mft"
+      ]
+    },
+    {
+      "technique_id": "ntfs_allocation_inconsistency",
+      "component_question_id": "Q-FILE-01",
+      "subject_type": "file",
+      "required_artifact_families": [
+        "ntfs.file_size_allocation",
+        "ntfs.mft"
+      ],
+      "optional_artifact_families": [],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "ntfs.file_size_allocation",
+        "ntfs.mft"
+      ]
+    }
+  ],
+  "presentation": {
+    "request_per_card": false,
+    "listing_lookup": false,
+    "transforms": []
+  },
+  "assessment": {
+    "engine": "rules",
+    "components": [
+      "bitmap_trailing_data",
+      "ntfs_allocation_inconsistency"
+    ]
+  },
+  "reference": {
+    "supplemental_supported": [
+      "append_byte",
+      "append_four",
+      "truncate_byte"
+    ],
+    "supplemental_negative": [
+      "preallocation_then_close",
+      "valid_bmp",
+      "valid_resize"
+    ]
+  },
+  "generation": {
+    "scenarios": [
+      "bitmap_trailing_data_01",
+      "ntfs_allocation_01"
+    ]
+  }
+}

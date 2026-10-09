@@ -1,0 +1,48 @@
+---
+- name: Prepare native virtual USB attachment, file activity and ShellLink reference
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    $ErrorActionPreference = 'Stop'
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $case = [string]$scenarioInput.case
+    $paths = @($scenarioInput.operation_refs)
+    $operationRefsSha256 = Get-OperationRefsSha256 $paths
+    if (($case -eq 'positive' -and $paths.Count -ne 1) -or
+        ($case -eq 'benign' -and $paths.Count -ne 0)) {
+      throw "Native external-media population cardinality is invalid"
+    }
+    if($scenarioInput.native_pilot_profile -cne 'pilot_min.v1' -or @($scenarioInput.media).Count -ne 3){throw 'Pilot media input is invalid'}
+    $bytes=[Convert]::FromBase64String([string]$scenarioInput.native_helper.native_helper_payload)
+    $compressed=[IO.MemoryStream]::new([byte[]]$bytes,$false)
+    $gzip=[IO.Compression.GZipStream]::new($compressed,[IO.Compression.CompressionMode]::Decompress)
+    $expanded=[IO.MemoryStream]::new()
+    try{$gzip.CopyTo($expanded);$source=$expanded.ToArray()}finally{$gzip.Dispose();$compressed.Dispose();$expanded.Dispose()}
+    $hasher=[Security.Cryptography.SHA256]::Create()
+    try{$digest=([BitConverter]::ToString($hasher.ComputeHash($source))).Replace('-','').ToLowerInvariant()}finally{$hasher.Dispose()}
+    if($digest -cne $scenarioInput.native_helper.native_helper_sha256){throw 'Frozen media helper hash mismatch'}
+    $helper=[ScriptBlock]::Create([Text.UTF8Encoding]::new($false,$true).GetString($source))
+    $volumes=@($scenarioInput.media); $bindings=@()
+    for($pilotDiskIndex=0;$pilotDiskIndex -lt 3;$pilotDiskIndex++) {
+      $scenarioInput=$volumes[$pilotDiskIndex]
+      $binding=& $helper
+      $bindings+=@{subject_ref=[string]$scenarioInput.subject_ref; binding_file=[string]$scenarioInput.binding_file; native_binding=$binding}
+    }
+    [ordered]@{
+      scenario_id = 'usbstor_setupapi_discrepancy_01'
+      case = $case
+      operation_count = $paths.Count
+      operation_refs_sha256 = $operationRefsSha256
+      postcondition_verified = $true
+      native_bindings = $bindings
+    } | ConvertTo-Json -Compress -Depth 8
+  args:
+    stdin: "{{ generation_inputs.scenario_inputs.usbstor_setupapi_discrepancy_01 | to_json }}"
+  register: external_media_receipt
+  no_log: true
+
+- name: Emit host-captured native external-media preparation receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - "{{ external_media_receipt.stdout | trim }}"
+      - "GROUND_TRUTH_END"

@@ -1,0 +1,81 @@
+{
+  "schema_version": "fmb.question_pack.v1",
+  "question_id": "BQ-EXEC-01",
+  "order": 8,
+  "group": {
+    "group_id": "stefan_executable_residue",
+    "title": "Executable residue",
+    "description": "Assess whether these executables have Prefetch or Shimcache residue despite no longer being present."
+  },
+  "definition": {
+    "title": "Executable-history residue assessment",
+    "question_text": "Assess which historically referenced executable files are no longer present."
+  },
+  "components": [
+    {
+      "technique_id": "prefetch_missing_executable",
+      "component_question_id": "Q-EXEC-01",
+      "subject_type": "executable",
+      "required_artifact_families": [
+        "windows.prefetch",
+        "ntfs.mft"
+      ],
+      "optional_artifact_families": [],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "ntfs.mft",
+        "windows.prefetch"
+      ]
+    },
+    {
+      "technique_id": "shimcache_path_residue",
+      "component_question_id": "Q-EXEC-01",
+      "subject_type": "executable",
+      "required_artifact_families": [
+        "windows.registry.shimcache",
+        "ntfs.mft"
+      ],
+      "optional_artifact_families": [
+        "windows.registry.amcache",
+        "windows.prefetch"
+      ],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "ntfs.mft",
+        "windows.prefetch",
+        "windows.registry.amcache",
+        "windows.registry.shimcache"
+      ]
+    }
+  ],
+  "presentation": {
+    "request_per_card": true,
+    "listing_lookup": true,
+    "transforms": [
+      "u_exec_drop_files_loaded"
+    ]
+  },
+  "assessment": {
+    "engine": "rules",
+    "components": [
+      "prefetch_missing_executable",
+      "shimcache_path_residue"
+    ]
+  },
+  "reference": {
+    "supplemental_supported": [
+      "deleted",
+      "renamed"
+    ],
+    "supplemental_negative": [
+      "present",
+      "recreated"
+    ]
+  },
+  "generation": {
+    "scenarios": [
+      "prefetch_wipe_01",
+      "shimcache_path_residue_01"
+    ]
+  }
+}
