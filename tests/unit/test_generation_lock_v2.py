@@ -352,6 +352,11 @@ def test_an_image_of_your_own_freezes_its_own_seeds_and_settings(host, tmp_path)
     assert len(loaded["private"]["activity_plan"]) == 20
     assert loaded["private"]["hardware"] == recipe.resolved_hardware(6)
     assert loaded["recipe"]["config"]["vmware_boot_clock_bias_minutes"] == 0
+    instance = pipeline.GenerationPipeline(
+        'vmware_desktop', 'baseline', 'vmdk', False, False, experiment='full_scale', case='positive',
+        population_seed=image.seed, windows_box='fmb/windows-11-arm64', vmware_bridge=None, recipe=directory,
+        output_root=tmp_path / 'run', activity_count=20)
+    assert instance.recipe_bundle["recipe"]["config"]["hardware_seed"] == 6
     with pytest.raises(ValueError, match="must match the declared image"):
         recipe.freeze_recipe(tmp_path / "other", source_root=SOURCE, config=config, population=public,
                              assignment=assignment, guest_plan=build_guest_plan(public, assignment, case="positive"),

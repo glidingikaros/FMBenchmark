@@ -325,7 +325,7 @@ class GenerationPipeline:
                                      randomize_hw=randomize_hw)
                 frozen_config = self.recipe_bundle["recipe"]["config"]
                 for key in ("clock_policy", "vmware_boot_clock_bias_minutes", "activity_count", "factual_challenge",
-                            "population_contract"):
+                            "population_contract", "activity_seed", "hardware_seed"):
                     if key in frozen_config:
                         actual_config[key] = frozen_config[key]
                 if actual_config != frozen_config:
