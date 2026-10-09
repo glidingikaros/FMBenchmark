@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-from copy import deepcopy
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
@@ -186,7 +185,7 @@ def load_population_contract(path: Path = POPULATION_CONTRACT_PATH) -> dict[str,
 
 
 def register_population_contract(value: Mapping[str, Any]) -> dict[str, Any]:
-    contract = validate_population_contract(deepcopy(dict(value)))
+    contract = validate_population_contract(json.loads(canonical_json_bytes(value)))
     population_contracts.register(_sha256(contract), contract)
     return contract
 
@@ -213,10 +212,7 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
         raise PopulationError("unsupported native content-format revision")
     experiments = value.get("experiments")
     scenarios = value.get("scenarios")
-    if not isinstance(experiments, dict) or tuple(experiments) != (
-        "timestomp",
-        "full_scale",
-    ):
+    if not isinstance(experiments, dict) or set(experiments) != {"timestomp", "full_scale"}:
         raise PopulationError("the active experiments must be timestomp and full_scale")
     if not isinstance(scenarios, dict) or not scenarios:
         raise PopulationError("population scenarios must be a non-empty object")

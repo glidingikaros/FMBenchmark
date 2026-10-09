@@ -315,3 +315,19 @@ def test_check_host_reports_a_missing_base_box_instead_of_raising(host, tmp_path
                                         imports=["Evtx"])
     assert report["ready"] is False
     assert [row["check"] for row in report["checks"] if not row["ok"]] == ["base box"]
+
+
+def test_an_image_of_your_own_freezes_and_loads_back(host, tmp_path):
+    from fmb.replication import image_files
+
+    image = image_files.load(SOURCE.parents[2] / "examples/timestamps.json")
+    config = recipe.image_config(image.seed, image.contract)
+    contract = recipe.resolved_contract(config)
+    public = build_public_manifest(experiment="full_scale", seed=image.seed, contract=contract)
+    assignment = select_private_assignment(public, entropy=b"a" * 32)
+    directory = tmp_path / "recipe"
+    recipe.freeze_recipe(directory, source_root=SOURCE, config=config, population=public, assignment=assignment,
+                         guest_plan=build_guest_plan(public, assignment, case="positive"),
+                         dependency_lock=host.build(), activity_seed=image.seed, hardware_seed=image.seed)
+    loaded = recipe.load_recipe(directory, source_root=directory / "source" / "generation", verify_dependencies=False)
+    assert loaded["recipe"]["config"]["population_contract"] == image.contract
