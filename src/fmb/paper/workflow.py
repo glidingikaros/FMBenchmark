@@ -83,7 +83,8 @@ def assess_rules(*, built: Path, output: Path, engine_name: str = "rules", quest
 
 
 def freeze_condition(
-    *, built: Path, condition: str, output: Path, completion: bool = False, generation: Path | None = None
+    *, built: Path, condition: str, output: Path, completion: bool = False, generation: Path | None = None,
+    passes: int | None = None,
 ) -> dict:
     built = Path(built).resolve(strict=True)
     verify_seal(built, "build-seal.json")
@@ -95,7 +96,7 @@ def freeze_condition(
         raise ValueError("implementation changed after card preparation")
     return write_condition(
         built=built, condition=condition, output=output,
-        source_lock=source_lock, completion=completion, generation=generation,
+        source_lock=source_lock, completion=completion, generation=generation, passes=passes,
     )
 
 

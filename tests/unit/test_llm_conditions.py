@@ -9,6 +9,7 @@ from fmb.core import paper_integrity as integrity
 from fmb.core import sealed_records
 from fmb.core.case_contract import prepare_case, target_catalog
 from fmb.core.hashing import sha256_file
+from fmb.core.paper_artifacts import verify_prepared_condition
 from fmb.core.paper_protocol import paper_protocol
 from fmb.core.sealed_records import canonical_json, read_json, seal_directory, write_json
 from fmb.evaluation import admission
@@ -131,3 +132,53 @@ def test_the_paper_three_passes_execute_and_score_as_before(tmp_path, fixed):
     score = score_run(out)
     assert len(calls) == 3 and score["passes"] == [1, 2, 3]
     assert digest({key: score[key] for key in SCORE_KEYS}) == PAPER_SCORE
+
+
+def test_two_passes_are_frozen_executed_and_scored(tmp_path, fixed):
+    prepared, built, generation = build(tmp_path, {"log": [100, 103]})
+    out = freeze(built, generation, tmp_path / "frozen" / "luna-high", "luna-high", passes=2)
+    assert read_json(out / "protocol.json")["passes"] == 2
+    assert [(r["pass"], r["call"]) for r in verify_prepared_condition(out)[2]] == [(1, 1), (2, 2)]
+    admit(prepared, built, [out])
+    calls = []
+    workflow.execute_condition(out, cap_usd="10", rates={"input": "1", "output": "1"},
+                               provider=rotating("gpt-5.6-luna", calls), sleep=lambda _: None)
+    score = score_run(out)
+    assert len(calls) == 2 and score["passes"] == [1, 2] and score["planned_question_passes"] == 2
+    question = score["per_question"]["BQ-LOG-01"]
+    assert question["exact_passes"] == [1] and question["planned_passes"] == [1, 2]
+    assert [row["pass"] for row in score["selection"]] == [1, 2]
+
+
+def test_passes_rotate_the_schedule_and_stay_within_one_to_ten(tmp_path, fixed):
+    _, built, generation = build(tmp_path, CASES)
+    out = freeze(built, generation, tmp_path / "two", "luna-high", passes=2)
+    assert [(r["request_id"], r["pass"]) for r in read_json(out / "schedule.json")["rows"]] == [
+        ("log-a", 1), ("log-b", 1), ("log-c", 1), ("log-d", 1), ("log-c", 2), ("log-d", 2), ("log-a", 2), ("log-b", 2)]
+    assert len(read_json(freeze(built, generation, tmp_path / "ten", "luna-high", passes=10)
+                         / "schedule.json")["rows"]) == 40
+    for passes in (0, 11, True, "2"):
+        with pytest.raises(ValueError, match="passes must be a whole number from 1 to 10"):
+            freeze(built, generation, tmp_path / f"bad-{passes}", "luna-high", passes=passes)
+    protocol = read_json(out / "protocol.json")
+    write_json(out / "protocol.json", {**protocol, "passes": 3})
+    seal = read_json(out / "preparation-seal.json")
+    seal["files"]["protocol.json"] = sha256_file(out / "protocol.json")
+    write_json(out / "preparation-seal.json", seal)
+    with pytest.raises(ValueError, match="incomplete 3-pass schedule"):
+        verify_prepared_condition(out)
+
+
+@pytest.mark.parametrize("change, message", [
+    ({"passes": 11}, "passes must be a whole number from 1 to 10"),
+    ({"passes": 2, "dispatch": {"execute": True, "cap_usd": "1", "passes": 3, "rates": {
+        "luna-high": {"input": "1", "output": "1"}}}}, "may not exceed the 2 frozen passes"),
+])
+def test_the_runner_checks_passes_before_it_starts(tmp_path, change, message):
+    from fmb.pipeline.runner import run_pipeline
+
+    config = {"case_label": "I1-01", "generation": str(tmp_path), "analysis": str(tmp_path),
+              "conditions": ["luna-high"], "output": str(tmp_path / "run")} | change
+    with pytest.raises(ValueError, match=message):
+        run_pipeline(config)
+    assert not (tmp_path / "run").exists()

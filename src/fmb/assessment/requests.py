@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from fmb.core import paper_contract
 from fmb.core.hashing import sha256_bytes, sha256_file
-from fmb.core.paper_protocol import condition_settings, paper_protocol
+from fmb.core.paper_protocol import checked_passes, condition_settings, paper_protocol
 from fmb.core.paper_policy import ALTERNATE_POLICY, PAPER_POLICY
 from fmb.core.paper_artifacts import rule_result_bytes
 from fmb.core.sealed_records import read_json, write_json, contained_path, seal_directory
@@ -10,7 +10,7 @@ from fmb.interpretation.paper_payload import wire, request_kwargs
 
 def write_condition(
     *, built: Path, condition: str, output: Path, source_lock: str, completion: bool = False,
-    generation: Path | None = None,
+    generation: Path | None = None, passes: int | None = None,
 ):
     from fmb.core.paper_artifacts import build_generation, guard_record
     from fmb.core.truth_guard import truth_blind_reads
@@ -19,6 +19,7 @@ def write_condition(
     if condition not in protocol["conditions"]:
         raise ValueError("unknown paper condition")
     declared = protocol["conditions"][condition]
+    passes = checked_passes(protocol["passes"] if passes is None else passes)
     settings = condition_settings(condition, completion=completion, protocol=protocol)
     built = Path(built).resolve(strict=True)
     options = paper_contract.validate_options(read_json(built / "view-options.json"))
@@ -66,8 +67,8 @@ def write_condition(
     if guard["denied"]:
         raise ValueError("freezing requests attempted a private read")
     schedule = []
-    shift = max(1, len(rows) // 3)
-    for p in range(3):
+    shift = max(1, len(rows) // passes)
+    for p in range(passes):
         rotated = rows[p * shift % len(rows) :] + rows[: p * shift % len(rows)]
         offset = len(schedule)
         schedule.extend(
@@ -86,7 +87,7 @@ def write_condition(
             "level": "L0N",
             "options": options,
             "settings": settings,
-            "passes": 3,
+            "passes": passes,
             "built": os.path.relpath(built, output),
             "build_seal_sha256": sha256_file(built / "build-seal.json"),
             "source_manifest_sha256": source_lock,

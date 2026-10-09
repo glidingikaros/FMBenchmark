@@ -14,6 +14,7 @@ from fmb.core.paper_results import IDENTITY_FIELDS, execution_state, finding_sta
 from fmb.core.paper_policy import completion_eligible, resolve_policy, validate_attempts
 from fmb.core.hashing import sha256_file
 from fmb.core.paper_protocol import (
+    checked_passes,
     validate_condition,
     validate_request_settings,
     validate_completion_policy,
@@ -261,9 +262,7 @@ def load_run(root: Path):
     if protocol.get("level") != "L0N":
         raise ValueError("only the frozen paper presentation is supported")
     options = condition_options(root, protocol)
-    passes = protocol.get("passes")
-    if type(passes) is not int or passes != 3:
-        raise ValueError("paper runs require three planned passes")
+    passes = checked_passes(protocol.get("passes"))
     requests = {}
     cases = {}
     for row in manifest["rows"]:

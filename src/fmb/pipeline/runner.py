@@ -10,6 +10,7 @@ from typing import Any
 
 from fmb.core import paper_integrity as integrity
 from fmb.core.hashing import sha256_bytes, sha256_file
+from fmb.core.paper_protocol import checked_passes, paper_protocol
 from fmb.core.schemas import validate_payload
 from fmb.core.sealed_records import canonical_json, now, read_json
 from fmb.pipeline import stages
@@ -17,7 +18,7 @@ from fmb.pipeline.gates import RUN_MANIFEST, RUN_MANIFEST_SCHEMA, write_gate
 from fmb.pipeline.implementations import MockCalls, implementation_name, selected
 
 CONFIG_KEYS = {"case_label", "generation", "analysis", "collect", "conditions", "dispatch", "output",
-               "question_scope", "stages", "admission", "questions"}
+               "question_scope", "stages", "admission", "questions", "passes"}
 ADMISSION_POLICIES = {"strict", "report-only"}
 STAGE_KEYS = {"s1": {"profile", "implementation"}, "s2": {"implementation"},
               "s3": {"engine", "implementation"}, "s4": {"implementation"}}
@@ -56,12 +57,15 @@ def _validated(config: dict) -> dict:
     conditions = config.get("conditions") or []
     if not isinstance(conditions, list) or not conditions or len(set(conditions)) != len(conditions):
         raise ValueError("conditions must name at least one distinct condition: requests are frozen before admission")
+    passes = checked_passes(config["passes"]) if "passes" in config else paper_protocol()["passes"]
     dispatch = config.get("dispatch")
     if dispatch is not None:
         if set(dispatch) - DISPATCH_KEYS or dispatch.get("execute") is not True:
             raise ValueError("dispatch requires execute: true and only " + ", ".join(sorted(DISPATCH_KEYS)))
         if "cap_usd" not in dispatch:
             raise ValueError("dispatch requires cap_usd")
+        if dispatch.get("passes") is not None and checked_passes(dispatch["passes"]) > passes:
+            raise ValueError(f"dispatch passes may not exceed the {passes} frozen passes")
         rates = dispatch.get("rates") or {}
         if not isinstance(rates, dict) or set(rates) - set(conditions) or any(
                 not isinstance(pair, dict) or set(pair) != {"input", "output"} for pair in rates.values()):
@@ -303,7 +307,8 @@ def run_pipeline(config: dict, *, provider=None, stage_responder=None) -> dict:
             stages.check_build(g3, roots)
             for condition in config["conditions"]:
                 out = run_dir / "conditions" / condition
-                freeze_condition(built=built, condition=condition, output=out, generation=generation)
+                freeze_condition(built=built, condition=condition, output=out, generation=generation,
+                                 passes=config.get("passes"))
                 runs.append(out)
         frozen = step["outputs"]
 

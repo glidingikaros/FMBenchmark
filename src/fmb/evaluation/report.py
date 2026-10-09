@@ -239,6 +239,8 @@ def build_report(*, index: Path, archive_root: Path):
         score = score_loaded_runs(a, b)
         settings = a["protocol"]["settings"]
         validate_condition(settings, condition=row["condition"], completion=False)
+        if a["protocol"]["passes"] != protocol["passes"]:
+            raise ValueError("paper runs require three planned passes")
         if row["condition"] == "luna-high":
             corpus[image] = _corpus(primary, study["supplemental_findings"][image])
             deterministic[image] = replay(primary)

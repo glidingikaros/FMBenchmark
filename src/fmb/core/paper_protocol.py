@@ -5,10 +5,17 @@ from fmb.core.sealed_records import read_json
 
 DEFAULT_CONTEXT_WINDOW_TOKENS = 1050000
 SAFETY_RESERVE_TOKENS = 2048
+MAX_PASSES = 10
 
 
 def paper_protocol():
     return read_json(PROJECT_ROOT / "contracts/paper/protocol.json")
+
+
+def checked_passes(passes):
+    if type(passes) is not int or not 1 <= passes <= MAX_PASSES:
+        raise ValueError(f"passes must be a whole number from 1 to {MAX_PASSES}")
+    return passes
 
 
 def condition_settings(condition, *, completion=False, protocol=None):
