@@ -111,16 +111,16 @@ def collected_kape_root(analysis: Path, index: dict, locate=None) -> Path:
     return roots.pop()
 
 
-def _planned_counts(planned_counts: dict | None) -> dict | None:
+def _planned_counts(planned_counts: dict | None, selected: list[str]) -> dict | None:
     if planned_counts is None:
         return None
     planned_counts = {qid: tuple(value) for qid, value in planned_counts.items()}
-    if set(planned_counts) != set(QIDS) or any(
+    if not set(selected) <= set(planned_counts) <= set(QIDS) or any(
         len(v) != 2 or any(type(n) is not int for n in v)
         for v in planned_counts.values()
     ):
         raise ValueError(
-            "planned roster counts must give (cards, targets) for the nine questions"
+            "planned roster counts must give (cards, targets) for every selected question"
         )
     return planned_counts
 
@@ -220,7 +220,7 @@ def prepare_cases(
     selected = [q["question_id"] for q in profile["questions"]]
     techniques = {tid for q in profile["questions"] for tid in q["technique_ids"]}
     needs_mft = "ntfs.mft" in profile["artifact_families"]
-    planned_counts = _planned_counts(planned_counts)
+    planned_counts = _planned_counts(planned_counts, selected)
     generation, analysis = (
         generation.resolve(strict=True),
         analysis.resolve(strict=True),
