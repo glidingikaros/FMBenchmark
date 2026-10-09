@@ -30,9 +30,18 @@ def record(created=CREATED, modified=CREATED, changed=CREATED, named=CREATED) ->
     return {"si_created": created, "si_modified": modified, "si_record_changed": changed, "fn_created": named}
 
 
-def test_a_copy_restoring_its_source_write_time_is_not_backdating(monkeypatch):
-    update = transition(modified=(CREATED, SOURCE_WRITE), changed=(CREATED, "2026-10-09 01:20:00.0100000"))
-    decision = decide(monkeypatch, record(modified=SOURCE_WRITE, changed="2026-10-09 01:20:00.0100000"), update)
+@pytest.mark.parametrize("changed", ["2026-10-09 01:20:00.0100000", "2026-10-09 00:47:41.9164419"],
+                         ids=["change_time_moves_on", "change_time_restored_from_the_source"])
+def test_a_copy_restoring_its_source_times_is_not_backdating(monkeypatch, changed):
+    update = transition(modified=(CREATED, SOURCE_WRITE), changed=(CREATED, changed))
+    decision = decide(monkeypatch, record(modified=SOURCE_WRITE, changed=changed), update)
+    assert (decision.outcome, decision.reason_code) == ("not_supported", "si_fn_comparison")
+
+
+def test_a_build_26300_copy_of_where_exe_is_not_backdating(monkeypatch):
+    created, written, changed = "2026-10-09 07:27:14.5111872", "2024-04-01 07:22:17.4660394", "2026-10-09 06:54:56.4276291"
+    update = transition(created=(created, created), modified=(created, written), changed=(created, changed))
+    decision = decide(monkeypatch, record(created=created, modified=written, changed=changed, named=created), update)
     assert (decision.outcome, decision.reason_code) == ("not_supported", "si_fn_comparison")
 
 
@@ -48,8 +57,11 @@ def test_a_copy_restoring_its_source_write_time_is_not_backdating(monkeypatch):
      transition(modified=(CREATED, SOURCE_WRITE))),
     (record(changed=SOURCE_WRITE), transition(changed=(CREATED, SOURCE_WRITE))),
     (record(modified=SOURCE_WRITE), transition(modified=("2026-10-09 02:20:00.0000000", SOURCE_WRITE))),
+    (record(modified=SOURCE_WRITE, changed="2024-03-01 00:00:00.0000000"),
+     transition(modified=(CREATED, SOURCE_WRITE), changed=(CREATED, "2024-03-01 00:00:00.0000000"))),
 ], ids=["created_and_modified", "single_tick_on_an_old_file", "single_tick_on_a_new_file",
-        "creation_time_not_its_own", "record_change_backdate", "write_time_backdated_an_hour_after_creation"])
+        "creation_time_not_its_own", "record_change_backdate", "write_time_backdated_an_hour_after_creation",
+        "change_time_set_before_the_restored_write_time"])
 def test_backdating_is_still_supported(monkeypatch, current, update):
     decision = decide(monkeypatch, current, update)
     assert (decision.outcome, decision.reason_code) == ("supported", "committed_native_timestamp_backdating")

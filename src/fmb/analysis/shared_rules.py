@@ -550,9 +550,13 @@ def _write_time_restoration(fields: dict, current: list) -> bool:
             if old is None or new is None or old.basis != new.basis:
                 return False
             moves[field] = new.ticks_100ns - old.ticks_100ns
-    if moves["modified"] >= 0 or any(moves.get(field, 0) < 0 for field in ("created", "record_changed")):
+    if moves["modified"] >= 0 or moves.get("created", 0) < 0:
         return False
     written, restored = (parse_csv_timestamp(fields.get(k + "_si_modified")) for k in ("old", "new"))
+    if moves.get("record_changed", 0) < 0:
+        changed = parse_csv_timestamp(fields.get("new_si_record_changed"))
+        if changed.basis != restored.basis or changed.ticks_100ns < restored.ticks_100ns:
+            return False
     for row in current:
         created, named = (parse_csv_timestamp(row.fields.get(k)) for k in ("si_created", "fn_created"))
         if (created is None or named is None or not created.basis == named.basis == restored.basis

@@ -17,7 +17,7 @@
     "G4": "separate analysis results for each engine",
     "G5": "evaluation report"
   },
-  "rule_adapter": "shared_native_rules.v3",
+  "rule_adapter": "shared_native_rules.v4",
   "rule_module_version": 7,
   "presentation": "L0N",
   "passes": 3,

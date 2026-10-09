@@ -6,7 +6,7 @@ from typing import Any
 from fmb.core.schemas import validate_response_schema
 
 FACTUAL_EVIDENCE_VERSION = "candidate_roster_factual_evidence.v1"
-FACTUAL_ANALYZER_VERSION = "shared_native_rules.v3"
+FACTUAL_ANALYZER_VERSION = "shared_native_rules.v4"
 
 COMPONENT_TARGETS = {
     "timestamp_manipulation": "Backdating of creation, modification or metadata-change timestamps; access-time-only changes are outside this target.",
