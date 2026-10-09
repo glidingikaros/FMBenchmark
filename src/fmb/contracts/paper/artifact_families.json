@@ -1,0 +1,111 @@
+{
+  "schema_version": "fmb.artifact_families.v1",
+  "description": "Each artefact family a question pack requires: where its evidence comes from (targets of the collection declaration, surfaces read from the image, or another parser's output) and the parsers that turn it into observations, named as the evidence index names them (parser, source module, output kind). The collection entries select targets and executable modules for a subset; the full preset keeps its historical order. Leaf MFTECmd_$MFT avoids the Boot, J and SDS processors of the compound MFTECmd module. RegistryHives also supplies the SYSTEM hive for directory comparison-pool drive binding. G2 lists, per question, the entries of its families; S2 checks that every parser run covering a family is one its entry declares.",
+  "families": {
+    "ntfs.mft": {
+      "collection": {"targets": ["$MFT"], "modules": ["MFTECmd_$MFT"]},
+      "sources": [{"kind": "kape_target", "name": "$MFT"}],
+      "parsers": [{"parser": "mftecmd", "module": "MFTECmd", "tool": "MFTECmd", "output": "ntfs_mft"}]
+    },
+    "ntfs.usn": {
+      "collection": {"targets": ["$J"], "modules": ["MFTECmd_$J"]},
+      "sources": [{"kind": "kape_target", "name": "$J"}],
+      "parsers": [
+        {"parser": "fmb_bounded_parser", "module": "$Extend\\$UsnJrnl:$J", "tool": "fmb.usn.truth_blind_record_scanner", "output": "ntfs_usn"},
+        {"parser": "fmb_bounded_parser", "module": "FMBPublicMembershipUSN", "tool": "fmb.public_path_membership_scan", "output": "ntfs_usn", "note": "records of the declared population's public paths only"},
+        {"parser": "mftecmd", "module": "MFTECmd_$J", "tool": "MFTECmd", "output": "ntfs_usn"}
+      ]
+    },
+    "ntfs.logfile": {
+      "collection": {"targets": ["$LogFile"], "modules": []},
+      "sources": [{"kind": "kape_target", "name": "$LogFile"}],
+      "parsers": [{"parser": "dfir_ntfs", "module": "$LogFile", "tool": "dfir_ntfs", "output": "ntfs_logfile", "note": "the GPL-3 driver, run as a separate process that returns JSON"}]
+    },
+    "ntfs.i30": {
+      "collection": {"targets": ["$MFT", "RegistryHives"], "modules": ["MFTECmd_$MFT"]},
+      "sources": [{"kind": "kape_target", "name": "$MFT"}],
+      "parsers": [{"parser": "fmb_bounded_parser", "module": "FMBBoundedRawMFTI30", "tool": "fmb_bounded_parser", "output": "ntfs_i30"}]
+    },
+    "ntfs.ads": {
+      "collection": {"targets": ["$MFT"], "modules": ["MFTECmd_$MFT"]},
+      "sources": [
+        {"kind": "image", "name": "named $DATA streams of the system volume"},
+        {"kind": "parser_output", "name": "MFTECmd"}
+      ],
+      "parsers": [
+        {"parser": "fmb_bounded_parser", "module": "FMBNativeStreamContent", "tool": "fmb.ads.native_content_parser", "output": "ntfs_ads"},
+        {"parser": "fmb_bounded_parser", "module": "MFTECmd", "tool": "fmb.ads.truth_blind_reference_scanner", "output": "ntfs_ads"}
+      ]
+    },
+    "ntfs.file_size_allocation": {
+      "collection": {"targets": ["$MFT", "FMBBoundedUserBMP"], "modules": ["MFTECmd_$MFT"]},
+      "sources": [
+        {"kind": "kape_target", "name": "FMBBoundedUserBMP"},
+        {"kind": "image", "name": "boot sector and the MFT $DATA runlists of the system volume"}
+      ],
+      "parsers": [
+        {"parser": "fmb_bounded_parser", "module": "FMBBoundedUserBMP", "tool": "fmb_bounded_parser", "output": "ntfs_file_size_allocation"},
+        {"parser": "fmb_bounded_parser", "module": "FMBNativeNTFSAllocation", "tool": "fmb_bounded_parser", "output": "ntfs_file_size_allocation"}
+      ]
+    },
+    "collected.file.content": {
+      "collection": {"targets": ["FMBBoundedUserBMP"], "modules": []},
+      "sources": [{"kind": "kape_target", "name": "FMBBoundedUserBMP"}],
+      "parsers": [{"parser": "fmb_bounded_parser", "module": "FMBBoundedUserBMP", "tool": "fmb_bounded_parser", "output": "materialized_file_content"}]
+    },
+    "usb_volume": {
+      "collection": {"targets": ["LNKFilesAndJumpLists"], "modules": ["LECmd"]},
+      "sources": [
+        {"kind": "image", "name": "boot sector, MFT and USN journal of each companion USB medium"},
+        {"kind": "parser_output", "name": "LECmd"}
+      ],
+      "parsers": [{"parser": "fmb_bounded_parser", "module": "FMBNativeUSBVolume", "tool": "fmb_bounded_parser", "output": "native_usb_volume"}],
+      "inputs": [{"parser": "lecmd", "module": "LECmd", "tool": "LECmd", "output": "windows_jump_list", "sources": [{"kind": "kape_target", "name": "LNKFilesAndJumpLists"}], "note": "the operating system's Shell Link files, which the USB cards' link fields come from"}]
+    },
+    "windows.event_log.security": {
+      "collection": {"targets": ["EventLogs"], "modules": ["EvtxECmd"]},
+      "sources": [{"kind": "kape_target", "name": "EventLogs"}],
+      "parsers": [{"parser": "evtxecmd", "module": "EvtxECmd", "tool": "EvtxECmd", "output": "windows_evtx_security"}]
+    },
+    "windows.event_log.record_sequence": {
+      "collection": {"targets": ["EventLogs"], "modules": ["EvtxECmd"]},
+      "sources": [{"kind": "kape_target", "name": "EventLogs"}],
+      "parsers": [{"parser": "evtxecmd", "module": "EvtxECmd", "tool": "EvtxECmd", "output": "windows_evtx_security"}]
+    },
+    "windows.prefetch": {
+      "collection": {"targets": ["Prefetch"], "modules": ["PECmd"]},
+      "sources": [{"kind": "kape_target", "name": "Prefetch"}, {"kind": "kape_target", "name": "EvidenceOfExecution"}],
+      "parsers": [{"parser": "pecmd", "module": "PECmd", "tool": "PECmd", "output": "windows_prefetch", "note": "runs in the disposable Windows parser VM"}]
+    },
+    "windows.registry.amcache": {
+      "collection": {"targets": ["Amcache"], "modules": ["AmcacheParser"]},
+      "sources": [{"kind": "kape_target", "name": "EvidenceOfExecution"}, {"kind": "kape_target", "name": "USBDetective"}],
+      "parsers": [{"parser": "amcacheparser", "module": "AmcacheParser", "tool": "AmcacheParser", "output": "windows_registry_paths"}]
+    },
+    "windows.registry.shimcache": {
+      "collection": {"targets": ["RegistryHives"], "modules": ["AppCompatCacheParser"]},
+      "sources": [{"kind": "kape_target", "name": "RegistryHives"}],
+      "parsers": [{"parser": "appcompatcacheparser", "module": "AppCompatCacheParser", "tool": "AppCompatCacheParser", "output": "windows_registry_paths"}]
+    },
+    "windows.registry.shellbag": {
+      "collection": {"targets": ["RegistryHives"], "modules": ["SBECmd"]},
+      "sources": [{"kind": "kape_target", "name": "RegistryHives"}],
+      "parsers": [{"parser": "sbecmd", "module": "SBECmd", "tool": "SBECmd", "output": "windows_shellbag", "note": "runs in the disposable Windows parser VM"}]
+    },
+    "windows.registry.typed_paths": {
+      "collection": {"targets": ["RegistryHives"], "modules": ["RECmd_Kroll"]},
+      "sources": [{"kind": "kape_target", "name": "RegistryHives"}],
+      "parsers": [{"parser": "recmd", "module": "RECmd_TypedPaths", "tool": "RECmd", "output": "windows_typed_paths", "note": "from the RECmd_Kroll batch"}]
+    },
+    "windows.registry.usbstor": {
+      "collection": {"targets": ["RegistryHives"], "modules": ["RECmd_Kroll"]},
+      "sources": [{"kind": "kape_target", "name": "RegistryHives"}],
+      "parsers": [{"parser": "recmd", "module": "USBSTOR", "tool": "RECmd", "output": "windows_usbstor", "note": "from the RECmd_Kroll batch"}]
+    },
+    "windows.setupapi": {
+      "collection": {"targets": ["FMBSetupApiLogs"], "modules": []},
+      "sources": [{"kind": "kape_target", "name": "FMBSetupApiLogs"}, {"kind": "kape_target", "name": "USBDevicesLogs"}],
+      "parsers": [{"parser": "setupapi.dev.log", "module": "SetupAPI.dev.log", "tool": "SetupAPI.dev.log", "output": "windows_setupapi", "note": "the project's SetupAPI device-log reader"}]
+    }
+  }
+}

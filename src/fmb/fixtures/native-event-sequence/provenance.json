@@ -1,0 +1,7 @@
+{
+  "purpose": "Native binary-format regression fixture only; not revised experiment evidence",
+  "source_path": "retained clean end-to-end validation run of 28 Aug 2026: analysis/full_scale/positive/20260828_093123_deterministic_r2/execution/01-collection/bundle-extracted/kape-output/targets/F/Windows/System32/winevt/logs/Security.evtx",
+  "source_sha256": "3f11bee2b74d53b9d11144652d55c4c2f0b999fa30717b81265d2f9aa2efb97c",
+  "uncompressed_bytes": 69632,
+  "compression": "gzip with mtime=0; all source bytes preserved"
+}

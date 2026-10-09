@@ -1,0 +1,86 @@
+---
+- name: Create and remove bounded leaves from the directories
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    $ErrorActionPreference = 'Stop'
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $case = [string]$scenarioInput.case
+    if ($case -notin @('positive', 'benign')) {
+      throw "Unsupported generation case"
+    }
+    $populationPaths = @($scenarioInput.population_paths)
+    $paths = @($scenarioInput.operation_refs)
+    $expectedPopulationCount = [int]$scenarioInput.expected_population_count
+    $expectedOperationCount = [int]$scenarioInput.expected_operation_count
+    $operationRefsSha256 = Get-OperationRefsSha256 $paths
+    $leafNames = @($scenarioInput.leaf_names)
+    $directoryCases = @($scenarioInput.directory_cases)
+    $deleteCount = [int]$scenarioInput.delete_count_per_directory
+    $deleteIndexes = @($scenarioInput.delete_leaf_indexes | ForEach-Object { [int]$_ })
+    $creationOrder = @($scenarioInput.creation_order | ForEach-Object { [int]$_ })
+    if ($expectedPopulationCount -lt 1 -or
+        $populationPaths.Count -ne $expectedPopulationCount -or
+        $directoryCases.Count -ne $expectedPopulationCount -or
+        $leafNames.Count -lt 80 -or $deleteCount -ne 4 -or
+        $deleteIndexes.Count -ne $deleteCount -or $creationOrder.Count -ne $leafNames.Count -or
+        @($directoryCases | Where-Object { [int]$_.child_count -gt $leafNames.Count }).Count -ne 0 -or
+        ($case -eq 'positive' -and $expectedOperationCount -lt 1) -or
+        ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
+        $paths.Count -ne $expectedOperationCount) {
+      throw "Directory-index population cardinality is invalid"
+    }
+    $created = [Collections.Generic.List[string]]::new()
+    $removed = [Collections.Generic.List[string]]::new()
+    foreach ($item in $directoryCases) {
+      $directory = [string]$item.path
+      $childCount = [int]$item.child_count
+      foreach ($index in $creationOrder) {
+        if ($index -ge $childCount) { continue }
+        $path = Join-Path $directory ([string]$leafNames[$index])
+        Set-Content -LiteralPath $path -Value 'Neutral generated record.' -Encoding Ascii
+        $created.Add($path)
+      }
+    }
+    foreach ($item in $directoryCases) {
+      $directory = [string]$item.path
+      if ($paths -notcontains $directory) { continue }
+      $childCount = [int]$item.child_count
+      foreach ($index in $deleteIndexes) {
+        if ($index -lt 0 -or $index -ge $childCount) {
+          throw "Directory-index deletion target lies outside the directory population"
+        }
+        $path = Join-Path $directory ([string]$leafNames[$index])
+         Remove-Item -LiteralPath $path -Force 
+        $removed.Add($path)
+      }
+    }
+    $remainingLeafCount = @($created | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }).Count
+    $removedLeafCount = $removed.Count
+    $retainedLeafCount = $remainingLeafCount
+    $verified = ($removedLeafCount -eq ($paths.Count * $deleteCount) -and
+                 $remainingLeafCount -eq ($created.Count - $removedLeafCount))
+    if (-not $verified) {
+      throw "Directory-index postcondition failed"
+    }
+    [ordered]@{
+      scenario_id = 'directory_cleaning_i30_01'
+      case = $case
+      operation_count = $paths.Count
+      operation_refs_sha256 = $operationRefsSha256
+      postcondition_verified = $verified
+      population_count = $populationPaths.Count
+      removed_leaf_count = $removedLeafCount
+      retained_leaf_count = $retainedLeafCount
+      remaining_leaf_count = $remainingLeafCount
+    } | ConvertTo-Json -Compress
+  args:
+    stdin: "{{ generation_inputs.scenario_inputs.directory_cleaning_i30_01 | to_json }}"
+  register: i30_receipt
+  no_log: true
+
+- name: Emit host-captured directory-index receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - "{{ i30_receipt.stdout | trim }}"
+      - "GROUND_TRUTH_END"

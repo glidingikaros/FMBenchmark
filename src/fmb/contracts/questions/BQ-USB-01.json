@@ -1,0 +1,72 @@
+{
+  "schema_version": "fmb.question_pack.v1",
+  "question_id": "BQ-USB-01",
+  "order": 6,
+  "group": {
+    "group_id": "usb_history_consistency",
+    "title": "USB history consistency",
+    "description": "Assess whether this USB device and referenced volume show inconsistencies in installation identity or filename history."
+  },
+  "definition": {
+    "title": "Device-history consistency assessment",
+    "question_text": "Assess whether these devices' installation and file histories contain inconsistencies.",
+    "scope": "The retained installation-identity and companion-volume filename histories."
+  },
+  "components": [
+    {
+      "technique_id": "usbstor_setupapi_discrepancy",
+      "component_question_id": "Q-MEDIA-01",
+      "subject_type": "device",
+      "required_artifact_families": [
+        "windows.registry.usbstor",
+        "windows.setupapi"
+      ],
+      "optional_artifact_families": [],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "windows.registry.usbstor",
+        "windows.setupapi"
+      ]
+    },
+    {
+      "technique_id": "usb_volume_activity_gap",
+      "component_question_id": "Q-MEDIA-01",
+      "subject_type": "device",
+      "required_artifact_families": [
+        "usb_volume"
+      ],
+      "optional_artifact_families": [
+        "windows.registry.usbstor",
+        "windows.setupapi"
+      ],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "usb_volume",
+        "windows.registry.usbstor",
+        "windows.setupapi"
+      ]
+    }
+  ],
+  "presentation": {
+    "request_per_card": false,
+    "listing_lookup": false,
+    "transforms": []
+  },
+  "assessment": {
+    "engine": "rules",
+    "components": [
+      "usbstor_setupapi_discrepancy",
+      "usb_volume_activity_gap"
+    ]
+  },
+  "reference": {
+    "supplemental_supported": [],
+    "supplemental_negative": []
+  },
+  "generation": {
+    "scenarios": [
+      "usb_volume_activity_gap_01",
+      "usbstor_setupapi_discrepancy_01"
+    ]
+  }
+}

@@ -1,0 +1,483 @@
+{
+  "candidate_populations": [
+    {
+      "coverage_status": "complete",
+      "population_id": "population:case_exec_shimcache",
+      "question_id": "Q-EXEC-01",
+      "subject_type": "executable",
+      "subjects": [
+        {
+          "identity": {
+            "canonical_name": "x_83a4d99e882d.bat"
+          },
+          "observation_ids": [
+            "observation:case_exec_shimcache:001:001"
+          ],
+          "subject_ref": "x_83a4d99e882d.bat"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_f9c54951c299.bat"
+          },
+          "observation_ids": [
+            "observation:case_exec_shimcache:002:001"
+          ],
+          "subject_ref": "x_f9c54951c299.bat"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_581ca0c185ca.bat"
+          },
+          "observation_ids": [
+            "observation:case_exec_shimcache:003:001"
+          ],
+          "subject_ref": "x_581ca0c185ca.bat"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_266d238ace66.bat"
+          },
+          "observation_ids": [
+            "observation:case_exec_shimcache:004:001"
+          ],
+          "subject_ref": "x_266d238ace66.bat"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_4331cc70e6f0.bat"
+          },
+          "observation_ids": [
+            "observation:case_exec_shimcache:005:001"
+          ],
+          "subject_ref": "x_4331cc70e6f0.bat"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_02f3b53896fa.bat"
+          },
+          "observation_ids": [
+            "observation:case_exec_shimcache:006:001"
+          ],
+          "subject_ref": "x_02f3b53896fa.bat"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_dee8edaa2bdd.bat"
+          },
+          "observation_ids": [
+            "observation:case_exec_shimcache:007:001"
+          ],
+          "subject_ref": "x_dee8edaa2bdd.bat"
+        },
+        {
+          "identity": {
+            "canonical_name": "c:\\users\\vagrant\\desktop\\x_a849f0ef9376.bat"
+          },
+          "observation_ids": [
+            "observation:case_exec_shimcache:008:001"
+          ],
+          "subject_ref": "C:\\Users\\vagrant\\Desktop\\x_a849f0ef9376.bat"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_9fc111371a20.bat"
+          },
+          "observation_ids": [
+            "observation:case_exec_shimcache:009:001"
+          ],
+          "subject_ref": "x_9fc111371a20.bat"
+        }
+      ],
+      "technique_id": "shimcache_path_residue"
+    }
+  ],
+  "collector_runs": [
+    {
+      "artifact_count": 2,
+      "artifacts": [
+        {
+          "artifact_families": [
+            "ntfs.mft"
+          ],
+          "artifact_family": "ntfs.mft",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "ntfs.mft",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:35e670a807718a4abb440c90",
+          "path": "benchmark/case_exec_shimcache/ntfs_mft-raw.json",
+          "relative_path": "benchmark/case_exec_shimcache/ntfs_mft-raw.json",
+          "sha256": "35e670a807718a4abb440c900c454d30b06fea223b11d78369d5927854ce36bd",
+          "size_bytes": 0
+        },
+        {
+          "artifact_families": [
+            "windows.registry.shimcache"
+          ],
+          "artifact_family": "windows.registry.shimcache",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.registry.shimcache",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:08f12c018dc485ae298409f9",
+          "path": "benchmark/case_exec_shimcache/windows_registry_paths-raw.json",
+          "relative_path": "benchmark/case_exec_shimcache/windows_registry_paths-raw.json",
+          "sha256": "08f12c018dc485ae298409f92a9512445d1a80cc545b37a18252b62dda141fae",
+          "size_bytes": 0
+        }
+      ],
+      "collector": "kape",
+      "input_kind": "external_tool_output",
+      "output_root": "benchmark/case_exec_shimcache",
+      "provenance": {
+        "adapter": "fmb.tool_output_adapter",
+        "adapter_scope": "inventory_existing_tool_output_no_collection_execution"
+      },
+      "status": "consumed"
+    }
+  ],
+  "external_inputs_allowed": false,
+  "parser_runs": [
+    {
+      "coverage_families": [
+        "ntfs.mft"
+      ],
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "ntfs.mft"
+        ],
+        "artifact_family": "ntfs.mft",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "ntfs.mft",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:9707b676088472c0c1825824",
+        "artifact_record_id": "source:9707b676088472c0",
+        "path": "benchmark/case_exec_shimcache/ntfs_mft-normalized.json",
+        "record_count": 8,
+        "relative_path": "benchmark/case_exec_shimcache/ntfs_mft-normalized.json",
+        "sha256": "9707b676088472c0c182582409991a049ed63f8d2c7b2c1004eb009b9646f564",
+        "size_bytes": 0
+      },
+      "observation_count": 8,
+      "observation_families": [
+        "ntfs.mft"
+      ],
+      "observations": [
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89053",
+            "file_name": "x_83a4d99e882d.bat",
+            "in_use": "True",
+            "is_directory": "False",
+            "mft_entry": 89053,
+            "mft_volume_id": "mft-source:fixture-case-exec-shimcache",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_exec_shimcache:001:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:35e670a807718a4a:1",
+          "subject_ref": "x_83a4d99e882d.bat"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89055",
+            "file_name": "x_f9c54951c299.bat",
+            "in_use": "True",
+            "is_directory": "False",
+            "mft_entry": 89055,
+            "mft_volume_id": "mft-source:fixture-case-exec-shimcache",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_exec_shimcache:002:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:35e670a807718a4a:2",
+          "subject_ref": "x_f9c54951c299.bat"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89056",
+            "file_name": "x_581ca0c185ca.bat",
+            "in_use": "True",
+            "is_directory": "False",
+            "mft_entry": 89056,
+            "mft_volume_id": "mft-source:fixture-case-exec-shimcache",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_exec_shimcache:003:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:35e670a807718a4a:3",
+          "subject_ref": "x_581ca0c185ca.bat"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89057",
+            "file_name": "x_266d238ace66.bat",
+            "in_use": "True",
+            "is_directory": "False",
+            "mft_entry": 89057,
+            "mft_volume_id": "mft-source:fixture-case-exec-shimcache",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_exec_shimcache:004:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:35e670a807718a4a:4",
+          "subject_ref": "x_266d238ace66.bat"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89058",
+            "file_name": "x_4331cc70e6f0.bat",
+            "in_use": "True",
+            "is_directory": "False",
+            "mft_entry": 89058,
+            "mft_volume_id": "mft-source:fixture-case-exec-shimcache",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_exec_shimcache:005:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:35e670a807718a4a:5",
+          "subject_ref": "x_4331cc70e6f0.bat"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89059",
+            "file_name": "x_02f3b53896fa.bat",
+            "in_use": "True",
+            "is_directory": "False",
+            "mft_entry": 89059,
+            "mft_volume_id": "mft-source:fixture-case-exec-shimcache",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_exec_shimcache:006:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:35e670a807718a4a:6",
+          "subject_ref": "x_02f3b53896fa.bat"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89060",
+            "file_name": "x_dee8edaa2bdd.bat",
+            "in_use": "True",
+            "is_directory": "False",
+            "mft_entry": 89060,
+            "mft_volume_id": "mft-source:fixture-case-exec-shimcache",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_exec_shimcache:007:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:35e670a807718a4a:7",
+          "subject_ref": "x_dee8edaa2bdd.bat"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89061",
+            "file_name": "x_9fc111371a20.bat",
+            "in_use": "True",
+            "is_directory": "False",
+            "mft_entry": 89061,
+            "mft_volume_id": "mft-source:fixture-case-exec-shimcache",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_exec_shimcache:009:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:35e670a807718a4a:8",
+          "subject_ref": "x_9fc111371a20.bat"
+        }
+      ],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "ntfs_mft",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "ntfs.mft"
+          ],
+          "artifact_family": "ntfs.mft",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "ntfs.mft",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:35e670a807718a4abb440c90",
+          "artifact_record_id": "source:35e670a807718a4a",
+          "path": "benchmark/case_exec_shimcache/ntfs_mft-raw.json",
+          "relative_path": "benchmark/case_exec_shimcache/ntfs_mft-raw.json",
+          "sha256": "35e670a807718a4abb440c900c454d30b06fea223b11d78369d5927854ce36bd",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    },
+    {
+      "coverage_families": [
+        "windows.registry.shimcache"
+      ],
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "windows.registry.shimcache"
+        ],
+        "artifact_family": "windows.registry.shimcache",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "windows.registry.shimcache",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:22d030e0c1c45019e7f39eb3",
+        "artifact_record_id": "source:22d030e0c1c45019",
+        "path": "benchmark/case_exec_shimcache/windows_registry_paths-normalized.json",
+        "record_count": 1,
+        "relative_path": "benchmark/case_exec_shimcache/windows_registry_paths-normalized.json",
+        "sha256": "22d030e0c1c45019e7f39eb38afba70fdfdd46f3c678f08c6f8dc87a8faeb254",
+        "size_bytes": 0
+      },
+      "observation_count": 1,
+      "observation_families": [
+        "windows.registry.shimcache"
+      ],
+      "observations": [
+        {
+          "artifact_family": "windows.registry.shimcache",
+          "fields": {
+            "cache_entry_position": "9",
+            "control_set": "1",
+            "executed": "NA",
+            "last_modified_time_utc": "2026-08-08 17:00:44",
+            "mft_active_path_match": false,
+            "mft_active_presence_basis": "path_comparison",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_absent",
+            "mft_active_reference_match": false,
+            "mft_volume_id": "mft-source:fixture-case-exec-shimcache",
+            "path": "C:\\Users\\vagrant\\Desktop\\x_a849f0ef9376.bat",
+            "source_file": "C:\\FMB-Appliance\\bundle\\kape-output\\targets\\F\\Windows\\System32\\config\\SYSTEM",
+            "source_key": "C:\\FMB-Appliance\\bundle\\kape-output\\targets\\F\\Windows\\System32\\config\\SYSTEM",
+            "source_module": "AppCompatCacheParser",
+            "source_parser": "AppCompatCacheParser",
+            "timestamp": "2026-08-08 17:00:44"
+          },
+          "observation_id": "observation:case_exec_shimcache:008:001",
+          "observation_type": "shimcache_path_seen",
+          "source_record_ref": "source:08f12c018dc485ae:1",
+          "subject_ref": "C:\\Users\\vagrant\\Desktop\\x_a849f0ef9376.bat"
+        }
+      ],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "windows_registry_paths",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "windows.registry.shimcache"
+          ],
+          "artifact_family": "windows.registry.shimcache",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.registry.shimcache",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:08f12c018dc485ae298409f9",
+          "artifact_record_id": "source:08f12c018dc485ae",
+          "path": "benchmark/case_exec_shimcache/windows_registry_paths-raw.json",
+          "relative_path": "benchmark/case_exec_shimcache/windows_registry_paths-raw.json",
+          "sha256": "08f12c018dc485ae298409f92a9512445d1a80cc545b37a18252b62dda141fae",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    }
+  ],
+  "question": {
+    "question_id": "Q-EXEC-01",
+    "question_text": "Is there Prefetch execution residue or Shimcache path residue for an executable absent from the active filesystem?"
+  },
+  "rule_runs": [],
+  "run_id": "benchmark-evidence:case_exec_shimcache",
+  "schema_version": "evidence_index.v1",
+  "tool_alignment": {
+    "collection_tools_supported": [
+      "kape",
+      "uac"
+    ],
+    "collection_tools_used": [
+      "kape"
+    ],
+    "custom_forensic_heuristics_allowed": false,
+    "normalization_role": "map_tool_outputs_to_project_contracts_only",
+    "parser_tools_supported": [
+      "fmb_bounded_parser"
+    ],
+    "parser_tools_used": [
+      "fmb_bounded_parser"
+    ],
+    "rule_engines_supported": [
+      "yara",
+      "sigma"
+    ],
+    "rule_engines_used": [],
+    "synthetic_fixture_role": "ground_truth_for_final_evaluation_only_not_analysis_input"
+  }
+}

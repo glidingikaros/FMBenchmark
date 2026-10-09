@@ -1,0 +1,133 @@
+---
+- name: Apply bounded append and truncation operations to valid bitmaps
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    $ErrorActionPreference = 'Stop'
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $case = [string]$scenarioInput.case
+    if($scenarioInput.native_pilot_profile -cne 'pilot_min.v1'){throw 'Pilot task requires its frozen profile'}
+    if ($case -notin @('positive', 'benign')) {
+      throw "Unsupported generation case"
+    }
+    function Test-LocalBitmapHeader([byte[]]$Data) {
+      return ($Data.Length -ge 54 -and $Data[0] -eq 66 -and $Data[1] -eq 77 -and
+        [BitConverter]::ToUInt32($Data, 2) -eq 58 -and
+        [BitConverter]::ToUInt32($Data, 6) -eq 0 -and
+        [BitConverter]::ToUInt32($Data, 10) -eq 54 -and
+        [BitConverter]::ToUInt32($Data, 14) -eq 40 -and
+        [BitConverter]::ToInt32($Data, 18) -eq 1 -and
+        [BitConverter]::ToInt32($Data, 22) -eq 1 -and
+        [BitConverter]::ToUInt16($Data, 26) -eq 1 -and
+        [BitConverter]::ToUInt16($Data, 28) -eq 24 -and
+        [BitConverter]::ToUInt32($Data, 30) -eq 0 -and
+        [BitConverter]::ToUInt32($Data, 34) -in @(0, 4) -and
+        [BitConverter]::ToUInt32($Data, 46) -eq 0)
+    }
+    $populationPaths = @($scenarioInput.population_paths)
+    $paths = @($scenarioInput.operation_refs)
+    $expectedPopulationCount = [int]$scenarioInput.expected_population_count
+    $expectedOperationCount = [int]$scenarioInput.expected_operation_count
+    $operationRefsSha256 = Get-OperationRefsSha256 $paths
+    $legacy = $null -eq $scenarioInput.bitmap_operations
+    $paddingLengths = @($scenarioInput.padding_bytes)
+    $operations = @($scenarioInput.bitmap_operations)
+    if ($legacy) {
+      $operations = @($paddingLengths | ForEach-Object {
+        [pscustomobject]@{ mode = 'append'; byte_count = [int]$_ }
+      })
+    }
+    if (-not $legacy -and (
+      $operations.Count -lt 1 -or
+      @($operations | Where-Object { -not (($_.mode -ceq 'append') -or
+        ($_.mode -ceq 'truncate' -and [int]$_.length -eq 54)) }).Count -ne 0
+    )) { throw "Bitmap operation modes are invalid" }
+    if (
+      $expectedPopulationCount -lt 1 -or
+      $populationPaths.Count -ne $expectedPopulationCount -or
+      ($case -eq 'positive' -and ($expectedOperationCount -lt 1 -or $expectedOperationCount -gt $expectedPopulationCount)) -or
+      ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
+      $paths.Count -ne $expectedOperationCount -or
+      ($case -eq 'positive' -and $operations.Count -ne $expectedOperationCount)
+    ) {
+      throw "Bitmap population cardinality is invalid"
+    }
+    $instances = [System.Collections.Generic.List[object]]::new()
+    if ($case -eq 'positive') {
+      for ($pathIndex = 0; $pathIndex -lt $paths.Count; $pathIndex += 1) {
+        $path = [string]$paths[$pathIndex]
+        $operation = $operations[$pathIndex]
+        [byte[]]$before = [System.IO.File]::ReadAllBytes($path)
+        if ($before.Length -ne 58 -or -not (Test-LocalBitmapHeader $before)) {
+          throw "Bitmap input length precondition failed"
+        }
+        $mode = [string]$operation.mode
+        if ($mode -ceq 'append') {
+          $paddingLength = [int]$operation.byte_count
+          if ($paddingLength -ne 1024) {
+            throw "Bitmap append bound is invalid"
+          }
+          [byte[]]$padding = New-Object byte[] $paddingLength
+          for ($index = 0; $index -lt $padding.Length; $index += 1) {
+            $padding[$index] = [byte](($index * 17 + 23) % 251)
+          }
+          $scriptText = "[byte[]]`$data = New-Object byte[] " + $paddingLength + "; for (`$i=0; `$i -lt `$data.Length; `$i++) { `$data[`$i]=[byte]((`$i * 17 + 23) % 251) }; `$s=[IO.File]::Open(" + (ConvertTo-OperationLiteral $path) + ", 'Append', 'Write', 'None'); try { `$s.Write(`$data,0,`$data.Length); `$s.Flush(`$true) } finally { `$s.Dispose() }"
+          Invoke-PaperOperation $scriptText
+          $expectedLength = 58 + $paddingLength
+        } elseif ($mode -ceq 'truncate') {
+          $expectedLength = [int]$operation.length
+          if ($expectedLength -ne 54) { throw "Bitmap truncation bound is invalid" }
+          Invoke-PaperOperation ("`$s=[IO.File]::Open(" + (ConvertTo-OperationLiteral $path) + ", 'Open', 'Write', 'None'); try { `$s.SetLength(" + $expectedLength + "); `$s.Flush(`$true) } finally { `$s.Dispose() }")
+        } else { throw "Bitmap operation mode is invalid" }
+        [byte[]]$bytes = [System.IO.File]::ReadAllBytes($path)
+        $declaredLength = [BitConverter]::ToUInt32($bytes, 2)
+        $verified = ($declaredLength -eq 58 -and $bytes.Length -eq $expectedLength)
+        for ($index = 0; $index -lt [Math]::Min($before.Length, $expectedLength); $index += 1) {
+          if ($bytes[$index] -ne $before[$index]) { $verified = $false }
+        }
+        if (-not $verified) { throw "Bitmap length postcondition failed" }
+        if ($legacy) {
+          $instances.Add([ordered]@{ declared_length = $declaredLength
+            materialized_length = $bytes.Length; padding_bytes = $paddingLength })
+        } else {
+          $instances.Add([ordered]@{ mode = $mode; declared_length = $declaredLength
+            materialized_length = $bytes.Length })
+        }
+      }
+    }
+    else {
+      $unexpectedLengths = @(
+        foreach ($path in $populationPaths) {
+          [byte[]]$bytes = [System.IO.File]::ReadAllBytes([string]$path)
+          if (
+            $bytes.Length -ne 58 -or
+            -not (Test-LocalBitmapHeader $bytes)
+          ) {
+            [string]$path
+          }
+        }
+      )
+      $verified = $unexpectedLengths.Count -eq 0
+      if (-not $verified) {
+        throw "Benign bitmap length postcondition failed"
+      }
+    }
+    [ordered]@{
+      scenario_id = 'bitmap_trailing_data_01'
+      case = $case
+      operation_count = $paths.Count
+      operation_refs_sha256 = $operationRefsSha256
+      postcondition_verified = $true
+      population_count = $populationPaths.Count
+      instances = @($instances)
+    } | ConvertTo-Json -Compress -Depth 5
+  args:
+    stdin: "{{ generation_inputs.scenario_inputs.bitmap_trailing_data_01 | to_json }}"
+  register: padding_receipt
+  no_log: true
+
+- name: Emit host-captured bitmap receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - "{{ padding_receipt.stdout | trim }}"
+      - "GROUND_TRUTH_END"

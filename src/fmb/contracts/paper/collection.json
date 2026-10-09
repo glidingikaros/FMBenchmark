@@ -1,0 +1,59 @@
+{
+  "question_id": "FULL-SCALE",
+  "question_text": "Collect and normalize the evidence required by all active forensic questions.",
+  "scenario_ids": [
+    "timestomp_01",
+    "ads_injection_01",
+    "prefetch_wipe_01",
+    "security_log_clear_event_01",
+    "usn_journal_01",
+    "shimcache_path_residue_01",
+    "typed_path_residue_01",
+    "shellbag_path_residue_01",
+    "ntfs_allocation_01",
+    "bitmap_trailing_data_01",
+    "directory_cleaning_i30_01",
+    "usbstor_setupapi_discrepancy_01",
+    "event_record_sequence_gap_01",
+    "usb_volume_activity_gap_01"
+  ],
+  "collection": {
+    "kape": {
+      "selection_basis": "Union of the artifact and parser requirements for the full-scale plan.",
+      "target_names": [
+        "$MFT",
+        "$J",
+        "$LogFile",
+        "EventLogs",
+        "EvidenceOfExecution",
+        "RegistryHives",
+        "Prefetch",
+        "LNKFilesAndJumpLists",
+        "USBDetective",
+        "USBDevicesLogs",
+        "FMBBoundedUserBMP",
+        "FileSystem",
+        "$Boot",
+        "FMBSetupApiLogs"
+      ],
+      "module_names": [
+        "MFTECmd",
+        "MFTECmd_$J",
+        "EvtxECmd",
+        "PECmd",
+        "AppCompatCacheParser",
+        "AmcacheParser",
+        "RECmd_Kroll",
+        "JLECmd",
+        "LECmd",
+        "SBECmd"
+      ]
+    }
+  },
+  "kape_definitions": {
+    "source": "https://github.com/EricZimmerman/KapeFiles",
+    "commit": "c47575d8b91fcf884b6b56f9c1558823aee9eed3",
+    "tree_sha256": "5f1b6961aeb70732d04e56f664ffbbe5adfd7eaeaa5bae5d00ff3c6e4d68817a"
+  },
+  "historical_kape_archive_sha256": "5399945d55052267994a1a76decf54b8d463fd5fd29f65e1aca6f4b365516e31"
+}

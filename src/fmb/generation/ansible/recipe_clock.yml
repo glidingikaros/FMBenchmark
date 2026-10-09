@@ -1,0 +1,13 @@
+---
+- name: Apply and verify the frozen guest clock policy
+  fmb_clock:
+    policy: "{{ fmb_clock_policy }}"
+    expected_rtc_bias_minutes: "{{ fmb_vmware_boot_clock_bias_minutes | default(omit) }}"
+  register: fmb_clock_result
+
+- name: Emit host-only guest clock receipt
+  ansible.builtin.debug:
+    msg:
+      - "GENERATION_CLOCK_BEGIN"
+      - "{{ fmb_clock_result.stdout | trim }}"
+      - "GENERATION_CLOCK_END"

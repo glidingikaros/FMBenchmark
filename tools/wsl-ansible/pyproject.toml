@@ -1,0 +1,17 @@
+[project]
+name = "fmb-wsl-ansible"
+version = "0"
+description = "ansible, ansible-playbook and ansible-galaxy for a Windows host, run in WSL 1"
+requires-python = ">=3.11"
+
+[project.scripts]
+ansible = "fmb_wsl_ansible:ansible"
+ansible-playbook = "fmb_wsl_ansible:ansible_playbook"
+ansible-galaxy = "fmb_wsl_ansible:ansible_galaxy"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["fmb_wsl_ansible"]

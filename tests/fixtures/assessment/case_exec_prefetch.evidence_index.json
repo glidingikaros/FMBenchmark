@@ -1,0 +1,647 @@
+{
+  "candidate_populations": [
+    {
+      "coverage_status": "complete",
+      "population_id": "population:case_exec_prefetch",
+      "question_id": "Q-EXEC-01",
+      "subject_type": "executable",
+      "subjects": [
+        {
+          "identity": {
+            "canonical_name": "x_678ed4fbc5ac.exe"
+          },
+          "observation_ids": [
+            "observation:case_exec_prefetch:001:001"
+          ],
+          "subject_ref": "X_678ED4FBC5AC.EXE"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_0b8fd67ed890.exe"
+          },
+          "observation_ids": [
+            "observation:case_exec_prefetch:002:001"
+          ],
+          "subject_ref": "X_0B8FD67ED890.EXE"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_d7c9453d6536.exe"
+          },
+          "observation_ids": [
+            "observation:case_exec_prefetch:003:001"
+          ],
+          "subject_ref": "X_D7C9453D6536.EXE"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_a9ed05062603.exe"
+          },
+          "observation_ids": [
+            "observation:case_exec_prefetch:004:001"
+          ],
+          "subject_ref": "X_A9ED05062603.EXE"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_f149200c321d.exe"
+          },
+          "observation_ids": [
+            "observation:case_exec_prefetch:005:001"
+          ],
+          "subject_ref": "X_F149200C321D.EXE"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_d5bc241298e4.exe"
+          },
+          "observation_ids": [
+            "observation:case_exec_prefetch:006:001"
+          ],
+          "subject_ref": "X_D5BC241298E4.EXE"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_2eb149c32df8.exe"
+          },
+          "observation_ids": [
+            "observation:case_exec_prefetch:007:001"
+          ],
+          "subject_ref": "X_2EB149C32DF8.EXE"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_a5d1b53ed0f5.exe"
+          },
+          "observation_ids": [
+            "observation:case_exec_prefetch:008:001"
+          ],
+          "subject_ref": "X_A5D1B53ED0F5.EXE"
+        },
+        {
+          "identity": {
+            "canonical_name": "x_2205ecfed4f8.exe"
+          },
+          "observation_ids": [
+            "observation:case_exec_prefetch:009:001"
+          ],
+          "subject_ref": "X_2205ECFED4F8.EXE"
+        }
+      ],
+      "technique_id": "prefetch_missing_executable"
+    }
+  ],
+  "collector_runs": [
+    {
+      "artifact_count": 2,
+      "artifacts": [
+        {
+          "artifact_families": [
+            "windows.prefetch"
+          ],
+          "artifact_family": "windows.prefetch",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.prefetch",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:38e8081772c82cca32177015",
+          "path": "benchmark/case_exec_prefetch/windows_prefetch-raw.json",
+          "relative_path": "benchmark/case_exec_prefetch/windows_prefetch-raw.json",
+          "sha256": "38e8081772c82cca321770152f5208aef2f19ddb713cbfdc85d7c88980ed3994",
+          "size_bytes": 0
+        },
+        {
+          "artifact_families": [
+            "ntfs.mft"
+          ],
+          "artifact_family": "ntfs.mft",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "ntfs.mft",
+              "basis": "complete bounded MFT population scan",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:c74e8721d42c37e356c133ba",
+          "path": "benchmark/case_exec_prefetch/ntfs_mft-raw.json",
+          "relative_path": "benchmark/case_exec_prefetch/ntfs_mft-raw.json",
+          "sha256": "c74e8721d42c37e356c133ba75dd2a32e420688381ec25be9330fb2ce640c22a",
+          "size_bytes": 0
+        }
+      ],
+      "collector": "kape",
+      "input_kind": "external_tool_output",
+      "output_root": "benchmark/case_exec_prefetch",
+      "provenance": {
+        "adapter": "fmb.tool_output_adapter",
+        "adapter_scope": "inventory_existing_tool_output_no_collection_execution"
+      },
+      "status": "consumed"
+    }
+  ],
+  "external_inputs_allowed": false,
+  "parser_runs": [
+    {
+      "coverage_families": [
+        "windows.prefetch"
+      ],
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "windows.prefetch"
+        ],
+        "artifact_family": "windows.prefetch",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "windows.prefetch",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:ded791ee8216c24d79e2ee4f",
+        "artifact_record_id": "source:ded791ee8216c24d",
+        "path": "benchmark/case_exec_prefetch/windows_prefetch-normalized.json",
+        "record_count": 9,
+        "relative_path": "benchmark/case_exec_prefetch/windows_prefetch-normalized.json",
+        "sha256": "ded791ee8216c24d79e2ee4fb170ded3f1b2d9ed68365c4b01a3c262fa4ef8c5",
+        "size_bytes": 0
+      },
+      "observation_count": 9,
+      "observation_families": [
+        "windows.prefetch"
+      ],
+      "observations": [
+        {
+          "artifact_family": "windows.prefetch",
+          "fields": {
+            "executable_name": "X_A9ED05062603.EXE",
+            "files_loaded": "\\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\NTDLL.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\C_1252.NLS, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\C_437.NLS, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\L_INTL.NLS, \\VOLUME{01d9e20e86b57ba6-6486c650}\\USERS\\VAGRANT\\APPDATA\\LOCAL\\TEMP\\X_A9ED05062603.EXE, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\KERNEL32.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\KERNELBASE.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\LOCALE.NLS, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\ADVAPI32.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\MSVCRT.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\SECHOST.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\RPCRT4.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\USER32.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\WIN32U.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\GDI32.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\GDI32FULL.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\MSVCP_WIN.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\UCRTBASE.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\WS2_32.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\SHLWAPI.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\VERSION.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\AUTHZ.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\SSPICLI.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\WKSCLI.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\NETUTILS.DLL, \\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\GLOBALIZATION\\SORTING\\SORTDEFAULT.NLS",
+            "last_run": "2026-08-08 16:59:55.9387972",
+            "mft_active_path_match": false,
+            "mft_active_presence_basis": "basename_volume_search",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_absent",
+            "mft_active_reference_match": false,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "row_index": 1,
+            "run_count": 1,
+            "source_filename": "C:\\FMB-Appliance\\bundle\\kape-output\\targets\\F\\Windows\\prefetch\\X_A9ED05062603.EXE-A8954695.pf"
+          },
+          "observation_id": "observation:case_exec_prefetch:004:001",
+          "observation_type": "prefetch_execution",
+          "source_record_ref": "source:38e8081772c82cca:1",
+          "subject_ref": "X_A9ED05062603.EXE"
+        },
+        {
+          "artifact_family": "windows.prefetch",
+          "fields": {
+            "executable_name": "X_678ED4FBC5AC.EXE",
+            "files_loaded": "\\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\KERNEL32.DLL",
+            "last_run": "2026-08-08 16:40:00",
+            "mft_active_path_match": true,
+            "mft_active_presence_basis": "basename_volume_search",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_present",
+            "mft_active_reference_match": true,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "row_index": 2,
+            "run_count": 1,
+            "source_filename": "C:\\Windows\\Prefetch\\X_678ED4FBC5AC.EXE-0010000.pf"
+          },
+          "observation_id": "observation:case_exec_prefetch:001:001",
+          "observation_type": "prefetch_execution",
+          "source_record_ref": "source:38e8081772c82cca:2",
+          "subject_ref": "X_678ED4FBC5AC.EXE"
+        },
+        {
+          "artifact_family": "windows.prefetch",
+          "fields": {
+            "executable_name": "X_0B8FD67ED890.EXE",
+            "files_loaded": "\\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\KERNEL32.DLL",
+            "last_run": "2026-08-08 16:41:00",
+            "mft_active_path_match": true,
+            "mft_active_presence_basis": "basename_volume_search",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_present",
+            "mft_active_reference_match": true,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "row_index": 3,
+            "run_count": 1,
+            "source_filename": "C:\\Windows\\Prefetch\\X_0B8FD67ED890.EXE-0020000.pf"
+          },
+          "observation_id": "observation:case_exec_prefetch:002:001",
+          "observation_type": "prefetch_execution",
+          "source_record_ref": "source:38e8081772c82cca:3",
+          "subject_ref": "X_0B8FD67ED890.EXE"
+        },
+        {
+          "artifact_family": "windows.prefetch",
+          "fields": {
+            "executable_name": "X_D7C9453D6536.EXE",
+            "files_loaded": "\\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\KERNEL32.DLL",
+            "last_run": "2026-08-08 16:42:00",
+            "mft_active_path_match": true,
+            "mft_active_presence_basis": "basename_volume_search",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_present",
+            "mft_active_reference_match": true,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "row_index": 4,
+            "run_count": 1,
+            "source_filename": "C:\\Windows\\Prefetch\\X_D7C9453D6536.EXE-0030000.pf"
+          },
+          "observation_id": "observation:case_exec_prefetch:003:001",
+          "observation_type": "prefetch_execution",
+          "source_record_ref": "source:38e8081772c82cca:4",
+          "subject_ref": "X_D7C9453D6536.EXE"
+        },
+        {
+          "artifact_family": "windows.prefetch",
+          "fields": {
+            "executable_name": "X_F149200C321D.EXE",
+            "files_loaded": "\\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\KERNEL32.DLL",
+            "last_run": "2026-08-08 16:43:00",
+            "mft_active_path_match": true,
+            "mft_active_presence_basis": "basename_volume_search",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_present",
+            "mft_active_reference_match": true,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "row_index": 5,
+            "run_count": 1,
+            "source_filename": "C:\\Windows\\Prefetch\\X_F149200C321D.EXE-0050000.pf"
+          },
+          "observation_id": "observation:case_exec_prefetch:005:001",
+          "observation_type": "prefetch_execution",
+          "source_record_ref": "source:38e8081772c82cca:5",
+          "subject_ref": "X_F149200C321D.EXE"
+        },
+        {
+          "artifact_family": "windows.prefetch",
+          "fields": {
+            "executable_name": "X_D5BC241298E4.EXE",
+            "files_loaded": "\\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\KERNEL32.DLL",
+            "last_run": "2026-08-08 16:44:00",
+            "mft_active_path_match": true,
+            "mft_active_presence_basis": "basename_volume_search",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_present",
+            "mft_active_reference_match": true,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "row_index": 6,
+            "run_count": 1,
+            "source_filename": "C:\\Windows\\Prefetch\\X_D5BC241298E4.EXE-0060000.pf"
+          },
+          "observation_id": "observation:case_exec_prefetch:006:001",
+          "observation_type": "prefetch_execution",
+          "source_record_ref": "source:38e8081772c82cca:6",
+          "subject_ref": "X_D5BC241298E4.EXE"
+        },
+        {
+          "artifact_family": "windows.prefetch",
+          "fields": {
+            "executable_name": "X_2EB149C32DF8.EXE",
+            "files_loaded": "\\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\KERNEL32.DLL",
+            "last_run": "2026-08-08 16:45:00",
+            "mft_active_path_match": true,
+            "mft_active_presence_basis": "basename_volume_search",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_present",
+            "mft_active_reference_match": true,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "row_index": 7,
+            "run_count": 1,
+            "source_filename": "C:\\Windows\\Prefetch\\X_2EB149C32DF8.EXE-0070000.pf"
+          },
+          "observation_id": "observation:case_exec_prefetch:007:001",
+          "observation_type": "prefetch_execution",
+          "source_record_ref": "source:38e8081772c82cca:7",
+          "subject_ref": "X_2EB149C32DF8.EXE"
+        },
+        {
+          "artifact_family": "windows.prefetch",
+          "fields": {
+            "executable_name": "X_A5D1B53ED0F5.EXE",
+            "files_loaded": "\\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\KERNEL32.DLL",
+            "last_run": "2026-08-08 16:46:00",
+            "mft_active_path_match": true,
+            "mft_active_presence_basis": "basename_volume_search",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_present",
+            "mft_active_reference_match": true,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "row_index": 8,
+            "run_count": 1,
+            "source_filename": "C:\\Windows\\Prefetch\\X_A5D1B53ED0F5.EXE-0080000.pf"
+          },
+          "observation_id": "observation:case_exec_prefetch:008:001",
+          "observation_type": "prefetch_execution",
+          "source_record_ref": "source:38e8081772c82cca:8",
+          "subject_ref": "X_A5D1B53ED0F5.EXE"
+        },
+        {
+          "artifact_family": "windows.prefetch",
+          "fields": {
+            "executable_name": "X_2205ECFED4F8.EXE",
+            "files_loaded": "\\VOLUME{01d9e20e86b57ba6-6486c650}\\WINDOWS\\SYSTEM32\\KERNEL32.DLL",
+            "last_run": "2026-08-08 16:47:00",
+            "mft_active_path_match": true,
+            "mft_active_presence_basis": "basename_volume_search",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_present",
+            "mft_active_reference_match": true,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "row_index": 9,
+            "run_count": 1,
+            "source_filename": "C:\\Windows\\Prefetch\\X_2205ECFED4F8.EXE-0090000.pf"
+          },
+          "observation_id": "observation:case_exec_prefetch:009:001",
+          "observation_type": "prefetch_execution",
+          "source_record_ref": "source:38e8081772c82cca:9",
+          "subject_ref": "X_2205ECFED4F8.EXE"
+        }
+      ],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "windows_prefetch",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "windows.prefetch"
+          ],
+          "artifact_family": "windows.prefetch",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.prefetch",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:38e8081772c82cca32177015",
+          "artifact_record_id": "source:38e8081772c82cca",
+          "path": "benchmark/case_exec_prefetch/windows_prefetch-raw.json",
+          "relative_path": "benchmark/case_exec_prefetch/windows_prefetch-raw.json",
+          "sha256": "38e8081772c82cca321770152f5208aef2f19ddb713cbfdc85d7c88980ed3994",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    },
+    {
+      "coverage_families": [
+        "ntfs.mft"
+      ],
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "ntfs.mft"
+        ],
+        "artifact_family": "ntfs.mft",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "ntfs.mft",
+            "basis": "complete bounded MFT population scan",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:3c331116bd51d59b0fb7a8c5",
+        "artifact_record_id": "source:3c331116bd51d59b",
+        "path": "benchmark/case_exec_prefetch/ntfs_mft-normalized.json",
+        "record_count": 8,
+        "relative_path": "benchmark/case_exec_prefetch/ntfs_mft-normalized.json",
+        "sha256": "3c331116bd51d59b0fb7a8c58fd02a6f078da1efbda3862f314b40f2619a6e8b",
+        "size_bytes": 0
+      },
+      "observation_count": 8,
+      "observation_families": [
+        "ntfs.mft"
+      ],
+      "observations": [
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 91001,
+            "file_name": "x_678ed4fbc5ac.exe",
+            "in_use": true,
+            "is_directory": false,
+            "mft_entry": 91001,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "parent_path": ".\\Windows\\System32",
+            "sequence_number": 1
+          },
+          "observation_id": "observation:case_exec_prefetch:001:002",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:c74e8721d42c37e3:1",
+          "subject_ref": "x_678ed4fbc5ac.exe"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 91002,
+            "file_name": "x_0b8fd67ed890.exe",
+            "in_use": true,
+            "is_directory": false,
+            "mft_entry": 91002,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "parent_path": ".\\Windows\\System32",
+            "sequence_number": 1
+          },
+          "observation_id": "observation:case_exec_prefetch:002:002",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:c74e8721d42c37e3:2",
+          "subject_ref": "x_0b8fd67ed890.exe"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 91003,
+            "file_name": "x_d7c9453d6536.exe",
+            "in_use": true,
+            "is_directory": false,
+            "mft_entry": 91003,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "parent_path": ".\\Windows\\System32",
+            "sequence_number": 1
+          },
+          "observation_id": "observation:case_exec_prefetch:003:002",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:c74e8721d42c37e3:3",
+          "subject_ref": "x_d7c9453d6536.exe"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 91005,
+            "file_name": "x_f149200c321d.exe",
+            "in_use": true,
+            "is_directory": false,
+            "mft_entry": 91005,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "parent_path": ".\\Windows\\System32",
+            "sequence_number": 1
+          },
+          "observation_id": "observation:case_exec_prefetch:005:002",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:c74e8721d42c37e3:4",
+          "subject_ref": "x_f149200c321d.exe"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 91006,
+            "file_name": "x_d5bc241298e4.exe",
+            "in_use": true,
+            "is_directory": false,
+            "mft_entry": 91006,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "parent_path": ".\\Windows\\System32",
+            "sequence_number": 1
+          },
+          "observation_id": "observation:case_exec_prefetch:006:002",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:c74e8721d42c37e3:5",
+          "subject_ref": "x_d5bc241298e4.exe"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 91007,
+            "file_name": "x_2eb149c32df8.exe",
+            "in_use": true,
+            "is_directory": false,
+            "mft_entry": 91007,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "parent_path": ".\\Windows\\System32",
+            "sequence_number": 1
+          },
+          "observation_id": "observation:case_exec_prefetch:007:002",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:c74e8721d42c37e3:6",
+          "subject_ref": "x_2eb149c32df8.exe"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 91008,
+            "file_name": "x_a5d1b53ed0f5.exe",
+            "in_use": true,
+            "is_directory": false,
+            "mft_entry": 91008,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "parent_path": ".\\Windows\\System32",
+            "sequence_number": 1
+          },
+          "observation_id": "observation:case_exec_prefetch:008:002",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:c74e8721d42c37e3:7",
+          "subject_ref": "x_a5d1b53ed0f5.exe"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 91009,
+            "file_name": "x_2205ecfed4f8.exe",
+            "in_use": true,
+            "is_directory": false,
+            "mft_entry": 91009,
+            "mft_volume_id": "mft-source:fixture-case-exec-prefetch",
+            "parent_path": ".\\Windows\\System32",
+            "sequence_number": 1
+          },
+          "observation_id": "observation:case_exec_prefetch:009:002",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:c74e8721d42c37e3:8",
+          "subject_ref": "x_2205ecfed4f8.exe"
+        }
+      ],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "ntfs_mft",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "ntfs.mft"
+          ],
+          "artifact_family": "ntfs.mft",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "ntfs.mft",
+              "basis": "complete bounded MFT population scan",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:c74e8721d42c37e356c133ba",
+          "artifact_record_id": "source:c74e8721d42c37e3",
+          "path": "benchmark/case_exec_prefetch/ntfs_mft-raw.json",
+          "relative_path": "benchmark/case_exec_prefetch/ntfs_mft-raw.json",
+          "sha256": "c74e8721d42c37e356c133ba75dd2a32e420688381ec25be9330fb2ce640c22a",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    }
+  ],
+  "question": {
+    "question_id": "Q-EXEC-01",
+    "question_text": "Is there Prefetch execution residue or Shimcache path residue for an executable absent from the active filesystem?"
+  },
+  "rule_runs": [],
+  "run_id": "benchmark-evidence:case_exec_prefetch",
+  "schema_version": "evidence_index.v1",
+  "tool_alignment": {
+    "collection_tools_supported": [
+      "kape",
+      "uac"
+    ],
+    "collection_tools_used": [
+      "kape"
+    ],
+    "custom_forensic_heuristics_allowed": false,
+    "normalization_role": "map_tool_outputs_to_project_contracts_only",
+    "parser_tools_supported": [
+      "fmb_bounded_parser"
+    ],
+    "parser_tools_used": [
+      "fmb_bounded_parser"
+    ],
+    "rule_engines_supported": [
+      "yara",
+      "sigma"
+    ],
+    "rule_engines_used": [],
+    "synthetic_fixture_role": "ground_truth_for_final_evaluation_only_not_analysis_input"
+  }
+}

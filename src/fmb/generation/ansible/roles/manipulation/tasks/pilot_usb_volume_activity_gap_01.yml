@@ -1,0 +1,49 @@
+---
+- name: Prepare bounded external-file reference discrepancy
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    $ErrorActionPreference = 'Stop'
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $case = [string]$scenarioInput.case
+    $paths = @($scenarioInput.operation_refs)
+    $operationRefsSha256 = Get-OperationRefsSha256 $paths
+    if($scenarioInput.native_pilot_profile -cne 'pilot_min.v1' -or @($scenarioInput.media).Count -lt 2 -or @($scenarioInput.native_bindings).Count -ne @($scenarioInput.media).Count){throw 'Pilot history input is incomplete'}
+    $results=@()
+    foreach($volume in $scenarioInput.media) {
+      $bound=@($scenarioInput.native_bindings | Where-Object subject_ref -CEQ $volume.subject_ref)
+      if($bound.Count -ne 1){throw 'Pilot history identity is ambiguous'}
+      $binding=$bound[0].native_binding
+      $mediaPath=[string]$binding.target_path; $linkPath=[string]$binding.link_path
+      if(-not (Test-Path -LiteralPath $mediaPath -PathType Leaf) -or -not (Test-Path -LiteralPath $linkPath -PathType Leaf)){throw 'Native media path or shortcut is absent'}
+      $shell=New-Object -ComObject WScript.Shell
+      $link=$shell.CreateShortcut($linkPath)
+      $linkVerified=[String]::Equals($link.TargetPath,$mediaPath,[StringComparison]::OrdinalIgnoreCase)
+      if(-not $linkVerified){throw 'Native shortcut resolves to another volume'}
+      if([bool]$volume.history_discrepancy){Remove-Item -LiteralPath $mediaPath -Force}
+      $nativeAbsent=-not (Test-Path -LiteralPath $mediaPath -PathType Leaf)
+      if($nativeAbsent -ne [bool]$volume.history_discrepancy){throw 'Native media history postcondition failed'}
+      $afterPath=Join-Path (Split-Path -Parent $mediaPath) ([string]$volume.after_name)
+      [IO.File]::AppendAllText($afterPath,' Updated record index.',[Text.Encoding]::ASCII)
+      $results+=@{subject_ref=[string]$volume.subject_ref; link_verified=$linkVerified; native_file_absent=$nativeAbsent}
+    }
+    [ordered]@{
+      scenario_id = 'usb_volume_activity_gap_01'
+      case = $case
+      operation_count = $paths.Count
+      operation_refs_sha256 = $operationRefsSha256
+      postcondition_verified = $true
+      media_receipts = $results
+    } | ConvertTo-Json -Compress -Depth 8
+  args:
+    stdin: >-
+      {{ generation_inputs.scenario_inputs.usb_volume_activity_gap_01 |
+         combine({'native_bindings': (external_media_receipt.stdout | trim | from_json).native_bindings}) | to_json }}
+  register: media_reference_receipt
+  no_log: true
+
+- name: Emit host-captured external-file reference preparation receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - "{{ media_reference_receipt.stdout | trim }}"
+      - "GROUND_TRUTH_END"

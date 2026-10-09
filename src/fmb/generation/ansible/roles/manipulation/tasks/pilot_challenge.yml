@@ -1,0 +1,52 @@
+---
+- name: Execute the frozen supplemental native factual cases
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $plan = $payload.plan
+    $pilotStage = [string]$payload.stage
+    $materialization = $payload.materialization
+    function Expand-LocalFrozenHelper($binding) {
+      $bytes = [Convert]::FromBase64String([string]$binding.native_helper_payload)
+      $inputStream = [IO.MemoryStream]::new([byte[]]$bytes, $false)
+      $gzip = [IO.Compression.GZipStream]::new($inputStream, [IO.Compression.CompressionMode]::Decompress)
+      $outputStream = [IO.MemoryStream]::new()
+      try {
+        $gzip.CopyTo($outputStream)
+        $sourceBytes = $outputStream.ToArray()
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try { $digest = ([BitConverter]::ToString($hasher.ComputeHash($sourceBytes))).Replace('-', '').ToLowerInvariant() }
+        finally { $hasher.Dispose() }
+        if ($digest -cne [string]$binding.native_helper_sha256) { throw 'Frozen helper hash mismatch' }
+        return [ScriptBlock]::Create([Text.UTF8Encoding]::new($false, $true).GetString($sourceBytes))
+      } finally { $gzip.Dispose(); $inputStream.Dispose(); $outputStream.Dispose() }
+    }
+    . (Expand-LocalFrozenHelper $plan.shellbag_helper)
+    Set-LocalNativeShellbagVisitBudgets -Budgets $plan.shellbag_helper.visit_budgets
+    . (Expand-LocalFrozenHelper $plan.factual_helper)
+  args:
+    stdin: "{{ {'plan': fmb_factual_challenge_plan, 'stage': fmb_pilot_stage, 'materialization': fmb_pilot_materialization | default({})} | to_json }}"
+  register: fmb_pilot_receipt
+  failed_when: false
+  no_log: true
+
+- name: Require supplemental native execution to complete
+  ansible.builtin.assert:
+    that:
+      - fmb_pilot_receipt.rc | default(-1) == 0
+    fail_msg: >-
+      Supplemental native execution failed (rc={{ fmb_pilot_receipt.rc | default('unavailable') }}):
+      {{ fmb_pilot_receipt.stderr | default(fmb_pilot_receipt.msg | default('No native diagnostic returned')) }}
+
+- name: Retain the private initial state on the controller
+  ansible.builtin.set_fact:
+    fmb_pilot_materialization: "{{ fmb_pilot_receipt.stdout | trim | from_json }}"
+  when: fmb_pilot_stage == 'materialize'
+  no_log: true
+
+- name: Emit the host-only supplemental factual receipt
+  ansible.builtin.debug:
+    msg:
+      - "GENERATION_{{ (fmb_pilot_stage == 'operate') | ternary('FACTUAL', 'PILOTMATERIALIZE') }}_BEGIN"
+      - "{{ fmb_pilot_receipt.stdout | trim }}"
+      - "GENERATION_{{ (fmb_pilot_stage == 'operate') | ternary('FACTUAL', 'PILOTMATERIALIZE') }}_END"
