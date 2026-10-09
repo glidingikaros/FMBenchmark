@@ -8,7 +8,6 @@ from pathlib import Path
 
 PROFILE = "pilot_min.v1"
 DAY_FILETIME = 864_000_000_000
-PILOT_YEAR = 2026
 CASE_CLASSES = {
     "BQ-TIME-01": ("same_year", "old_copy", "old_copy", "forward", "forward", "access_only"),
     "BQ-DELETE-01": ("deleted", "recreated", "entry_reused"),
@@ -164,10 +163,8 @@ def adjust_guest_plan(plan: dict, public: dict, contract: dict) -> dict:
     return plan
 
 
-def _same_year(filetime: int, other: int) -> bool:
-    epoch = 116_444_736_000_000_000
-    return (datetime.fromtimestamp((filetime - epoch) / 10_000_000, timezone.utc).year
-            == datetime.fromtimestamp((other - epoch) / 10_000_000, timezone.utc).year == PILOT_YEAR)
+def _year(filetime: int) -> int:
+    return datetime.fromtimestamp((filetime - 116_444_736_000_000_000) / 10_000_000, timezone.utc).year
 
 
 def validate_log_a_source(data: bytes) -> None:
@@ -241,8 +238,8 @@ def validate_supplement(plan: dict, receipt: dict) -> None:
             for field, delta in member["timestamp_deltas"].items():
                 if type(before.get(field)) is not int or after.get(field) != before[field] + delta:
                     raise ValueError("pilot timestamp did not realize its frozen delta")
-                if kind == "same_year" and not _same_year(before[field], after[field]):
-                    raise ValueError("pilot same-year operation crossed the frozen calendar year")
+                if kind == "same_year" and _year(before[field]) != _year(after[field]):
+                    raise ValueError("pilot same-year operation crossed its calendar year")
             if before.get("sha256") != after.get("sha256") or not before.get("sha256"):
                 raise ValueError("timestamp operation changed content or lacks readback hashes")
             if kind in {"access_only", "old_copy"}:
@@ -252,8 +249,8 @@ def validate_supplement(plan: dict, receipt: dict) -> None:
                 if (source.get("path") != member["copy_source"] or source.get("exists") is not True
                         or source.get("sha256") != before["sha256"]
                         or source.get("modified_filetime") != before.get("modified_filetime")
-                        or datetime.fromtimestamp((source.get("modified_filetime", 0) - 116_444_736_000_000_000)
-                                                  / 10_000_000, timezone.utc).year >= PILOT_YEAR):
+                        or type(before.get("creation_filetime")) is not int
+                        or _year(source.get("modified_filetime", 0)) >= _year(before["creation_filetime"])):
                     raise ValueError("pilot old-copy control lacks unchanged old source metadata")
         if qid == "BQ-FILE-01":
             if after.get("length") != before.get("length", 0) + (4 if kind == "append_four" else 0):
