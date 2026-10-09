@@ -153,10 +153,7 @@
         },
         "experiment": {
           "type": "string",
-          "enum": [
-            "timestomp",
-            "full_scale"
-          ]
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
         },
         "artifacts": {
           "type": "array",
@@ -279,10 +276,7 @@
         },
         "experiment": {
           "type": "string",
-          "enum": [
-            "timestomp",
-            "full_scale"
-          ]
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
         },
         "case": {
           "type": "string",
@@ -1911,10 +1905,7 @@
         },
         "experiment": {
           "type": "string",
-          "enum": [
-            "timestomp",
-            "full_scale"
-          ]
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
         },
         "population_seed": {
           "type": "integer",

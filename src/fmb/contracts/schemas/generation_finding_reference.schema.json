@@ -21,10 +21,8 @@
       "const": "broad_native_findings.v1"
     },
     "experiment": {
-      "enum": [
-        "timestomp",
-        "full_scale"
-      ]
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,31}$"
     },
     "case": {
       "enum": [

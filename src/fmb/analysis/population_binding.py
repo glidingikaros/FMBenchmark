@@ -24,6 +24,7 @@ from fmb.core.limits import usb_medium_size
 from fmb.index.contract.evidence_index import validate_candidate_populations
 
 MAX_GENERATED_POPULATION_SUBJECTS = 5000
+EXPERIMENT_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
 BOUNDED_POPULATION_CONTRACT_SHA256 = (
     '2c2f881362eabd248d2140d7130e55d0045b9f6c856dc232ff06251c6b6d84c4'
 )
@@ -77,6 +78,10 @@ class GeneratedPopulationBundle:
     i30_directory_paths: tuple[str, ...] = ()
 
 
+def _experiment_name(value: Any) -> bool:
+    return isinstance(value, str) and EXPERIMENT_NAME.fullmatch(value) is not None
+
+
 def _required_text(value: Mapping[str, Any], key: str, *, label: str) -> str:
     item = value.get(key)
     if not isinstance(item, str) or not item.strip():
@@ -99,9 +104,9 @@ def verify_population_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
     assert_truth_blind(manifest, path="population_manifest")
     if manifest.get("schema_version") != "population_manifest.v1":
         raise ValueError("unsupported population manifest schema_version")
-    if manifest.get("experiment") not in {"timestomp", "full_scale"}:
+    if not _experiment_name(manifest.get("experiment")):
         raise ValueError(
-            "population manifest experiment must be timestomp or full_scale"
+            "population manifest experiment must be a lowercase identifier"
         )
     contract_sha256 = _sha256(
         manifest,
@@ -543,7 +548,7 @@ def _verified_generation_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("generation cleanup receipt status is invalid")
     experiment = manifest.get("experiment")
-    if experiment is not None and experiment not in {"timestomp", "full_scale"}:
+    if experiment is not None and not _experiment_name(experiment):
         raise ValueError("generation manifest experiment is invalid")
     pointer = manifest.get("ground_truth")
     digest = manifest.get("ground_truth_sha256")
