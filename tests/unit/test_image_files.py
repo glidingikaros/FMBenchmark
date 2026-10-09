@@ -206,33 +206,57 @@ def test_run_checks_image_files_before_anything_starts(tmp_path):
     assert not (tmp_path / "replication").exists() and not (tmp_path / "out").exists()
 
 
-def test_new_list_and_run_name_images_and_engines(tmp_path, monkeypatch, capsys):
+def test_new_list_and_run_name_images_and_llm_conditions(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "engines").mkdir()
-    (tmp_path / "engines" / "mine.py").write_text("def decide(case):\n    return None\n")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert main(["new", "small", "--from", "I1", "--seed", "5"]) == 0
     assert image_files.load(tmp_path / "images/small.json").seed == 5
     assert main(["new", "small"]) != 0
     assert main(["list"]) == 0
     listed = capsys.readouterr().out
-    assert all(name in listed for name in ("I1", "I3", "small", "rules", "mine"))
+    assert all(name in listed for name in ("I1", "I3", "small", "sonnet5-high", "$2.000 in / $10.000 out"))
     calls = []
-    monkeypatch.setattr(run, "images", lambda names, output, attempts, engine=None: calls.append((names, engine)) or 0)
-    assert main(["run", "small", "I2", "--s3", "mine"]) == 0
+    monkeypatch.setattr(run, "images", lambda names, output, attempts, llm=None: calls.append((names, llm)) or 0)
+    assert main(["run", "small", "I2", "--llm", "sonnet5-high", "--cap-usd", "20"]) == 0
     assert main(["run", "I1"]) == 0
-    assert calls == [(["images/small.json", "I2"], Path("engines/mine.py")), (["I1"], None)]
-    assert main(["run", "missing"]) != 0 and main(["run", "small", "--s3", "other"]) != 0
+    assert calls == [(["images/small.json", "I2"], {
+        "conditions": ["sonnet5-high"],
+        "dispatch": {"execute": True, "cap_usd": "20.0", "rates": {"sonnet5-high": {"input": "2.000", "output": "10.000"}}}}),
+        (["I1"], None)]
+    assert main(["run", "missing"]) != 0
     with pytest.raises(SystemExit, match="name the images"):
         main(["run"])
 
 
-def test_the_chosen_engine_reaches_the_analysis_step(tmp_path, monkeypatch):
+@pytest.mark.parametrize("conditions,cap,prices,message", [
+    (["sonnet5-high"], None, [], "needs --cap-usd"),
+    ([], 5, [], "go with --llm"),
+    (["luna-high"], 5, [], "no recorded price"),
+    (["luna-high"], 5, ["luna-high=1.25,10"], "set OPENAI_API_KEY"),
+    (["sonnet5-high"], 5, ["sonnet5-high=cheap"], "NAME=INPUT,OUTPUT"),
+    (["nobody"], 5, [], "no LLM condition nobody"),
+])
+def test_llm_runs_need_a_cap_a_price_and_a_key(conditions, cap, prices, message):
+    with pytest.raises(ValueError, match=message):
+        image_files.llm_dispatch(conditions, cap, prices, {"OPENROUTER_API_KEY": "test"})
+
+
+def test_llm_conditions_reach_the_analysis_and_the_summary(tmp_path, monkeypatch):
     steps = []
     monkeypatch.setattr(run, "step", lambda name, **arguments: steps.append((name, arguments)) or 0)
     monkeypatch.setattr(run.host, "toolchain_root", lambda: tmp_path / "toolchain")
-    row = run.analyse("small", tmp_path / "generation", tmp_path, Path("engines/mine.py"))
+    llm = {"conditions": ["sonnet5-high"], "dispatch": {"execute": True, "cap_usd": "20", "rates": {}}}
+    assert run.analyse("small", tmp_path / "generation", tmp_path, llm)["admission"] == "not reached"
     config = json.loads((tmp_path / "pipeline.json").read_text())
-    assert config["stages"] == {"s3": {"engine": "mine"}} and row["admission"] == "not reached"
-    assert steps[0][1]["engine_file"] == Path("engines/mine.py").resolve()
+    assert config["conditions"] == ["sonnet5-high"] and config["dispatch"] == llm["dispatch"]
     run.analyse("small", tmp_path / "generation", tmp_path)
-    assert "stages" not in json.loads((tmp_path / "pipeline.json").read_text())
+    config = json.loads((tmp_path / "pipeline.json").read_text())
+    assert config["conditions"] == ["luna-high"] and "dispatch" not in config
+    gate = tmp_path / "G5.json"
+    question = {"exact": True}
+    gate.write_text(json.dumps({"admission": {"status": "passed"}, "comparison": {
+        "rules": {"f1": 1.0, "finding_counts": {}, "per_question": {"BQ-TIME-01": question}},
+        "conditions": {"sonnet5-high": {"passes": {"1": {}, "2": {}, "3": {}},
+                                        "spread": {"exact_min": 0, "exact_max": 1, "f1_min": 0.5, "f1_max": 0.8}}}}}))
+    assert run.summary("small", gate)["llm"] == {"sonnet5-high": {"exact": [0, 1], "f1": [0.5, 0.8], "passes": 3}}

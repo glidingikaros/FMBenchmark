@@ -111,14 +111,14 @@ Generation retries a boot or provisioning failure with the same frozen recipe, u
 (default 3). Images are never bit-identical: each frozen recipe draws a fresh random assignment. What
 replicates is the protocol and the result.
 
-## Your own images and engines
+## Your own images
 
 Set the host up with `fmb replicate doctor` and `fmb replicate setup` first, then:
 
 ```bash
-uv run fmb list                          # images and S3 engines
-uv run fmb new myimage --from I3         # writes images/myimage.json
-uv run fmb run myimage --s3 example      # generate, collect, analyse and score
+uv run fmb list                                         # images and LLM conditions
+uv run fmb new myimage --from I3                        # writes images/myimage.json
+uv run fmb run myimage --llm sonnet5-high --cap-usd 20  # generate, collect, analyse and score
 ```
 
 `fmb run` with no image lists the choices and asks. It writes `runs/<image>/` and `runs/summary.json`.
@@ -137,12 +137,13 @@ manipulations. In the file:
 NTFS-allocation and event-log scenarios also keep their number of objects. Which objects are manipulated is
 drawn when the run freezes its recipe, so two runs of one file are the same population, not the same disk.
 
-**S3 engines.** `--s3` swaps the deterministic engine. An engine is `engines/<name>.py` with one function,
-`decide(case)`, which returns the finding set and the per-subject decisions in the form of
-`fmb.assessment.rules.assess_with_decisions`; `engines/example.py` is a copy of the paper's rules to start
-from. The paper's rules still decide admission, so an engine cannot change which evidence counts; the
-summary scores the engine against ground truth. An engine sees only the evidence cards: reading the
-generation's ground truth stops the run.
+**Both assessments.** Every run assesses the evidence cards with the deterministic rules (S3) and freezes
+the same cards as requests for the LLM (S3'). `--llm CONDITION` also sends them, three passes as in the
+paper, and the summary scores S3 and S3' against ground truth. The conditions are the paper's eight;
+`fmb list` shows each model and its recorded price. They need `OPENAI_API_KEY` or `OPENROUTER_API_KEY`.
+`--cap-usd` is the most the LLM requests of one image may cost: the run sends nothing that could exceed
+it. A condition without a recorded price also needs `--price CONDITION=INPUT,OUTPUT`, in US dollars per
+million tokens. As in the paper, the LLM is asked only about images that pass admission.
 
 ### Changing the code
 
@@ -153,7 +154,7 @@ New techniques, questions or rules are code changes:
 | A technique | Its Ansible task in `src/fmb/generation/ansible/roles/manipulation/tasks/`, its scenario in `SCENARIO_ANALYSIS` (`src/fmb/generation/population.py`) and in your population file, its definition in `src/fmb/analysis/catalog.py`, and its rule in `src/fmb/analysis/shared_rules.py` |
 | A supplementary case | `CASE_CLASSES` in `src/fmb/generation/pilot_profile.py`, its construction in `src/fmb/generation/ansible/roles/manipulation/files/pilot_challenge.ps1`, and its expected answer in `src/fmb/evaluation/factual_reference.py` |
 | A question | A question pack in `src/fmb/contracts/questions/`, `QIDS` in `src/fmb/core/case_contract.py`, and its rule; collection, preparation and evaluation assume the nine-question roster, so let the tests guide you |
-| A stage implementation | `IMPLEMENTATIONS` in `src/fmb/pipeline/implementations.py` (an S3 engine needs no code change: see above) |
+| An S3 engine or a stage implementation | `ENGINES` in `src/fmb/assessment/stage.py`, or `IMPLEMENTATIONS` in `src/fmb/pipeline/implementations.py` |
 
 The paper's images run with the released code only: `fmb run` and `fmb replicate run` stop before
 generating one if any file differs. Your own images also run with changed code; `summary.json` lists the

@@ -98,15 +98,15 @@ def generate(image: str, lock: Path, folder: Path, attempts: int, image_file: Pa
     raise SystemExit(f"{image}: generation failed, see {folder}")
 
 
-def analyse(image: str, generation: Path, folder: Path, engine: Path | None = None) -> dict:
-    config = {"case_label": image, "generation": str(generation), "conditions": ["luna-high"],
+def analyse(image: str, generation: Path, folder: Path, llm: dict | None = None) -> dict:
+    config = {"case_label": image, "generation": str(generation),
+              "conditions": llm["conditions"] if llm else ["luna-high"],
+              **({"dispatch": llm["dispatch"]} if llm else {}),
               "collect": {"windows_parsers": str(windows_parsers()), "host_toolchain_root": str(host.toolchain_root()),
                           **({"vm_work_root": str(host.cache() / "vm-work")} if host.MACOS else {})},
-              **({"stages": {"s3": {"engine": engine.stem}}} if engine else {}),
               "output": str(folder / "run")}
     (folder / "pipeline.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
-    step("analyse", config=folder / "pipeline.json", recipe=folder / "recipe", log_path=folder / "pipeline.log",
-         **({"engine_file": engine.resolve()} if engine else {}))
+    step("analyse", config=folder / "pipeline.json", recipe=folder / "recipe", log_path=folder / "pipeline.log")
     return summary(image, folder / "run" / "gates" / "G5.json")
 
 
@@ -114,11 +114,14 @@ def summary(image: str, gate: Path) -> dict:
     if not gate.is_file():
         return {"image": image, "admission": "not reached"}
     g5 = json.loads(gate.read_text(encoding="utf-8"))
-    rules = g5["comparison"]["rules"]
+    rules, conditions = g5["comparison"]["rules"], g5["comparison"].get("conditions") or {}
     return {"image": image, "admission": g5["admission"]["status"], "f1": rules["f1"],
             "exact": sum(bool(q["exact"]) for q in rules["per_question"].values()), "questions": len(rules["per_question"]),
             "counts": rules["finding_counts"],
-            "not_exact": sorted(name for name, q in rules["per_question"].items() if not q["exact"])}
+            "not_exact": sorted(name for name, q in rules["per_question"].items() if not q["exact"]),
+            **({"llm": {name: {"exact": [c["spread"]["exact_min"], c["spread"]["exact_max"]],
+                               "f1": [c["spread"]["f1_min"], c["spread"]["f1_max"]], "passes": len(c["passes"])}
+                        for name, c in conditions.items()}} if conditions else {})}
 
 
 def write_summary(output: Path, results: list[dict]) -> None:
@@ -140,7 +143,7 @@ def implementation(paper: list[str]) -> dict:
     return {"implementation": "modified" if changed else "released", "changed_files": changed}
 
 
-def images(names: list[str], output: Path, attempts: int, engine: Path | None = None) -> int:
+def images(names: list[str], output: Path, attempts: int, llm: dict | None = None) -> int:
     from fmb.replication import image_files
 
     output = output.resolve()
@@ -168,13 +171,14 @@ def images(names: list[str], output: Path, attempts: int, engine: Path | None = 
         folder.mkdir(exist_ok=True)
         image_file = own[name].path if name in own else None
         try:
-            row = analyse(label, generate(label, lock, folder, attempts, image_file), folder, engine)
+            row = analyse(label, generate(label, lock, folder, attempts, image_file), folder, llm)
         except SystemExit as error:
             row = {"image": label, "admission": "not reached", "error": str(error)}
-        results.append(({"image_file": str(image_file), **provenance} if image_file else {})
-                       | ({"s3": engine.stem} if engine else {}) | row)
+        results.append(({"image_file": str(image_file), **provenance} if image_file else {}) | row)
         write_summary(output, results)
     for row in results:
         log(f"{row['image']}: admission {row['admission']}"
-            + (f", {row['exact']}/{row['questions']} exact, F1 {row['f1']}" if "exact" in row else f" ({row.get('error', '')})"))
+            + (f", S3 {row['exact']}/{row['questions']} exact, F1 {row['f1']}" if "exact" in row else f" ({row.get('error', '')})")
+            + "".join(f"; S3' {name} {llm['exact'][0]}-{llm['exact'][1]}/{row['questions']} exact over {llm['passes']} passes"
+                      for name, llm in row.get("llm", {}).items()))
     return 0 if all(row["admission"] == "passed" for row in results) else 1

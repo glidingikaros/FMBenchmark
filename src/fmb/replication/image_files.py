@@ -9,7 +9,7 @@ from fmb.core.sealed_records import read_json
 
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
 IMAGES = Path("images")
-ENGINES = Path("engines")
+PROVIDER_KEYS = {"openai": "OPENAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
 MANIPULATED = {
     "timestomp_01": 2, "ads_injection_01": 2, "prefetch_wipe_01": 1, "security_log_clear_event_01": 1,
     "usn_journal_01": 1, "shimcache_path_residue_01": 1, "typed_path_residue_01": 2, "shellbag_path_residue_01": 1,
@@ -123,15 +123,6 @@ def resolve_image(name: str) -> str:
     return str(path)
 
 
-def resolve_engine(name: str) -> Path | None:
-    if name == "rules":
-        return None
-    path = Path(name) if name.endswith(".py") else ENGINES / f"{name}.py"
-    if not path.is_file():
-        raise ValueError(f"no S3 engine {name}: name rules, a file in {ENGINES}/ or a path ending in .py")
-    return path
-
-
 def available_images() -> list[tuple[str, str]]:
     rows = []
     for name in paper_protocol()["images"]:
@@ -144,9 +135,47 @@ def available_images() -> list[tuple[str, str]]:
     return rows
 
 
-def available_engines() -> list[tuple[str, str]]:
-    return [("rules", "built-in deterministic rules (the paper's S3)")] + [
-        (path.stem, str(path)) for path in sorted(ENGINES.glob("*.py")) if NAME.fullmatch(path.stem)]
+def available_conditions() -> list[tuple[str, str]]:
+    rows = []
+    for name, condition in paper_protocol()["conditions"].items():
+        settings = condition["settings"]
+        price = settings.get("price_usd_per_million")
+        rows.append((name, f"{settings['model']} via {settings['provider']}, reasoning {settings['reasoning_effort']}, "
+                           + (f"${price['input']} in / ${price['output']} out per million tokens" if price
+                              else "no recorded price")))
+    return rows
+
+
+def llm_dispatch(conditions: list[str], cap_usd: float | None, prices: list[str], environ: dict) -> dict | None:
+    from decimal import Decimal, InvalidOperation
+
+    if not conditions:
+        if cap_usd is not None or prices:
+            raise ValueError("--cap-usd and --price go with --llm")
+        return None
+    if cap_usd is None or cap_usd <= 0:
+        raise ValueError("--llm needs --cap-usd: the most the LLM requests of one image may cost, in US dollars")
+    declared, given = paper_protocol()["conditions"], {}
+    for item in prices:
+        name, _, pair = item.partition("=")
+        try:
+            given[name] = dict(zip(("input", "output"), (str(Decimal(value)) for value in pair.split(",")), strict=True))
+        except (InvalidOperation, ValueError) as error:
+            raise ValueError(f"--price {item}: give NAME=INPUT,OUTPUT in US dollars per million tokens") from error
+    rates = {}
+    for name in dict.fromkeys(conditions):
+        if name not in declared:
+            raise ValueError(f"no LLM condition {name}; `fmb list` shows them")
+        settings = declared[name]["settings"]
+        price = given.get(name) or settings.get("price_usd_per_million")
+        if price is None:
+            raise ValueError(f"{name} has no recorded price; add --price {name}=INPUT,OUTPUT (US dollars per million "
+                             "tokens)")
+        key = PROVIDER_KEYS[settings["provider"]]
+        if not environ.get(key, "").strip():
+            raise ValueError(f"{name} calls {settings['provider']}: set {key}")
+        rates[name] = {"input": str(price["input"]), "output": str(price["output"])}
+    return {"conditions": list(rates), "dispatch": {"execute": True, "cap_usd": str(cap_usd), "rates": rates}}
 
 
 def scaffold(name: str, template: str, seed: int) -> Path:
