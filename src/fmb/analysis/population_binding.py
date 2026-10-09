@@ -20,6 +20,7 @@ from fmb.analysis.inputs import (
 from fmb.core import population_contracts
 from fmb.core.hashing import sha256_file
 from fmb.core.json_io import load_json_object
+from fmb.core.limits import usb_medium_size
 from fmb.index.contract.evidence_index import validate_candidate_populations
 
 MAX_GENERATED_POPULATION_SUBJECTS = 5000
@@ -254,8 +255,7 @@ def _member_hint(definition: TechniqueDefinition, member: Mapping[str, Any]) -> 
     if set(raw_hint) == native_hint_keys:
         if (definition.subject_type != "device"
                 or raw_hint["attachment_kind"] != "hypervisor_virtual_usb_mass_storage"
-                or type(raw_hint["disk_size_bytes"]) is not int
-                or raw_hint["disk_size_bytes"] != 67108864
+                or not usb_medium_size(raw_hint["disk_size_bytes"])
                 or (raw_hint["binding_file"] != "native_media_binding.json"
                     and not re.fullmatch(r"media_[0-9a-f]{12}\.json", str(raw_hint["binding_file"])))):
             raise ValueError("native USB population hint is invalid")

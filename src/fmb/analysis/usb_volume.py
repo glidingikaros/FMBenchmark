@@ -3,6 +3,8 @@ from __future__ import annotations
 import ntpath
 from typing import Any
 
+from fmb.core.limits import usb_medium_size
+
 
 def assess_usb_volume_activity(fields: dict[str, Any], *, require_fixture_device: bool = True) -> str:
     required = ("native_identity_consistent", "active_mft_complete", "journal_scan_complete")
@@ -20,7 +22,7 @@ def assess_usb_volume_activity(fields: dict[str, Any], *, require_fixture_device
             or (require_fixture_device and (
                 fields.get("physical_host_device") is not False
                 or fields.get("attachment_kind") != "hypervisor_virtual_usb_mass_storage"
-                or fields["disk_size_bytes"] != 64 * 1024 * 1024))
+                or not usb_medium_size(fields["disk_size_bytes"])))
             or not fields["link_file_reference_number"] >> 48
             or not fields["journal_lowest_valid_usn"] < fields["journal_retained_end_usn"]):
         return "indeterminate"

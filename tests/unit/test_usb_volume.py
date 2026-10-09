@@ -291,9 +291,10 @@ def test_collector_and_adapter_retain_whole_sources_and_reject_later_tampering(t
     not all(importlib.util.find_spec(name) for name in ("pytsk3", "pyvmdk")),
     reason="pytsk3 and libvmdk-python are required for image reads",
 )
-def test_companion_streams_are_read_through_the_sleuth_kit(tmp_path: Path) -> None:
+@pytest.mark.parametrize("size", [64 * 1024 * 1024, 32 * 1024 * 1024, 96 * 1024 * 1024])
+def test_companion_streams_are_read_through_the_sleuth_kit(tmp_path: Path, size: int) -> None:
     import test_host_collector as ntfs
-    from fmb.collection.usb_volume import MAX_COMPANION_BYTES, extract_companion_streams
+    from fmb.collection.usb_volume import extract_companion_streams
 
     journal = b"U" * 96
     records = {
@@ -309,10 +310,10 @@ def test_companion_streams_are_read_through_the_sleuth_kit(tmp_path: Path) -> No
             sequence=2,
         ),
     }
-    image = ntfs._volume(records, {100: journal}, image_clusters=MAX_COMPANION_BYTES // 4096)
+    image = ntfs._volume(records, {100: journal}, image_clusters=size // 4096)
     path = tmp_path / "companion.raw"
     path.write_bytes(image)
-    binding = {"disk_size_bytes": MAX_COMPANION_BYTES, "partition_offset_bytes": 0}
+    binding = {"disk_size_bytes": size, "partition_offset_bytes": 0}
     streams = extract_companion_streams(path, binding)
     assert streams["boot"] == image[:512]
     assert streams["mft"] == image[4 * 4096 : 4 * 4096 + 48 * 1024]
@@ -322,3 +323,73 @@ def test_companion_streams_are_read_through_the_sleuth_kit(tmp_path: Path) -> No
         extract_companion_streams(path, {**binding, "partition_offset_bytes": 4096})
     with pytest.raises(ValueError, match="bounded disk"):
         extract_companion_streams(path, {**binding, "disk_size_bytes": 1024})
+
+
+@pytest.mark.skipif(
+    not all(importlib.util.find_spec(name) for name in ("pytsk3", "pyvmdk")),
+    reason="pytsk3 and libvmdk-python are required for image reads",
+)
+def test_a_companion_beyond_the_medium_bound_is_refused_before_it_is_read(tmp_path: Path) -> None:
+    from fmb.collection.usb_volume import extract_companion_streams
+    from fmb.core.limits import MAX_USB_MEDIUM_BYTES
+
+    path = tmp_path / "companion.raw"
+    with path.open("wb") as handle:
+        handle.truncate(MAX_USB_MEDIUM_BYTES + 512)
+    with pytest.raises(ValueError, match="bounded disk"):
+        extract_companion_streams(path, {"disk_size_bytes": MAX_USB_MEDIUM_BYTES + 512, "partition_offset_bytes": 0})
+
+
+@pytest.mark.parametrize("size,valid", [(512, True), (32 * 1024 * 1024, True), (64 * 1024 * 1024, True),
+                                        (4 * 1024 ** 3, True), (0, False), (123, False), (4 * 1024 ** 3 + 512, False),
+                                        (67108864.0, False), ("67108864", False), (True, False)])
+def test_a_medium_may_declare_any_sector_multiple_up_to_four_gibibytes(size, valid):
+    from fmb.analysis.population_binding import _member_hint
+    from fmb.core.limits import usb_medium_size
+
+    assert usb_medium_size(size) is valid
+    definition = next(row for row in techniques_for_question("Q-MEDIA-01")
+                      if row.technique_id == "usb_volume_activity_gap")
+    member = {"identity_hint": {"attachment_kind": "hypervisor_virtual_usb_mass_storage",
+                                "disk_size_bytes": size, "binding_file": "media_0123456789ab.json"}}
+    if valid:
+        assert _member_hint(definition, member) == member["identity_hint"]
+    else:
+        with pytest.raises(ValueError, match="native USB population hint is invalid"):
+            _member_hint(definition, member)
+    row = facts()
+    row["disk_size_bytes"] = size
+    assert assess_usb_volume_activity(row) == ("supported" if valid else "indeterminate")
+
+
+def _fake_volume(*, generation_manifest_path, kape_root, output_dir, evidence_sha256, binding_file):
+    output_dir.mkdir(parents=True)
+    receipt = output_dir / "native-usb-volume.json"
+    receipt.write_text(json.dumps({"schema_version": "native_usb_volume_sources.v1", "evidence_sha256": evidence_sha256,
+                                   "companion_sha256": binding_file[6] * 64,
+                                   "sources": {"binding": {"file": binding_file}}}))
+    return receipt
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 5])
+def test_any_number_of_registered_media_is_collected_and_read_back(tmp_path, monkeypatch, count):
+    from fmb.collection import usb_volume as collection
+
+    monkeypatch.setattr(collection, "collect_usb_volume", _fake_volume)
+    names = [f"media_{digit * 12}.json" for digit in "13579"[:count]]
+    index = collection.collect_usb_volumes(binding_files=names, generation_manifest_path=tmp_path / "manifest.json",
+                                           kape_root=tmp_path, output_dir=tmp_path / "native-usb",
+                                           evidence_sha256="a" * 64)
+    assert [row["binding_file"] for row in json.loads(index.read_text())["volumes"]] == sorted(names)
+    assert len(collection.usb_volume_source_manifests(index)) == count
+
+
+@pytest.mark.parametrize("names", [[], ["media_111111111111.json"] * 2, ["media_11111111111.json"],
+                                   ["media_111111111111.json", "native_media_binding.json"]])
+def test_media_collection_refuses_an_empty_repeated_or_unregistered_binding_list(tmp_path, monkeypatch, names):
+    from fmb.collection import usb_volume as collection
+
+    monkeypatch.setattr(collection, "collect_usb_volume", _fake_volume)
+    with pytest.raises(ValueError, match="one or more unique registered public bindings"):
+        collection.collect_usb_volumes(binding_files=names, generation_manifest_path=tmp_path / "manifest.json",
+                                       kape_root=tmp_path, output_dir=tmp_path / "native-usb", evidence_sha256="a" * 64)

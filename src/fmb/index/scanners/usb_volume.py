@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from fmb.core.limits import MAX_USB_MEDIUM_BYTES
 from fmb.index.scanners.mft import mft_record_is_in_use, parse_mft_record
 from fmb.index.scanners.ntfs import parse_boot_sector
 from fmb.index.scanners.usn import parse_usn_record_v2
@@ -58,7 +59,7 @@ def shell_link_from_lecmd(row: Mapping[str, str]) -> dict[str, Any]:
 
 
 def parse_retained_journal(data: bytes, maximum: bytes) -> dict[str, Any]:
-    if len(data) > 64 * 1024 * 1024 or len(maximum) < 32:
+    if len(data) > MAX_USB_MEDIUM_BYTES or len(maximum) < 32:
         raise ValueError("bounded native journal or $Max length is unsupported")
     max_size, allocation_delta, journal_id, lowest_valid = struct.unpack_from("<QQQQ", maximum)
     records, errors = [], []
@@ -88,7 +89,7 @@ def parse_usb_volume_facts(*, boot: bytes, mft: bytes, journal: bytes, journal_m
     lnk = shell_link_from_lecmd(link)
     history = parse_retained_journal(journal, journal_max)
     size = geometry["mft_record_size"]
-    if len(mft) % size or len(mft) > 64 * 1024 * 1024:
+    if len(mft) % size or len(mft) > MAX_USB_MEDIUM_BYTES:
         raise ValueError("companion MFT is not complete/aligned within its bound")
     records, malformed = {}, []
     for offset in range(0, len(mft), size):

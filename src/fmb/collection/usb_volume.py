@@ -8,10 +8,11 @@ from typing import Any
 from fmb.collection.tsk_volume import DATA, NtfsVolume, ntfs_volume_offsets, open_image
 from fmb.core.hashing import sha256_file
 from fmb.core.json_io import write_json
+from fmb.core.limits import usb_medium_size
 from fmb.core.truth_guard import COMPANION_MEDIA
 from fmb.index.scanners.usb_volume import lecmd_link_row, shell_link_from_lecmd
 
-MAX_COMPANION_BYTES = 64 * 1024 * 1024
+MEDIA_BINDING = re.compile(r"media_[0-9a-f]{12}\.json")
 
 
 def manifest_artifact(manifest_path: Path, name: str) -> Path:
@@ -37,12 +38,12 @@ def _companion_of(binding_file: str, companion: Any) -> bool:
 def extract_companion_streams(companion: Path, binding: dict[str, Any]) -> dict[str, bytes]:
     image = open_image(companion)
     size = int(image.get_size())
-    if size != MAX_COMPANION_BYTES or binding["disk_size_bytes"] != size:
+    if binding["disk_size_bytes"] != size or not usb_medium_size(size):
         raise ValueError("native USB companion is not the declared bounded disk")
     offsets = ntfs_volume_offsets(image)
     if len(offsets) != 1 or offsets[0] != binding["partition_offset_bytes"]:
         raise ValueError("native USB partition identity is absent or ambiguous")
-    volume = NtfsVolume(image, offsets[0], max_read_bytes=MAX_COMPANION_BYTES)
+    volume = NtfsVolume(image, offsets[0], max_read_bytes=size)
     record_size = volume.record_size
     mft = volume.read_attribute(0, DATA, name="")
     if not mft or len(mft) % record_size or mft[:record_size] != volume.first_mft_record_on_disk():
@@ -57,7 +58,7 @@ def extract_companion_streams(companion: Path, binding: dict[str, Any]) -> dict[
 def collect_usb_volume(*, generation_manifest_path: Path, kape_root: Path,
                        output_dir: Path, evidence_sha256: str,
                        binding_file: str = "native_media_binding.json") -> Path:
-    if binding_file != "native_media_binding.json" and not re.fullmatch(r"media_[0-9a-f]{12}\.json", binding_file):
+    if binding_file != "native_media_binding.json" and not MEDIA_BINDING.fullmatch(binding_file):
         raise ValueError("unsupported native USB binding filename")
     binding_path = manifest_artifact(generation_manifest_path, binding_file)
     binding = json.loads(binding_path.read_text(encoding="utf-8-sig"))
@@ -105,9 +106,9 @@ def collect_usb_volumes(*, binding_files: list[str], generation_manifest_path: P
     if binding_files == ["native_media_binding.json"]:
         return collect_usb_volume(generation_manifest_path=generation_manifest_path,
             kape_root=kape_root, output_dir=output_dir, evidence_sha256=evidence_sha256)
-    if (len(binding_files) != 3 or len(set(binding_files)) != 3
-            or any(not re.fullmatch(r"media_[0-9a-f]{12}\.json", name) for name in binding_files)):
-        raise ValueError("multi-volume collection requires three unique registered public bindings")
+    if (not binding_files or len(set(binding_files)) != len(binding_files)
+            or any(not MEDIA_BINDING.fullmatch(name) for name in binding_files)):
+        raise ValueError("multi-volume collection requires one or more unique registered public bindings")
     rows = []
     for name in sorted(binding_files):
         receipt = collect_usb_volume(generation_manifest_path=generation_manifest_path,
@@ -125,13 +126,14 @@ def usb_volume_source_manifests(path: Path) -> tuple[Path, ...]:
     value = json.loads(path.read_text(encoding="utf-8-sig"))
     if value.get("schema_version") == "native_usb_volume_sources.v1":
         return (path,)
-    if value.get("schema_version") != "native_usb_volume_set.v1" or len(value.get("volumes", [])) != 3:
+    if (value.get("schema_version") != "native_usb_volume_set.v1" or not isinstance(value.get("volumes"), list)
+            or not value["volumes"]):
         raise ValueError("unsupported native USB source set")
     result, names, identities = [], set(), set()
     for row in value["volumes"]:
         name = row.get("binding_file", "")
         relative = Path(str(row.get("file", "")))
-        if (not re.fullmatch(r"media_[0-9a-f]{12}\.json", name) or name in names
+        if (not MEDIA_BINDING.fullmatch(name) or name in names
                 or relative.parts != (Path(name).stem, "native-usb-volume.json")):
             raise ValueError("native USB set repeats or escapes a public binding")
         child = (path.parent / relative).resolve(strict=True)
