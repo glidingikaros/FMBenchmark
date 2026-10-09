@@ -139,6 +139,18 @@ def test_the_paper_conditions_freeze_the_same_bytes_as_before(tmp_path, fixed):
     assert digest(stages.llm_gate(tmp_path / "frozen" / "luna-high", "I1-01", "0" * 64, {"run": tmp_path})) == PAPER_G4
 
 
+def test_a_paper_condition_freezes_the_same_bytes_beside_a_user_condition_of_its_model(tmp_path, fixed):
+    _, built, generation = build(tmp_path, CASES)
+    twin = {"sonnet5-t0": {"settings": {**paper_protocol()["conditions"]["sonnet5-high"]["settings"], "temperature": 0}}}
+    with declare_conditions(twin):
+        paper = freeze(built, generation, tmp_path / "frozen" / "sonnet5-high", "sonnet5-high")
+        own = freeze(built, generation, tmp_path / "frozen" / "sonnet5-t0", "sonnet5-t0")
+    assert sha256_file(paper / "preparation-seal.json") == PAPER_FREEZES["sonnet5-high"]
+    for rid in CASES:
+        body = read_json(paper / "requests" / (rid + ".json"))
+        assert "temperature" not in body and read_json(own / "requests" / (rid + ".json")) == {**body, "temperature": 0}
+
+
 def test_the_paper_three_passes_execute_and_score_as_before(tmp_path, fixed):
     prepared, built, generation = build(tmp_path, {"log": [100, 103]})
     out = freeze(built, generation, tmp_path / "frozen" / "luna-high", "luna-high")
