@@ -328,3 +328,31 @@ def test_sealed_result_readers_reject_inconsistent_decisions(tmp_path, case, loc
     for read in readers:
         with pytest.raises(ValueError, match="rule decision|rule response"):
             read()
+
+
+def test_an_engine_file_plugs_in_as_s3(tmp_path, case, lock, monkeypatch):
+    from fmb.assessment import stage
+
+    monkeypatch.setattr(stage, "ENGINES", dict(stage.ENGINES))
+    engine = tmp_path / "negative.py"
+    engine.write_text("from fmb.assessment.rules import assess_with_decisions\n"
+                      "from fmb.core.paper_results import response_from_decisions\n\n\n"
+                      "def decide(case):\n"
+                      "    _, decisions = assess_with_decisions(case)\n"
+                      "    for components in decisions.values():\n"
+                      "        for decision in components.values():\n"
+                      "            decision['status'] = 'not_supported'\n"
+                      "    return response_from_decisions(case, decisions), decisions\n")
+    assert stage.register_engine_file(engine) == "negative"
+    _, built = _new_format_build(tmp_path, case)
+    result = stage.assess_cards(built=built, output=tmp_path / "rules", engine_name="negative")
+    record = read_json(tmp_path / "rules" / "assessment.json")
+    assert result["engine"] == "negative"
+    assert record["engine"]["module"] == "negative.py sha256:" + sha256_file(engine)
+    assert all(row["supported"] == 0 for row in record["requests"])
+    (tmp_path / "rules.py").write_text("def decide(case):\n    return None\n")
+    with pytest.raises(ValueError, match="built-in S3 engine"):
+        stage.register_engine_file(tmp_path / "rules.py")
+    (tmp_path / "empty.py").write_text("")
+    with pytest.raises(ValueError, match="defines no decide"):
+        stage.register_engine_file(tmp_path / "empty.py")

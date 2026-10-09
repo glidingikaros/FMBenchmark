@@ -8,6 +8,8 @@ from fmb.core.paper_protocol import paper_protocol
 from fmb.core.sealed_records import read_json
 
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
+IMAGES = Path("images")
+ENGINES = Path("engines")
 MANIPULATED = {
     "timestomp_01": 2, "ads_injection_01": 2, "prefetch_wipe_01": 1, "security_log_clear_event_01": 1,
     "usn_journal_01": 1, "shimcache_path_residue_01": 1, "typed_path_residue_01": 2, "shellbag_path_residue_01": 1,
@@ -83,7 +85,12 @@ def check(image: Image) -> str:
     supplement = resolve_parameters(contract.get("native_pilot_parameters"))["case_classes"]
     return (f"{image.name}: seed {image.seed}, {sum(item['configured_count'] for item in scenarios)} objects, "
             f"{sum(item['manipulation_count'] for item in scenarios)} manipulated, "
-            f"{sum(len(kinds) for kinds in supplement.values())} supplementary cases")
+            f"{len_cases(supplement)}")
+
+
+def len_cases(supplement: dict) -> str:
+    count = sum(len(kinds) for kinds in supplement.values())
+    return f"{count} supplementary case{'' if count == 1 else 's'}"
 
 
 def activate(recipe_directory: Path) -> bool:
@@ -96,3 +103,63 @@ def activate(recipe_directory: Path) -> bool:
     recipe.resolved_contract(config)
     paper_integrity.permit_modified_sources()
     return True
+
+
+def paper_image(name: str) -> Image:
+    from fmb.core.paths import PROJECT_ROOT
+    from fmb.generation import population
+
+    image = paper_protocol()["images"][name]
+    path = PROJECT_ROOT / image["population_contract"]
+    return Image(name, image["population_seed"], population.load_population_contract(path), path)
+
+
+def resolve_image(name: str) -> str:
+    if name in paper_protocol()["images"] or name.endswith(".json"):
+        return name
+    path = IMAGES / f"{name}.json"
+    if not path.is_file():
+        raise ValueError(f"no image {name}: name I1, I2, I3, a file in {IMAGES}/ or a path ending in .json")
+    return str(path)
+
+
+def resolve_engine(name: str) -> Path | None:
+    if name == "rules":
+        return None
+    path = Path(name) if name.endswith(".py") else ENGINES / f"{name}.py"
+    if not path.is_file():
+        raise ValueError(f"no S3 engine {name}: name rules, a file in {ENGINES}/ or a path ending in .py")
+    return path
+
+
+def available_images() -> list[tuple[str, str]]:
+    rows = []
+    for name in paper_protocol()["images"]:
+        rows.append((name, "paper, " + check(paper_image(name)).split(", ", 1)[1]))
+    for path in sorted(IMAGES.glob("*.json")):
+        try:
+            rows.append((path.stem, f"{path}, " + check(load(path)).split(", ", 1)[1]))
+        except ValueError as error:
+            rows.append((path.stem, f"{path}: {error}"))
+    return rows
+
+
+def available_engines() -> list[tuple[str, str]]:
+    return [("rules", "built-in deterministic rules (the paper's S3)")] + [
+        (path.stem, str(path)) for path in sorted(ENGINES.glob("*.py")) if NAME.fullmatch(path.stem)]
+
+
+def scaffold(name: str, template: str, seed: int) -> Path:
+    import json
+
+    paper = sorted(paper_protocol()["images"])
+    if not NAME.fullmatch(name) or name in paper:
+        raise ValueError(f"an image name is a letter, then letters, digits or '_'; {', '.join(paper)} are the paper's")
+    path = IMAGES / f"{name}.json"
+    if path.exists():
+        raise ValueError(f"{path} already exists")
+    contract = json.loads(paper_image(template).path.read_text(encoding="utf-8"))
+    contract["native_pilot_parameters"]["image_label"] = name
+    IMAGES.mkdir(exist_ok=True)
+    path.write_text(json.dumps({"seed": seed, **contract}, indent=2) + "\n", encoding="utf-8")
+    return path

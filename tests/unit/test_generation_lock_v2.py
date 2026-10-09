@@ -320,7 +320,7 @@ def test_check_host_reports_a_missing_base_box_instead_of_raising(host, tmp_path
 def test_an_image_of_your_own_freezes_and_loads_back(host, tmp_path):
     from fmb.replication import image_files
 
-    image = image_files.load(SOURCE.parents[2] / "examples/decoys.json")
+    image = image_files.load(SOURCE.parents[2] / "images/decoys.json")
     config = recipe.image_config(image.seed, image.contract)
     contract = recipe.resolved_contract(config)
     public = build_public_manifest(experiment="full_scale", seed=image.seed, contract=contract)

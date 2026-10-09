@@ -13,7 +13,7 @@ from fmb.generation.pipeline import GenerationPipeline
 from fmb.replication import image_files, run
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / "examples/decoys.json"
+EXAMPLE = ROOT / "images/decoys.json"
 PAPER_I3 = ROOT / "src/fmb/generation/populations.pilot-i3-20260918.json"
 
 
@@ -204,3 +204,35 @@ def test_run_checks_image_files_before_anything_starts(tmp_path):
     with pytest.raises(SystemExit, match="name I1, I2, I3 or an image file ending in .json"):
         main(["replicate", "run", "I4"])
     assert not (tmp_path / "replication").exists() and not (tmp_path / "out").exists()
+
+
+def test_new_list_and_run_name_images_and_engines(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "engines").mkdir()
+    (tmp_path / "engines" / "mine.py").write_text("def decide(case):\n    return None\n")
+    assert main(["new", "small", "--from", "I1", "--seed", "5"]) == 0
+    assert image_files.load(tmp_path / "images/small.json").seed == 5
+    assert main(["new", "small"]) != 0
+    assert main(["list"]) == 0
+    listed = capsys.readouterr().out
+    assert all(name in listed for name in ("I1", "I3", "small", "rules", "mine"))
+    calls = []
+    monkeypatch.setattr(run, "images", lambda names, output, attempts, engine=None: calls.append((names, engine)) or 0)
+    assert main(["run", "small", "I2", "--s3", "mine"]) == 0
+    assert main(["run", "I1"]) == 0
+    assert calls == [(["images/small.json", "I2"], Path("engines/mine.py")), (["I1"], None)]
+    assert main(["run", "missing"]) != 0 and main(["run", "small", "--s3", "other"]) != 0
+    with pytest.raises(SystemExit, match="name the images"):
+        main(["run"])
+
+
+def test_the_chosen_engine_reaches_the_analysis_step(tmp_path, monkeypatch):
+    steps = []
+    monkeypatch.setattr(run, "step", lambda name, **arguments: steps.append((name, arguments)) or 0)
+    monkeypatch.setattr(run.host, "toolchain_root", lambda: tmp_path / "toolchain")
+    row = run.analyse("small", tmp_path / "generation", tmp_path, Path("engines/mine.py"))
+    config = json.loads((tmp_path / "pipeline.json").read_text())
+    assert config["stages"] == {"s3": {"engine": "mine"}} and row["admission"] == "not reached"
+    assert steps[0][1]["engine_file"] == Path("engines/mine.py").resolve()
+    run.analyse("small", tmp_path / "generation", tmp_path)
+    assert "stages" not in json.loads((tmp_path / "pipeline.json").read_text())

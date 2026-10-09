@@ -25,7 +25,33 @@ class RulesEngine:
         return assess_with_decisions(case)
 
 
+class FileEngine:
+
+    def __init__(self, path: Path):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("fmb_engine_" + path.stem, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if not callable(getattr(module, "decide", None)):
+            raise ValueError(f"{path.name} defines no decide(case)")
+        self.id = path.stem
+        self.module = f"{path.name} sha256:{sha256_file(path)}"
+        self._decide = module.decide
+
+    def decide(self, case: dict) -> tuple[dict, dict]:
+        return self._decide(case)
+
+
 ENGINES = {"rules": RulesEngine()}
+
+
+def register_engine_file(path: Path) -> str:
+    path = Path(path).resolve(strict=True)
+    if path.stem in ENGINES and not isinstance(ENGINES[path.stem], FileEngine):
+        raise ValueError(f"{path.name}: {path.stem} is a built-in S3 engine; rename the file")
+    ENGINES[path.stem] = FileEngine(path)
+    return path.stem
 
 
 def engine(name: str):

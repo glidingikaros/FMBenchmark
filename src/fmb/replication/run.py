@@ -98,13 +98,15 @@ def generate(image: str, lock: Path, folder: Path, attempts: int, image_file: Pa
     raise SystemExit(f"{image}: generation failed, see {folder}")
 
 
-def analyse(image: str, generation: Path, folder: Path) -> dict:
+def analyse(image: str, generation: Path, folder: Path, engine: Path | None = None) -> dict:
     config = {"case_label": image, "generation": str(generation), "conditions": ["luna-high"],
               "collect": {"windows_parsers": str(windows_parsers()), "host_toolchain_root": str(host.toolchain_root()),
                           **({"vm_work_root": str(host.cache() / "vm-work")} if host.MACOS else {})},
+              **({"stages": {"s3": {"engine": engine.stem}}} if engine else {}),
               "output": str(folder / "run")}
     (folder / "pipeline.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
-    step("analyse", config=folder / "pipeline.json", recipe=folder / "recipe", log_path=folder / "pipeline.log")
+    step("analyse", config=folder / "pipeline.json", recipe=folder / "recipe", log_path=folder / "pipeline.log",
+         **({"engine_file": engine.resolve()} if engine else {}))
     return summary(image, folder / "run" / "gates" / "G5.json")
 
 
@@ -138,7 +140,7 @@ def implementation(paper: list[str]) -> dict:
     return {"implementation": "modified" if changed else "released", "changed_files": changed}
 
 
-def images(names: list[str], output: Path, attempts: int) -> int:
+def images(names: list[str], output: Path, attempts: int, engine: Path | None = None) -> int:
     from fmb.replication import image_files
 
     output = output.resolve()
@@ -166,10 +168,11 @@ def images(names: list[str], output: Path, attempts: int) -> int:
         folder.mkdir(exist_ok=True)
         image_file = own[name].path if name in own else None
         try:
-            row = analyse(label, generate(label, lock, folder, attempts, image_file), folder)
+            row = analyse(label, generate(label, lock, folder, attempts, image_file), folder, engine)
         except SystemExit as error:
             row = {"image": label, "admission": "not reached", "error": str(error)}
-        results.append(({"image_file": str(image_file), **provenance} if image_file else {}) | row)
+        results.append(({"image_file": str(image_file), **provenance} if image_file else {})
+                       | ({"s3": engine.stem} if engine else {}) | row)
         write_summary(output, results)
     for row in results:
         log(f"{row['image']}: admission {row['admission']}"

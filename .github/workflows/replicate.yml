@@ -12,7 +12,7 @@ on:
         options: [both, linux, windows]
         default: both
       images:
-        description: "The images, as a JSON list of paper images or image files such as examples/decoys.json"
+        description: "The images, as a JSON list of paper images or image files such as images/decoys.json"
         type: string
         default: '["I1", "I2", "I3"]'
 

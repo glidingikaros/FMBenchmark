@@ -99,9 +99,13 @@ def generate(recipe: str, output_root: str, vm_work_root: str | None = None) -> 
     return {"status": "completed", "output_root": output_root}
 
 
-def analyse(config: str, recipe: str | None = None) -> dict:
+def analyse(config: str, recipe: str | None = None, engine_file: str | None = None) -> dict:
     from fmb.pipeline.runner import load_config, run_pipeline
 
+    if engine_file is not None:
+        from fmb.assessment.stage import register_engine_file
+
+        register_engine_file(Path(engine_file))
     if recipe is not None:
         from fmb.replication import image_files
 

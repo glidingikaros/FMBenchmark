@@ -111,27 +111,38 @@ Generation retries a boot or provisioning failure with the same frozen recipe, u
 (default 3). Images are never bit-identical: each frozen recipe draws a fresh random assignment. What
 replicates is the protocol and the result.
 
-## Your own images
+## Your own images and engines
 
-`fmb replicate run` also takes image files of your own, alone or next to the paper's images:
+Set the host up with `fmb replicate doctor` and `fmb replicate setup` first, then:
 
 ```bash
-uv run fmb replicate run examples/decoys.json
+uv run fmb list                          # images and S3 engines
+uv run fmb new myimage --from I3         # writes images/myimage.json
+uv run fmb run myimage --s3 example      # generate, collect, analyse and score
 ```
 
-An image file is a paper image's population with a `seed`, and its file name is the image's name.
-`examples/decoys.json` is I3 with twice as many untouched objects around the same manipulations. Copy it
-and edit:
+`fmb run` with no image lists the choices and asks. It writes `runs/<image>/` and `runs/summary.json`.
 
-- `seed`, which picks the objects' names and folders and the virtual hardware;
-- `scenarios`: how many objects each anti-forensic technique creates (`configured_count`). Its guest
+**Images.** One file defines an image: a paper image's population plus a `seed`, saved as
+`images/<name>.json`. `images/decoys.json` is I3 with twice as many untouched objects around the same
+manipulations. In the file:
+
+- `seed` picks the objects' names and folders and the virtual hardware;
+- `scenarios` sets how many objects each anti-forensic technique creates (`configured_count`). Its guest
   script fixes how many of them it manipulates, so `manipulation_count` keeps the paper's value;
-- `native_pilot_parameters.case_classes`: each question's supplementary cases and controls, at most as
-  many of each as I3 has.
+- `native_pilot_parameters.case_classes` picks each question's supplementary cases and controls, at most
+  as many of each as I3 has.
 
-`run` checks every image file before it starts and says what does not fit. All fourteen scenarios stay; the
-USB, NTFS-allocation and event-log scenarios also keep their number of objects. Results go to `replication/<name>/`, scored against the image's own ground truth. The Windows base,
-the guest settings and the pipeline stay the paper's.
+`run` checks each file before it starts and says what does not fit. All fourteen scenarios stay; the USB,
+NTFS-allocation and event-log scenarios also keep their number of objects. Which objects are manipulated is
+drawn when the run freezes its recipe, so two runs of one file are the same population, not the same disk.
+
+**S3 engines.** `--s3` swaps the deterministic engine. An engine is `engines/<name>.py` with one function,
+`decide(case)`, which returns the finding set and the per-subject decisions in the form of
+`fmb.assessment.rules.assess_with_decisions`; `engines/example.py` is a copy of the paper's rules to start
+from. The paper's rules still decide admission, so an engine cannot change which evidence counts; the
+summary scores the engine against ground truth. An engine sees only the evidence cards: reading the
+generation's ground truth stops the run.
 
 ### Changing the code
 
@@ -142,11 +153,11 @@ New techniques, questions or rules are code changes:
 | A technique | Its Ansible task in `src/fmb/generation/ansible/roles/manipulation/tasks/`, its scenario in `SCENARIO_ANALYSIS` (`src/fmb/generation/population.py`) and in your population file, its definition in `src/fmb/analysis/catalog.py`, and its rule in `src/fmb/analysis/shared_rules.py` |
 | A supplementary case | `CASE_CLASSES` in `src/fmb/generation/pilot_profile.py`, its construction in `src/fmb/generation/ansible/roles/manipulation/files/pilot_challenge.ps1`, and its expected answer in `src/fmb/evaluation/factual_reference.py` |
 | A question | A question pack in `src/fmb/contracts/questions/`, `QIDS` in `src/fmb/core/case_contract.py`, and its rule; collection, preparation and evaluation assume the nine-question roster, so let the tests guide you |
-| An S3 engine or a stage implementation | `ENGINES` in `src/fmb/assessment/stage.py`, or `IMPLEMENTATIONS` in `src/fmb/pipeline/implementations.py` |
+| A stage implementation | `IMPLEMENTATIONS` in `src/fmb/pipeline/implementations.py` (an S3 engine needs no code change: see above) |
 
-The paper's images run with the released code only: `run` stops before generating them if any file
-differs. Your own images also run with changed code; `summary.json` lists the changed files, and each
-image keeps a copy of the code it ran.
+The paper's images run with the released code only: `fmb run` and `fmb replicate run` stop before
+generating one if any file differs. Your own images also run with changed code; `summary.json` lists the
+changed files, and each image keeps a copy of the code it ran.
 
 ## Licence
 
