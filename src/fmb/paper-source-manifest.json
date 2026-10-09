@@ -26,7 +26,7 @@
     "package/assessment/rules.py": "024f099cc0002df04dfe03da5595f6cf937874aac6d2c3d63e390f64fb4d2a7d",
     "package/assessment/stage.py": "aea715133a71c8d17bc47abae3baa0c72ded6cb1e31ccf8e133968a1c1050383",
     "package/cli/app.py": "08d741b676446854c34fe224c803a78b0cc77cd76da79a9a6d043a27ac5e943a",
-    "package/cli/commands.py": "240b373f50b91ad76d70ffc2b9479292e6daaf4dbd22389a31d3c43c3f1058a3",
+    "package/cli/commands.py": "92a73b90181aa3a9ecc4b92a9087278c98c1e99a598aa1277dfa428db7e02b6b",
     "package/collection/alignment.py": "69b2023dc7c30b68d1655c6938d231b31b6a670c33b9d7489150f1bfb6c0bf1f",
     "package/collection/analysis.py": "dd3b949f99e727bbf4bc1c2f18a0670fd1b66c944942f287955c735aa0ef3116",
     "package/collection/factual_challenge.py": "7ec21997c633a72eec0d94fa07138d60eff18a41d1eac6d6b5daf8f13a113195",

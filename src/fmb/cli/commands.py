@@ -90,25 +90,26 @@ def pick(title: str, rows: list[tuple[str, str]], prompt: str, default: list[str
     return [rows[int(item) - 1][0] if item.isdigit() and 1 <= int(item) <= len(rows) else item for item in answer]
 
 
-def interactive(what: str) -> None:
+def interactive(what: str, names: list[str]) -> None:
     if not sys.stdin.isatty():
-        raise SystemExit(f"name the images to {what}")
+        raise SystemExit(f"name the images to {what}: " + (", ".join(names) or "none yet"))
 
 
 def pick_images() -> list[str]:
     from fmb.replication import image_files
 
-    interactive("generate")
+    rows = image_files.available()
+    interactive("generate", [name for name, _ in rows])
     return pick(f"Images in {image_files.IMAGES}/ (to add one, copy {image_files.IMAGES}/template.json to "
-                f"{image_files.IMAGES}/<name>.json and edit it)", image_files.available(),
+                f"{image_files.IMAGES}/<name>.json and edit it)", rows,
                 "Generate which, by number or name [1]: ", ["1"])
 
 
 def choose(compare: list[str], chosen: list[str], cap: float | None) -> tuple[list[str], list[str], list[str], float | None]:
     from fmb.replication import image_files, run
 
-    interactive("run")
     generated = run.generated()
+    interactive("run", generated)
     if not generated:
         raise SystemExit("no generated images yet: run fmb generate")
     rows = [(name, image_files.population_line(json.loads((run.GENERATED / name / "image.json").read_text(
