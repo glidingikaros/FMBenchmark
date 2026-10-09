@@ -90,7 +90,7 @@ def write_condition(
             "settings": settings,
             **({"user_condition": declared} if own else {}),
             "passes": passes,
-            "built": os.path.relpath(built, output),
+            "built": Path(os.path.relpath(built, output)).as_posix(),
             "build_seal_sha256": sha256_file(built / "build-seal.json"),
             "source_manifest_sha256": source_lock,
             "execution_policy": ALTERNATE_POLICY
