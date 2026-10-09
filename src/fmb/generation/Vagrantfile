@@ -56,10 +56,10 @@ Vagrant.configure('2') do |config|
       vmware.enable_vmrun_ip_lookup = false
 
                   media_sources = ENV['FMB_NATIVE_MEDIA_SOURCES']
-      raise 'Paper media layout is missing' unless media_sources && !media_sources.empty?
-      layout = JSON.parse(media_sources)
-      frozen_layout = recipe_inputs.fetch('generation_inputs').fetch('scenario_inputs').fetch('usbstor_setupapi_discrepancy_01').fetch('media')
-      unless layout.size == 3 && layout.map { |r| r.fetch('unit') } == [8, 9, 10] && layout.map { |r| r.fetch('port') } == [5, 3, 2]
+      frozen_layout = recipe_inputs.fetch('generation_inputs').fetch('scenario_inputs').fetch('usbstor_setupapi_discrepancy_01', {}).fetch('media', [])
+      raise 'Paper media layout is missing' unless frozen_layout.empty? || (media_sources && !media_sources.empty?)
+      layout = frozen_layout.empty? ? [] : JSON.parse(media_sources)
+      unless layout.size == frozen_layout.size && (layout.empty? || layout.size.between?(2, 4))
         raise 'Unsupported native pilot USB layout'
       end
       layout.zip(frozen_layout).each do |row, planned|

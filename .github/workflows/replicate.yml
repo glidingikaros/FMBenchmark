@@ -13,7 +13,7 @@ on:
         options: [linux, windows, both]
         default: linux
       images:
-        description: "The images to generate and run, as a JSON list of names of files in images/, such as I1 or decoys"
+        description: "The images to generate and run, as a JSON list of names of files in images/ (such as I1 or decoys) or of paths ending in .json"
         type: string
         default: '["I1", "I2", "I3"]'
 
@@ -77,7 +77,7 @@ jobs:
       - name: "README: generate ${{ matrix.image }}"
         run: sg kvm -c "uv run fmb generate ${{ matrix.image }}"
       - name: "README: run ${{ matrix.image }}"
-        run: sg kvm -c "uv run fmb run ${{ matrix.image }}"
+        run: sg kvm -c "uv run fmb run ${{ steps.image.outputs.name }}"
       - name: Summary
         if: always()
         run: |
@@ -194,7 +194,7 @@ jobs:
       - name: "README: generate ${{ matrix.image }}"
         run: uv run fmb generate ${{ matrix.image }}
       - name: "README: run ${{ matrix.image }}"
-        run: uv run fmb run ${{ matrix.image }}
+        run: uv run fmb run ${{ steps.image.outputs.name }}
       - name: Summary
         if: always()
         run: |

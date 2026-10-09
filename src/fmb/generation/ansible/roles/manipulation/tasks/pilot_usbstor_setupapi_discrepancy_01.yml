@@ -7,11 +7,11 @@
     $case = [string]$scenarioInput.case
     $paths = @($scenarioInput.operation_refs)
     $operationRefsSha256 = Get-OperationRefsSha256 $paths
-    if (($case -eq 'positive' -and $paths.Count -ne 1) -or
+    if (($case -eq 'positive' -and ($paths.Count -lt 1 -or $paths.Count -ge @($scenarioInput.media).Count)) -or
         ($case -eq 'benign' -and $paths.Count -ne 0)) {
       throw "Native external-media population cardinality is invalid"
     }
-    if($scenarioInput.native_pilot_profile -cne 'pilot_min.v1' -or @($scenarioInput.media).Count -ne 3){throw 'Pilot media input is invalid'}
+    if($scenarioInput.native_pilot_profile -cne 'pilot_min.v1' -or @($scenarioInput.media).Count -lt 2){throw 'Pilot media input is invalid'}
     $bytes=[Convert]::FromBase64String([string]$scenarioInput.native_helper.native_helper_payload)
     $compressed=[IO.MemoryStream]::new([byte[]]$bytes,$false)
     $gzip=[IO.Compression.GZipStream]::new($compressed,[IO.Compression.CompressionMode]::Decompress)
@@ -21,8 +21,8 @@
     try{$digest=([BitConverter]::ToString($hasher.ComputeHash($source))).Replace('-','').ToLowerInvariant()}finally{$hasher.Dispose()}
     if($digest -cne $scenarioInput.native_helper.native_helper_sha256){throw 'Frozen media helper hash mismatch'}
     $helper=[ScriptBlock]::Create([Text.UTF8Encoding]::new($false,$true).GetString($source))
-    $volumes=@($scenarioInput.media); $bindings=@()
-    for($pilotDiskIndex=0;$pilotDiskIndex -lt 3;$pilotDiskIndex++) {
+    $volumes=@($scenarioInput.media); $bindings=@(); $pilotDiskCount=$volumes.Count
+    for($pilotDiskIndex=0;$pilotDiskIndex -lt $pilotDiskCount;$pilotDiskIndex++) {
       $scenarioInput=$volumes[$pilotDiskIndex]
       $binding=& $helper
       $bindings+=@{subject_ref=[string]$scenarioInput.subject_ref; binding_file=[string]$scenarioInput.binding_file; native_binding=$binding}

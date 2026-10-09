@@ -58,12 +58,13 @@ def more_drives(contract):
     contract["scenarios"]["usb_volume_activity_gap_01"]["configured_count"] = 5
 
 
-def more_timestomping(contract):
-    contract["scenarios"]["timestomp_01"].update(manipulation_count=4, assignment_pool_count=4)
+def half_a_question(contract):
+    contract["experiments"]["full_scale"].remove("usn_journal_01")
+    del contract["scenarios"]["usn_journal_01"]
 
 
-def fewer_streams(contract):
-    contract["scenarios"]["ads_injection_01"]["manipulation_count"] = 1
+def two_changed_drives(contract):
+    contract["scenarios"]["usbstor_setupapi_discrepancy_01"]["manipulation_count"] = 2
 
 
 def without_native_profile(contract):
@@ -79,10 +80,10 @@ def fewer_child_directories(contract):
 
 
 @pytest.mark.parametrize("edit,message", [
-    (remove_scenario, "keeps all 14 scenarios"),
-    (more_drives, "three virtual USB drives"),
-    (more_timestomping, "timestomp_01 manipulates 2 object"),
-    (fewer_streams, "ads_injection_01 manipulates 2 object"),
+    (remove_scenario, "experiments.full_scale lists the scenarios of the image"),
+    (more_drives, "2 to 4 virtual drives"),
+    (half_a_question, "BQ-DELETE-01 needs all of its scenarios"),
+    (two_changed_drives, "each changes one drive"),
     (without_native_profile, "native profile"),
     (oversized_supplement, "exceeds the released construction"),
     (fewer_child_directories, "child-count strata"),
@@ -210,7 +211,7 @@ def test_paper_images_refuse_changed_code_and_your_own_record_it(monkeypatch, tm
 def test_generate_checks_image_files_before_anything_starts(tmp_path, monkeypatch):
     broken = example()
     more_drives(broken)
-    with pytest.raises(ValueError, match="three virtual USB drives"):
+    with pytest.raises(ValueError, match="2 to 4 virtual drives"):
         run.generate_images([write_image(tmp_path / "mine.json", broken)], 1, tmp_path / "generated")
     with pytest.raises(SystemExit, match="same name"):
         run.generate_images([EXAMPLE, write_image(tmp_path / "decoys.json", example())], 1, tmp_path / "generated")
@@ -264,6 +265,8 @@ def test_llm_conditions_reach_the_analysis_and_the_summary(tmp_path, monkeypatch
     monkeypatch.setattr(run, "step", lambda name, **arguments: steps.append((name, arguments)) or 0)
     monkeypatch.setattr(run.host, "toolchain_root", lambda: tmp_path / "toolchain")
     llm = {"conditions": ["sonnet5-high"], "dispatch": {"execute": True, "cap_usd": "20", "rates": {}}}
+    (tmp_path / "recipe").mkdir()
+    (tmp_path / "recipe/recipe.json").write_text(json.dumps({"config": recipe.paper_config("I1")}))
     assert run.analyse("small", tmp_path / "generation", tmp_path / "recipe", tmp_path, llm)["admission"] == "not reached"
     config = json.loads((tmp_path / "pipeline.json").read_text())
     assert config["conditions"] == ["sonnet5-high"] and config["dispatch"] == llm["dispatch"]

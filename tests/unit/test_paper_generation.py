@@ -523,7 +523,6 @@ def test_pilot_allocation_executes_exact_frozen_shape_with_native_api_doubles(
     )
     if defect == "extra_operation":
         payload["operation_refs"] = payload["population_paths"][:2]
-        payload["expected_operation_count"] = 2
     elif defect == "missing_control":
         payload["population_paths"].pop()
     tasks = ROOT / "src/fmb/generation/ansible/roles/manipulation/tasks"
@@ -534,10 +533,9 @@ def test_pilot_allocation_executes_exact_frozen_shape_with_native_api_doubles(
         "ansible.windows.win_shell"
     ]
     assert body == legacy.replace(
-        "$expectedPopulationCount -lt 1", "$expectedPopulationCount -ne 4"
-    ).replace(
-        "$expectedOperationCount -ne $(if ($case -eq 'positive') { 2 } else { 0 })",
-        "$expectedOperationCount -ne $(if ($case -eq 'positive') { 1 } else { 0 })",
+        "$expectedOperationCount -ne $(if ($case -eq 'positive') { 2 } else { 0 }) -or",
+        "($case -eq 'positive' -and ($expectedOperationCount -lt 1 -or $expectedOperationCount -gt "
+        "$expectedPopulationCount)) -or\n    ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or",
     )
     result = run_body(
         tmp_path, json.dumps(payload), body=mock_prefix(ordinary) + "\n" + body

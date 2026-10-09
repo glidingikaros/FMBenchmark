@@ -31,8 +31,8 @@ def prepare(controller) -> None:
 
 
 def match_backings(sources: list[dict], bindings: list[dict], *, reader_factory=QemuImageReader) -> dict[str, Path]:
-    if len(sources) != 3 or len(bindings) != 3:
-        raise ValueError("pilot backing reconciliation requires exactly three volumes")
+    if len(sources) < 2 or len(sources) != len(bindings):
+        raise ValueError("pilot backing reconciliation requires one binding for each volume")
     by_serial = {}
     for source in sources:
         path = Path(source["path"])
@@ -62,7 +62,7 @@ def match_backings(sources: list[dict], bindings: list[dict], *, reader_factory=
 def export(controller, system_image: Path) -> list[Path]:
     bindings = controller.native_media_binding
     if not isinstance(bindings, list):
-        raise ValueError("pilot export lacks the three verified native bindings")
+        raise ValueError("pilot export lacks the verified native bindings")
     sources = match_backings(controller.native_media_sources, bindings)
     layout = controller.population_guest_plan["scenario_inputs"]["usbstor_setupapi_discrepancy_01"]["media"]
     if [row["subject_ref"] for row in bindings] != [row["subject_ref"] for row in layout]:

@@ -47,8 +47,9 @@ def _verified_receipts(_population, guest_plan: dict, *, case: str) -> list[dict
             receipt["metadata_stream_count"] = 1
             receipt["content_contract"] = "named_stream_pe_zip.v2"
             receipt["streams"] = [
-                {"format": kind, "stream_name": name, "stream_length": length, "stream_sha256": "a" * 64}
-                for kind, name, length in (("pe", inputs["stream_name"], 4096), ("zip", inputs["zip_stream_name"], 160))
+                {"format": kind, "stream_name": name, "stream_length": 4096 if kind == "pe" else 160,
+                 "stream_sha256": "a" * 64}
+                for kind, name in _population.ads_streams(inputs, len(refs))
             ] if case == "positive" else []
         elif scenario_id == "shellbag_path_residue_01":
             receipt["population_count"] = population_count

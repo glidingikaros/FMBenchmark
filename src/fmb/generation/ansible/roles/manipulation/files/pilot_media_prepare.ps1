@@ -5,7 +5,7 @@ $native = @(Get-CimInstance Win32_DiskDrive | Where-Object {
     [string]$candidateDisk.BusType -ceq 'USB' -and [UInt64]$candidateDisk.Size -eq $diskBytes
 })
 $native=@($native | Sort-Object PNPDeviceID)
-if($native.Count -ne 3 -or @($native.PNPDeviceID | Select-Object -Unique).Count -ne 3 -or $pilotDiskIndex -notin @(0,1,2)){throw 'Pilot requires three unique native USBSTOR 64 MiB disks'}
+if($native.Count -ne $pilotDiskCount -or @($native.PNPDeviceID | Select-Object -Unique).Count -ne $pilotDiskCount -or $pilotDiskIndex -lt 0 -or $pilotDiskIndex -ge $pilotDiskCount){throw 'Pilot requires one unique native USBSTOR 64 MiB disk for each planned drive'}
 $disk = Get-Disk -Number ([int]$native[$pilotDiskIndex].Index)
 if ([string]$disk.BusType -cne 'USB' -or [UInt64]$disk.Size -ne $diskBytes -or
     $disk.IsBoot -or $disk.IsSystem -or $disk.IsOffline -or $disk.IsReadOnly) {

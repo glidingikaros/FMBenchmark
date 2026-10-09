@@ -103,7 +103,7 @@ def test_external_media_uses_native_device_enumeration_and_safe_empty_media() ->
 
 def test_external_media_cases_share_native_attachment_before_intervention() -> None:
     source = scenario_source("usbstor_setupapi_discrepancy_01.yml")
-    assert "@($scenarioInput.media).Count -ne 3" in source
+    assert "@($scenarioInput.media).Count -lt 2" in source
     assert "native_binding=$binding" in source
     helper = media_helper_source()
     assert "$case" not in helper
@@ -129,7 +129,8 @@ def test_new_file_scenarios_use_neutral_subject_names_and_content() -> None:
 
 def test_i30_scenario_populates_both_native_index_strata_before_deletion() -> None:
     source = scenario_source("directory_cleaning_i30_01.yml")
-    assert "$leafNames.Count -ne 80" in source
+    assert "$leafNames.Count -lt 80" in source
+    assert "$creationOrder.Count -ne $leafNames.Count" in source
     assert "$directoryCases.Count -ne $expectedPopulationCount" in source
     assert "$paths.Count -ne $expectedOperationCount" in source
     assert source.index("$created.Add($path)") < source.index("Remove-Item -LiteralPath $path")
@@ -305,8 +306,8 @@ def test_ads_uses_native_content_with_nonempty_benign_stream_controls() -> None:
     assert "whoami.exe" in source
     assert source.index("-Stream $metadataName") < source.index("$failureStage = 'payload_file_read'")
     assert "Start-Process" not in source
-    assert "Set-Content -LiteralPath ([string]$paths[0]) -Stream $streamName -Value $payload -Encoding Byte" in source
-    assert "Get-Content -LiteralPath ([string]$paths[0]) -Stream $streamName -Encoding Byte -ReadCount 0" in source
+    assert "Set-Content -LiteralPath ([string]$paths[$targetIndex]) -Stream $streamName -Value $payload -Encoding Byte" in source
+    assert "Get-Content -LiteralPath ([string]$paths[$targetIndex]) -Stream $streamName -Encoding Byte -ReadCount 0" in source
     assert "[IO.File]::WriteAllBytes($streamPath" not in source
     assert "[IO.File]::ReadAllBytes($streamPath" not in source
     assert "$readback.Length -eq $payload.Length" in source

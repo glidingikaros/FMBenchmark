@@ -17,7 +17,8 @@
     $operationRefsSha256 = Get-OperationRefsSha256 $paths
     if ($expectedPopulationCount -lt 1 -or
         $populationPaths.Count -ne $expectedPopulationCount -or
-        $expectedOperationCount -ne $(if ($case -eq 'positive') { 1 } else { 0 }) -or
+        ($case -eq 'positive' -and ($expectedOperationCount -lt 1 -or $expectedOperationCount -gt $expectedPopulationCount)) -or
+        ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
         $paths.Count -ne $expectedOperationCount) {
       throw "Native Shellbag population cardinality is invalid"
     }

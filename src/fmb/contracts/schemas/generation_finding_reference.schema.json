@@ -10,7 +10,6 @@
     "case",
     "population_manifest_sha256",
     "operation_truth_payload_sha256",
-    "archive_receipt_payload_sha256",
     "scenarios"
   ],
   "properties": {

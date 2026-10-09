@@ -85,5 +85,5 @@ def test_native_media_preparation_is_owned_and_dependency_checked(tmp_path):
     instance = pipeline.GenerationPipeline.__new__(pipeline.GenerationPipeline)
     instance.population_guest_plan = {}
     instance.run_command = lambda *_a, **_k: pytest.fail("nonpaper media dispatch")
-    with pytest.raises(ValueError, match="three-media"):
+    with pytest.raises(ValueError, match="native profile"):
         instance.prepare_native_media()

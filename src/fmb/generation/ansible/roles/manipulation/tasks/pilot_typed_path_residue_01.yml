@@ -17,7 +17,8 @@
     if (
       $expectedPopulationCount -lt 1 -or
       $populationPaths.Count -ne $expectedPopulationCount -or
-      $expectedOperationCount -ne $(if ($case -eq 'positive') { 2 } else { 0 }) -or
+      ($case -eq 'positive' -and ($expectedOperationCount -lt 1 -or $expectedOperationCount -ge $expectedPopulationCount)) -or
+      ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
       $paths.Count -ne $expectedOperationCount
     ) {
       throw "Path-history population cardinality is invalid"

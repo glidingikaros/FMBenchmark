@@ -471,8 +471,8 @@ class QemuBackend:
         p.provider_launch_attempted = True
         prepare_overlay(p.qemu_img_cmd, self.base_path(), qemu, state)
         inputs = json.loads(Path(p.population_inputs_path).read_text(encoding="utf-8"))
-        media = list(p.native_media_sources)
-        frozen = inputs["generation_inputs"]["scenario_inputs"]["usbstor_setupapi_discrepancy_01"]["media"]
+        media = list(getattr(p, "native_media_sources", None) or [])
+        frozen = inputs["generation_inputs"]["scenario_inputs"].get("usbstor_setupapi_discrepancy_01", {}).get("media", [])
         if ([(int(row["unit"]), int(row["port"]), Path(row["path"]).name) for row in media]
                 != [(item["unit"], item["port"], item["source_file"]) for item in frozen]):
             raise ValueError("pilot USB layout differs from its frozen recipe")
@@ -490,8 +490,9 @@ class QemuBackend:
                 raise RuntimeError("QEMU exited during boot: " + (state / "qemu.log").read_text(errors="replace")[-2000:])
             try:
                 if self._guest_powershell(wait, timeout=120).returncode == 0:
-                    self.attach_media(inputs["fmb_hardware"], media)
-                    self.await_media(p.ansible_cmd, len(media))
+                    if media:
+                        self.attach_media(inputs["fmb_hardware"], media)
+                        self.await_media(p.ansible_cmd, len(media))
                     return (f"[*] QEMU guest ready after {time.monotonic() - started:.0f}s "
                             f"(WinRM 127.0.0.1:{self.winrm_port}, interactive vagrant session, "
                             f"{len(media)} virtual USB disks plugged in)\n")

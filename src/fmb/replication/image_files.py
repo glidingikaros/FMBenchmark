@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fmb.core.paper_protocol import paper_protocol
 from fmb.core.sealed_records import read_json
+from fmb.question_packs import load_packs
 
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
 IMAGES = Path("images")
@@ -13,16 +14,7 @@ TEMPLATE = "template"
 SETTINGS = {"clock_bias_minutes": (-840, 840, "auto"), "activity_count": (1, 500, None),
             "activity_seed": (0, 2**63 - 1, None), "hardware_seed": (0, 2**63 - 1, None)}
 PROVIDER_KEYS = {"openai": "OPENAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
-MANIPULATED = {
-    "timestomp_01": 2, "ads_injection_01": 2, "prefetch_wipe_01": 1, "security_log_clear_event_01": 1,
-    "usn_journal_01": 1, "shimcache_path_residue_01": 1, "typed_path_residue_01": 2, "shellbag_path_residue_01": 1,
-    "ntfs_allocation_01": 1, "bitmap_trailing_data_01": 2, "usbstor_setupapi_discrepancy_01": 1,
-    "usb_volume_activity_gap_01": 1, "event_record_sequence_gap_01": 1,
-}
 FIXED_OBJECTS = {
-    "usbstor_setupapi_discrepancy_01": (3, "the native layout has three virtual USB drives"),
-    "usb_volume_activity_gap_01": (3, "the native layout has three virtual USB drives"),
-    "ntfs_allocation_01": (4, "its guest script builds one file for each of four storage modes"),
     "security_log_clear_event_01": (1, "the image has one Security log"),
     "event_record_sequence_gap_01": (1, "the image has one Security log"),
 }
@@ -73,17 +65,29 @@ def load(path: Path) -> Image:
         raise ValueError(f"{path.name}: {error}") from error
     if contract.get("native_pilot_profile") != pilot_profile.PROFILE:
         raise ValueError(f"{path.name}: an image uses the native profile {pilot_profile.PROFILE}")
-    if set(contract["experiments"]["full_scale"]) != set(population.SCENARIO_ANALYSIS):
-        raise ValueError(f"{path.name}: experiments.full_scale keeps all {len(population.SCENARIO_ANALYSIS)} "
-                         "scenarios, which the native profile builds on; change their counts instead")
-    for scenario, manipulated in MANIPULATED.items():
-        if contract["scenarios"][scenario]["manipulation_count"] != manipulated:
-            raise ValueError(f"{path.name}: {scenario} manipulates {manipulated} object(s), which its guest script "
-                             "fixes; change configured_count, the objects around them, instead")
+    present = contract["experiments"]["full_scale"]
+    if set(contract["scenarios"]) != set(present) or not set(present) <= set(population.SCENARIO_ANALYSIS):
+        raise ValueError(f"{path.name}: experiments.full_scale lists the scenarios of the image and scenarios defines "
+                         f"each of them; the scenarios are {', '.join(population.SCENARIO_ANALYSIS)}")
+    for pack in load_packs():
+        needed = pack["generation"]["scenarios"]
+        if 0 < len(set(needed) & set(present)) < len(needed):
+            raise ValueError(f"{path.name}: {pack['question_id']} needs all of its scenarios ({', '.join(needed)}) "
+                             "or none of them")
+    supplement = pilot_profile.resolve_parameters(contract.get("native_pilot_parameters"))["case_classes"]
+    unasked = sorted(set(supplement) - set(questions(contract)))
+    if unasked:
+        raise ValueError(f"{path.name}: native_pilot_parameters.case_classes has cases for {', '.join(unasked)}, "
+                         "which the image does not ask; remove them")
     for scenario, (configured, reason) in FIXED_OBJECTS.items():
-        if contract["scenarios"][scenario]["configured_count"] != configured:
+        if scenario in present and contract["scenarios"][scenario]["configured_count"] != configured:
             raise ValueError(f"{path.name}: {scenario} keeps {configured} object(s): {reason}")
     return Image(path.stem, seed, contract, path, settings=settings)
+
+
+def questions(contract: dict) -> list[str]:
+    present = set(contract["experiments"]["full_scale"])
+    return [pack["question_id"] for pack in load_packs() if set(pack["generation"]["scenarios"]) <= present]
 
 
 def _settings(value, where: str) -> dict:

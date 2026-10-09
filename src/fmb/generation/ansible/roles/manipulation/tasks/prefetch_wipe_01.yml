@@ -16,7 +16,8 @@
     if (
       $expectedPopulationCount -lt 1 -or
       $populationPaths.Count -ne $expectedPopulationCount -or
-      $expectedOperationCount -ne $(if ($case -eq 'positive') { 1 } else { 0 }) -or
+      ($case -eq 'positive' -and ($expectedOperationCount -lt 1 -or $expectedOperationCount -gt $expectedPopulationCount)) -or
+      ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
       $paths.Count -ne $expectedOperationCount
     ) {
       throw "Prefetch population cardinality is invalid"
@@ -24,7 +25,7 @@
     foreach ($path in $populationPaths) {
        Start-Process -FilePath ([string]$path) -WindowStyle Hidden -Wait 
     }
-    $deadline = (Get-Date).AddSeconds(30)
+    $deadline = (Get-Date).AddSeconds([Math]::Max(30, 3 * $populationPaths.Count))
     do {
       $prefetchCount = 0
       foreach ($path in $populationPaths) {
@@ -40,11 +41,13 @@
       }
     } while ($prefetchCount -lt $populationPaths.Count -and (Get-Date) -lt $deadline)
     if ($case -eq 'positive') {
-      $operationPath = [string]$paths[0]
-      Invoke-PaperOperation ("Remove-Item -LiteralPath " + (ConvertTo-OperationLiteral $operationPath) + " -Force")
+      foreach ($operationPath in @($paths | ForEach-Object { [string]$_ })) {
+        Invoke-PaperOperation ("Remove-Item -LiteralPath " + (ConvertTo-OperationLiteral $operationPath) + " -Force")
+      }
+      $remaining = @($paths | Where-Object { Test-Path -LiteralPath ([string]$_) }).Count
       $verified = (
         $prefetchCount -eq $populationPaths.Count -and
-        -not (Test-Path -LiteralPath $operationPath)
+        $remaining -eq 0
       )
     }
     else {

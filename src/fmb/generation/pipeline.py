@@ -35,6 +35,12 @@ MIN_GENERATION_RUNTIME_RESERVE_BYTES = 8 * 1024**3
 
 
 EXECUTION_ORDER_LAST = ("timestomp_01",)
+FACTUAL_CHECKPOINTS = (
+    ("checkpoint-01.evtx", "security_log_clear_event_01"),
+    ("checkpoint-02.evtx", "event_record_sequence_gap_01"),
+    ("checkpoint-03.log", "usbstor_setupapi_discrepancy_01"),
+    ("checkpoint-04.vmdk", "usb_volume_activity_gap_01"),
+)
 
 
 def execution_order(scenario_ids):
@@ -419,6 +425,12 @@ class GenerationPipeline:
                 "regeneration_status": "not_independently_validated",
             })
 
+    def playbook_timeout(self):
+        scenarios = (getattr(self, "public_population_manifest", None) or {}).get("scenarios", {})
+        objects = sum(scenario["declared_count"] for scenario in scenarios.values())
+        shellbags = scenarios.get("shellbag_path_residue_01", {}).get("declared_count", 0)
+        return (7200 if self.provider == "qemu" else 3600) + 60 * max(0, objects - 56) + 480 * max(0, shellbags - 5)
+
     def require_locked_interpreter(self):
         lock = self.recipe_bundle["lock"]
         if recipe_support.lock_version(lock) == 1:
@@ -484,8 +496,9 @@ class GenerationPipeline:
 
     def prepare_native_media(self):
         if (self.population_guest_plan or {}).get('native_pilot_profile') != 'pilot_min.v1':
-            raise ValueError('paper generation requires the three-media native profile')
-        self.pilot_media_module().prepare(self)
+            raise ValueError('paper generation requires the native profile')
+        if "usbstor_setupapi_discrepancy_01" in self.population_guest_plan["scenario_inputs"]:
+            self.pilot_media_module().prepare(self)
 
     def pilot_media_module(self):
         from fmb.generation import pilot_media
@@ -1388,7 +1401,7 @@ class GenerationPipeline:
                 "ANSIBLE_FORKS": "1",
             }
             env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
-        output = self.run_streaming_command(cmd, env=env, timeout_seconds=7200 if self.provider == "qemu" else 3600)
+        output = self.run_streaming_command(cmd, env=env, timeout_seconds=self.playbook_timeout())
         if getattr(self, "recipe_bundle", None) is not None:
             self.capture_recipe_runtime(output)
         return output
@@ -2054,6 +2067,13 @@ class GenerationPipeline:
                 manifest["finding_reference"] = "finding_reference.json"
                 manifest["finding_reference_sha256"] = self.calculate_hash(self.output_dir / "finding_reference.json")
             manifest["artifacts"].append(artifact_row(control))
+        elif (self.ground_truth is not None
+              and (self.population_guest_plan or {}).get("native_pilot_profile") == "pilot_min.v1"):
+            finding_reference = build_finding_reference(self.public_population_manifest, self.ground_truth)
+            (self.output_dir / "finding_reference.json").write_text(
+                json.dumps(finding_reference, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            manifest["finding_reference"] = "finding_reference.json"
+            manifest["finding_reference_sha256"] = self.calculate_hash(self.output_dir / "finding_reference.json")
 
         receipt_names = ["recipe-reference.json", "recipe-runtime-receipt.json"]
         clone_path = self.output_dir / vmware_clone.RECEIPT_NAME
@@ -2078,7 +2098,8 @@ class GenerationPipeline:
             if recipe_support.read_json(public_path) != plan["public_manifest"]:
                 raise ValueError("supplemental public population differs from frozen plan")
             receipt_names.extend((public_path.name, receipt_path.name, plan_path.name))
-            for checkpoint in ("checkpoint-01.evtx", "checkpoint-02.evtx", "checkpoint-03.log", "checkpoint-04.vmdk"):
+            planned = self.population_guest_plan["scenario_inputs"]
+            for checkpoint in (name for name, scenario in FACTUAL_CHECKPOINTS if scenario in planned):
                 path = self.output_dir / "factual-checkpoints" / checkpoint
                 if not path.is_file() or path.is_symlink():
                     raise ValueError("scheduled native checkpoint is missing")
@@ -2441,7 +2462,9 @@ class GenerationPipeline:
             "keep_vm", "system_image", "native_media_source", "native_media_binding",
             "public_population_manifest", "recipe_directory", "guest_plan", "ground_truth",
         }
-        if isinstance(state, dict) and (state.get("guest_plan") or {}).get("native_pilot_profile") == "pilot_min.v1":
+        plan = (state.get("guest_plan") or {}) if isinstance(state, dict) else {}
+        if (plan.get("native_pilot_profile") == "pilot_min.v1"
+                and "usbstor_setupapi_discrepancy_01" in plan.get("scenario_inputs", {})):
             required.add("native_media_sources")
         if (not isinstance(state, dict) or set(state) != required
                 or state["schema_version"] != POST_EXPORT_STATE_SCHEMA):

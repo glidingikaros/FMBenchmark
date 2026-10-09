@@ -1,5 +1,5 @@
 ---
-- name: Create and remove bounded leaves from one directory
+- name: Create and remove bounded leaves from the directories
   ansible.windows.win_shell: |
     {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
     $ErrorActionPreference = 'Stop'
@@ -21,8 +21,9 @@
     if ($expectedPopulationCount -lt 1 -or
         $populationPaths.Count -ne $expectedPopulationCount -or
         $directoryCases.Count -ne $expectedPopulationCount -or
-        $leafNames.Count -ne 80 -or $deleteCount -ne 4 -or
-        $deleteIndexes.Count -ne $deleteCount -or $creationOrder.Count -ne 80 -or
+        $leafNames.Count -lt 80 -or $deleteCount -ne 4 -or
+        $deleteIndexes.Count -ne $deleteCount -or $creationOrder.Count -ne $leafNames.Count -or
+        @($directoryCases | Where-Object { [int]$_.child_count -gt $leafNames.Count }).Count -ne 0 -or
         ($case -eq 'positive' -and $expectedOperationCount -lt 1) -or
         ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
         $paths.Count -ne $expectedOperationCount) {

@@ -18,8 +18,10 @@ CASE_CLASSES = {
     "BQ-FILE-01": ("append_four", "valid_bmp"),
 }
 PARAMETERS_SCHEMA = "native_pilot_parameters.v1"
+PILOT_TIMESTAMPS = ["2026-09-02T10:17:23Z", "2025-08-11T13:29:41Z"]
 DEFAULT_CHILD_COUNT = 80
 CHILD_OPERATION_INDEX = 13
+MEDIA_PORTS = (5, 3, 2, 1)
 MINIMUM_CHILD_COUNT = 22
 DEFAULT_TIMESTAMP_DELTAS = {
     "same_year": {"creation_filetime": -14 * DAY_FILETIME - 1,
@@ -94,9 +96,11 @@ def packed_helper(name: str) -> dict:
             "native_helper_sha256": hashlib.sha256(source).hexdigest()}
 
 
-def media_layout(seed: int) -> list[dict]:
+def media_layout(seed: int, count: int = 3) -> list[dict]:
+    if not 2 <= count <= len(MEDIA_PORTS):
+        raise ValueError(f"the native layout has 2 to {len(MEDIA_PORTS)} virtual USB drives")
     result = []
-    for index, port in enumerate((5, 3, 2)):
+    for index, port in enumerate(MEDIA_PORTS[:count]):
         token = hashlib.sha256(f"{PROFILE}:media:{seed}:{index}".encode()).hexdigest()[:12]
         result.append({
             "subject_ref": "virtual-usb:" + token,
@@ -129,22 +133,37 @@ def decorate_members(members: list[dict], token, parameters=None) -> None:
 def adjust_guest_plan(plan: dict, public: dict, contract: dict) -> dict:
     if not is_pilot(contract):
         return plan
-    if set(public["scenarios"]) != set(contract["experiments"]["full_scale"]):
-        raise ValueError("native pilot requires the complete fourteen-scenario population")
     inputs = plan["scenario_inputs"]
     if any(item["case"] != "positive" for item in inputs.values()):
         raise ValueError("native pilot is a mixed-component positive realization")
     plan["native_pilot_profile"] = PROFILE
     for item in inputs.values():
         item["native_pilot_profile"] = PROFILE
-    time = inputs["timestomp_01"]
-    time["timestamps"] = ["2026-09-02T10:17:23Z", "2025-08-11T13:29:41Z"]
-    inputs["bitmap_trailing_data_01"]["bitmap_operations"][0]["byte_count"] = 1024
-    typed = inputs["typed_path_residue_01"]
-    typed["recreated_path"] = next(p for p in typed["population_paths"] if p not in typed["operation_refs"])
-    layout = media_layout(public["population_seed"])
+    if "timestomp_01" in inputs:
+        time = inputs["timestomp_01"]
+        time["timestamps"] = (PILOT_TIMESTAMPS + time["timestamps"][len(PILOT_TIMESTAMPS):])[:len(time["timestamps"])]
+    for operation in inputs.get("bitmap_trailing_data_01", {}).get("bitmap_operations", []):
+        if operation["mode"] == "append":
+            operation["byte_count"] = 1024
+    if "typed_path_residue_01" in inputs:
+        typed = inputs["typed_path_residue_01"]
+        typed["recreated_path"] = next(p for p in typed["population_paths"] if p not in typed["operation_refs"])
+    if "usbstor_setupapi_discrepancy_01" in inputs:
+        _adjust_media(inputs, public)
+    if "security_log_clear_event_01" in inputs:
+        clear = inputs["security_log_clear_event_01"]
+        clear.update(case="benign", operation_refs=[], expected_operation_count=0)
+    return plan
+
+
+def _adjust_media(inputs: dict, public: dict) -> None:
+    layout = media_layout(public["population_seed"],
+                          len(public["scenarios"]["usbstor_setupapi_discrepancy_01"]["members"]))
     inputs["usbstor_setupapi_discrepancy_01"]["native_helper"] = packed_helper("pilot_media_prepare.ps1")
+    history = inputs.get("usb_volume_activity_gap_01", {}).get("operation_refs", [])
     for sid in ("usbstor_setupapi_discrepancy_01", "usb_volume_activity_gap_01"):
+        if sid not in inputs:
+            continue
         item = inputs[sid]
         item["media"] = []
         for index, volume in enumerate(layout):
@@ -154,13 +173,10 @@ def adjust_guest_plan(plan: dict, public: dict, contract: dict) -> dict:
                 names[name] = "f_" + token + (".lnk" if name == "shortcut_name" else ".txt")
             item["media"].append({**volume, **names,
                 "installation_discrepancy": volume["subject_ref"] in inputs["usbstor_setupapi_discrepancy_01"]["operation_refs"],
-                "history_discrepancy": volume["subject_ref"] in inputs["usb_volume_activity_gap_01"]["operation_refs"],
+                "history_discrepancy": volume["subject_ref"] in history,
             })
         for name in ("file_name", "replacement_name", "before_name", "after_name", "shortcut_name"):
             del item[name]
-    clear = inputs["security_log_clear_event_01"]
-    clear.update(case="benign", operation_refs=[], expected_operation_count=0)
-    return plan
 
 
 def _year(filetime: int) -> int:

@@ -85,6 +85,12 @@ def test_the_paper_images_generate_from_the_released_plans(name):
             "hardware": _digest(recipe.resolved_hardware(image.seed))} == PLANS[name]
 
 
+def test_an_image_of_your_own_with_a_paper_population_leaves_the_paper_plan_alone():
+    population.register_population_contract(
+        population.load_population_contract(ROOT / "src/fmb/generation/populations.pilot-i3-20260918.json"))
+    test_the_paper_images_generate_from_the_released_plans("I3")
+
+
 @pytest.mark.parametrize("name", sorted(PAPER_FILES))
 def test_the_files_that_define_the_paper_are_unchanged(name):
     assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == PAPER_FILES[name]

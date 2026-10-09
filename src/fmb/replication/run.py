@@ -100,9 +100,20 @@ def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
     raise SystemExit(f"{image.name}: generation failed, see {folder}")
 
 
+def asked(recipe: Path) -> list[str] | None:
+    from fmb.core.case_contract import QIDS
+    from fmb.replication import image_files
+
+    contract = json.loads((recipe / "recipe.json").read_text(encoding="utf-8"))["config"].get("population_contract")
+    questions = None if contract is None else image_files.questions(contract)
+    return None if questions is None or set(questions) == set(QIDS) else questions
+
+
 def analyse(name: str, generation: Path, recipe: Path, folder: Path, llm: dict | None = None) -> dict:
+    questions = asked(recipe)
     config = {"case_label": name, "generation": str(generation),
               "conditions": llm["conditions"] if llm else ["luna-high"],
+              **({"questions": questions} if questions else {}),
               **({"dispatch": llm["dispatch"]} if llm else {}),
               "collect": {"windows_parsers": str(windows_parsers()), "host_toolchain_root": str(host.toolchain_root()),
                           **({"vm_work_root": str(host.cache() / "vm-work")} if host.MACOS else {})},

@@ -33,6 +33,16 @@
     label: "{{ fmb_scenario_item }}"
   when: scenario is defined and scenario != 'baseline'
 
+- name: Run the supplemental factual cohort when the image has no timestamp operation
+  ansible.builtin.include_tasks:
+    file: pilot_challenge.yml
+  vars:
+    fmb_pilot_stage: operate
+  when:
+    - fmb_factual_challenge_plan is defined
+    - scenario_list is defined
+    - "'timestomp_01' not in scenario_list"
+
 - name: Guest clock checkpoint after the scenario operations
   ansible.builtin.include_tasks: "{{ playbook_dir }}/clock_checkpoint.yml"
   vars:

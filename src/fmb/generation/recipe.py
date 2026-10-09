@@ -443,8 +443,11 @@ def _factual_challenge_plan(config, guest_plan, population):
     from fmb.generation.factual_challenge import build_plan
     from fmb.generation.pilot_profile import parameters_for_manifest
 
-    return build_plan(config["population_seed"],
-                      shellbag_input=guest_plan["scenario_inputs"]["shellbag_path_residue_01"], profile="pilot_min.v1",
+    from fmb.generation.population import SHELLBAG_VISIT_BUDGETS, validate_visit_budgets
+
+    shellbag = guest_plan["scenario_inputs"].get("shellbag_path_residue_01") or {
+        "visit_budgets": validate_visit_budgets(SHELLBAG_VISIT_BUDGETS)}
+    return build_plan(config["population_seed"], shellbag_input=shellbag, profile="pilot_min.v1",
                       pilot_parameters=parameters_for_manifest(population))
 
 

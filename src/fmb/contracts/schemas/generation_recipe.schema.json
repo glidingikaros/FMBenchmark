@@ -393,6 +393,14 @@
                 "type": "string",
                 "pattern": "^[sn]_[a-f0-9]{12}$"
               },
+              "extra_stream_names": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "pattern": "^n_[a-f0-9]{12}$"
+                }
+              },
               "zip_member_name": {
                 "const": "records.csv"
               },
@@ -424,44 +432,45 @@
               },
               "bitmap_operations": {
                 "type": "array",
-                "minItems": 2,
-                "maxItems": 2,
-                "prefixItems": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "mode",
-                      "byte_count"
-                    ],
-                    "properties": {
-                      "mode": {
-                        "const": "append"
-                      },
-                      "byte_count": {
-                        "type": "integer",
-                        "const": 1024
+                "minItems": 1,
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "mode",
+                        "byte_count"
+                      ],
+                      "properties": {
+                        "mode": {
+                          "const": "append"
+                        },
+                        "byte_count": {
+                          "type": "integer",
+                          "const": 1024
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "mode",
+                        "length"
+                      ],
+                      "properties": {
+                        "mode": {
+                          "const": "truncate"
+                        },
+                        "length": {
+                          "type": "integer",
+                          "const": 54
+                        }
                       }
                     }
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "mode",
-                      "length"
-                    ],
-                    "properties": {
-                      "mode": {
-                        "const": "truncate"
-                      },
-                      "length": {
-                        "type": "integer",
-                        "const": 54
-                      }
-                    }
-                  }
-                ]
+                  ]
+                }
               },
               "leaf_names": {
                 "type": "array",
@@ -485,10 +494,9 @@
                       "minLength": 1
                     },
                     "child_count": {
-                      "enum": [
-                        4,
-                        80
-                      ]
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 200
                     }
                   },
                   "additionalProperties": false
@@ -504,18 +512,18 @@
                 "items": {
                   "type": "integer",
                   "minimum": 0,
-                  "maximum": 79
+                  "maximum": 199
                 },
                 "uniqueItems": true
               },
               "creation_order": {
                 "type": "array",
                 "minItems": 80,
-                "maxItems": 80,
+                "maxItems": 200,
                 "items": {
                   "type": "integer",
                   "minimum": 0,
-                  "maximum": 79
+                  "maximum": 199
                 },
                 "uniqueItems": true
               },
@@ -638,8 +646,8 @@
               },
               "media": {
                 "type": "array",
-                "minItems": 3,
-                "maxItems": 3,
+                "minItems": 2,
+                "maxItems": 4,
                 "items": {
                   "type": "object",
                   "required": [
@@ -702,14 +710,16 @@
                       "enum": [
                         8,
                         9,
-                        10
+                        10,
+                        11
                       ]
                     },
                     "port": {
                       "enum": [
                         5,
                         3,
-                        2
+                        2,
+                        1
                       ]
                     },
                     "installation_discrepancy": {

@@ -37,15 +37,17 @@
       })
     }
     if (-not $legacy -and (
-      $operations.Count -ne 2 -or $operations[0].mode -cne 'append' -or
-      $operations[1].mode -cne 'truncate' -or [int]$operations[1].length -ne 54
+      $operations.Count -lt 1 -or
+      @($operations | Where-Object { -not (($_.mode -ceq 'append') -or
+        ($_.mode -ceq 'truncate' -and [int]$_.length -eq 54)) }).Count -ne 0
     )) { throw "Bitmap operation modes are invalid" }
     if (
-      $expectedPopulationCount -lt 2 -or
+      $expectedPopulationCount -lt 1 -or
       $populationPaths.Count -ne $expectedPopulationCount -or
-      $expectedOperationCount -ne $(if ($case -eq 'positive') { 2 } else { 0 }) -or
+      ($case -eq 'positive' -and ($expectedOperationCount -lt 1 -or $expectedOperationCount -gt $expectedPopulationCount)) -or
+      ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
       $paths.Count -ne $expectedOperationCount -or
-      ($case -eq 'positive' -and $operations.Count -ne 2)
+      ($case -eq 'positive' -and $operations.Count -ne $expectedOperationCount)
     ) {
       throw "Bitmap population cardinality is invalid"
     }

@@ -137,7 +137,8 @@ def test_resume_restores_only_the_fixed_paper_checkpoint(pipeline, tmp_path, mon
         'export_format': 'vmdk', 'keep_vm': False, 'system_image': 'full_scale.vmdk',
         'native_media_source': None, 'native_media_binding': [],
         'public_population_manifest': False, 'recipe_directory': None,
-        'guest_plan': {'native_pilot_profile': 'pilot_min.v1'}, 'ground_truth': None,
+        'guest_plan': {'native_pilot_profile': 'pilot_min.v1',
+                       'scenario_inputs': {'usbstor_setupapi_discrepancy_01': {}}}, 'ground_truth': None,
         'native_media_sources': [{'path': f'media-{i}.vmdk', 'unit': i, 'port': i} for i in range(3)],
     }
     if change:

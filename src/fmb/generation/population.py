@@ -103,6 +103,13 @@ def _digest(seed: int, scenario_id: str, index: int, purpose: str) -> str:
 
 STOMP_YEAR_RANGE = (2004, datetime.fromisoformat(archive_control.ARCHIVE_LAST_WRITE_UTC).year - 1)
 LOGICAL_LENGTH_RANGE = (4097, 8096)
+ORDERED_LEAF_COUNT = 22
+MAXIMUM_DIRECTORY_CHILDREN = 200
+SCENARIO_MAXIMUM_COUNTS = (
+    ("typed_path_residue_01", 25, "Explorer keeps 25 typed paths"),
+    ("ntfs_allocation_01", 100, "the offline NTFS check reads at most 100 files"),
+    ("directory_cleaning_i30_01", 100, "the offline index check reads at most 100 folders"),
+)
 PADDING_BYTES_RANGE = (4096, 15872)
 
 SHELLBAG_VISIT_BUDGET_KEYS = (
@@ -167,10 +174,26 @@ def _seeded_logical_length(seed: int, index: int) -> int:
     return low + value % (high - low + 1)
 
 
-def _seeded_padding_bytes(seed: int) -> int:
+def _seeded_padding_bytes(seed: int, index: int = 0) -> int:
     low, high = PADDING_BYTES_RANGE
-    value = int(_digest(seed, "bitmap_trailing_data_01", 0, "padding:0")[:16], 16)
+    value = int(_digest(seed, "bitmap_trailing_data_01", index, f"padding:{index}")[:16], 16)
     return low + (value % ((high - low) // 512 + 1)) * 512
+
+
+def ads_streams(inputs: Mapping[str, Any], count: int) -> list[tuple[str, str]]:
+    names = [inputs["stream_name"], inputs["zip_stream_name"], *inputs.get("extra_stream_names", [])]
+    if len(names) != max(2, count):
+        raise PopulationError("named-stream inputs do not name one stream for each target")
+    return [("pe" if index % 2 == 0 else "zip", names[index]) for index in range(count)]
+
+
+def _bitmap_operation_valid(operation: Mapping[str, Any], pilot: bool) -> bool:
+    if operation.get("mode") == "truncate":
+        return operation == {"mode": "truncate", "length": 54} and type(operation["length"]) is int
+    count = operation.get("byte_count")
+    return (operation.get("mode") == "append" and set(operation) == {"mode", "byte_count"}
+            and type(count) is int and count % 512 == 0
+            and (count == 1024 if pilot else PADDING_BYTES_RANGE[0] <= count <= PADDING_BYTES_RANGE[1]))
 
 
 def _instant(text: str) -> datetime | None:
@@ -212,8 +235,9 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
         raise PopulationError("unsupported native content-format revision")
     experiments = value.get("experiments")
     scenarios = value.get("scenarios")
-    if not isinstance(experiments, dict) or set(experiments) != {"timestomp", "full_scale"}:
-        raise PopulationError("the active experiments must be timestomp and full_scale")
+    if not isinstance(experiments, dict) or "full_scale" not in experiments or set(experiments) - {
+            "timestomp", "full_scale"}:
+        raise PopulationError("the experiments are full_scale and, as an option, timestomp")
     if not isinstance(scenarios, dict) or not scenarios:
         raise PopulationError("population scenarios must be a non-empty object")
     for experiment, scenario_ids in experiments.items():
@@ -267,8 +291,8 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
         if (
             not isinstance(child_counts, list)
             or len(child_counts) != directory["configured_count"]
-            or any(type(value) is not int or value not in {4, 80} for value in child_counts)
-            or sum(value == 80 for value in child_counts[:directory.get(
+            or any(type(value) is not int or not 1 <= value <= MAXIMUM_DIRECTORY_CHILDREN for value in child_counts)
+            or sum(value >= ORDERED_LEAF_COUNT for value in child_counts[:directory.get(
                 "assignment_pool_count", directory["configured_count"]
             )]) < directory["manipulation_count"]
         ):
@@ -290,6 +314,24 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
             ) < allocation["manipulation_count"]
         ):
             raise PopulationError("NTFS allocation storage modes are invalid")
+
+    for scenario_id, maximum, reason in SCENARIO_MAXIMUM_COUNTS:
+        if scenario_id in scenarios and scenarios[scenario_id]["configured_count"] > maximum:
+            raise PopulationError(f"scenario {scenario_id!r} has at most {maximum} objects: {reason}")
+    typed = scenarios.get("typed_path_residue_01")
+    if (typed is not None and value.get("native_pilot_profile") == pilot_profile.PROFILE
+            and typed["manipulation_count"] >= typed["configured_count"]):
+        raise PopulationError("typed_path_residue_01 keeps one folder that is not deleted: the native profile "
+                              "deletes and recreates it")
+    identity = scenarios.get("usbstor_setupapi_discrepancy_01")
+    media = [item for item in (identity, scenarios.get("usb_volume_activity_gap_01"))
+             if item is not None and item.get("media_layout") == pilot_profile.PROFILE]
+    if media and (media[0] is not identity
+                  or not 2 <= identity["configured_count"] <= len(pilot_profile.MEDIA_PORTS)
+                  or any(item["configured_count"] != identity["configured_count"] or item["manipulation_count"] != 1
+                         for item in media)):
+        raise PopulationError(f"the USB scenarios share 2 to {len(pilot_profile.MEDIA_PORTS)} virtual drives and each "
+                              "changes one drive; usb_volume_activity_gap_01 needs usbstor_setupapi_discrepancy_01")
     return value
 
 
@@ -314,7 +356,7 @@ def _member(
 
     if item["object_kind"] == "native_usb_device":
         if item.get("media_layout") == pilot_profile.PROFILE:
-            volume = pilot_profile.media_layout(seed)[index]
+            volume = pilot_profile.media_layout(seed, item["configured_count"])[index]
             return {
                 "candidate_id": candidate_id,
                 "subject_type": subject_type,
@@ -475,14 +517,14 @@ def verify_public_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _contract_for_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
-    registered = population_contracts.registered(str(manifest.get("contract_sha256")))
-    if registered is not None:
-        return registered
     for path in sorted(POPULATION_CONTRACT_PATH.parent.glob("populations*.json")):
         if path.is_file():
             contract = load_population_contract(path)
             if _sha256(contract) == manifest.get("contract_sha256"):
                 return contract
+    registered = population_contracts.registered(str(manifest.get("contract_sha256")))
+    if registered is not None:
+        return registered
     raise PopulationError("population manifest references an unknown frozen contract")
 
 
@@ -547,46 +589,43 @@ def select_private_assignment(
             )[:len(members)]
             bindings[scenario_id] = _ranked_members(
                 [member for member, child_count in zip(members, child_counts, strict=True)
-                 if child_count == 80],
+                 if child_count >= ORDERED_LEAF_COUNT],
                 entropy=entropy,
                 scenario_id=scenario_id,
             )[:count]
-        elif count == 2 and scenario_id in {
-            "timestomp_01",
-            "bitmap_trailing_data_01",
-        }:
+        elif scenario_id in {"timestomp_01", "bitmap_trailing_data_01"}:
+            if scenario_id == "timestomp_01":
+                restored = set(archive_restore_paths(public))
+                members = [member for member in members if _operational_path(member) not in restored]
             by_parent: dict[str, list[Mapping[str, Any]]] = {}
             for member in members:
                 path = str(member["identity_hint"]["canonical_path"])
                 parent = path.rsplit("\\", 1)[0]
                 by_parent.setdefault(parent, []).append(member)
-            if len(by_parent) != count:
-                raise PopulationError(
-                    f"scenario {scenario_id!r} does not have {count} path strata"
-                )
-            bindings[scenario_id] = [
-                _ranked_members(
-                    stratum,
-                    entropy=entropy,
-                    scenario_id=f"{scenario_id}:{parent}",
-                )[0]
-                for parent, stratum in sorted(by_parent.items())
-            ]
+            strata = [_ranked_members(stratum, entropy=entropy, scenario_id=f"{scenario_id}:{parent}")
+                      for parent, stratum in sorted(by_parent.items())]
+            picked = [strata[index % len(strata)][index // len(strata)] for index in range(count)
+                      if strata and index // len(strata) < len(strata[index % len(strata)])]
+            if len(picked) != count:
+                raise PopulationError(f"scenario {scenario_id!r} has too few eligible objects for {count} "
+                                      "manipulations spread over its folders")
+            bindings[scenario_id] = picked
         else:
             bindings[scenario_id] = _ranked_members(
                 members,
                 entropy=entropy,
                 scenario_id=scenario_id,
             )[:count]
-    if pilot_profile.is_pilot(contract):
+    if pilot_profile.is_pilot(contract) and "usbstor_setupapi_discrepancy_01" in public["scenarios"]:
         identity_sid = "usbstor_setupapi_discrepancy_01"
         history_sid = "usb_volume_activity_gap_01"
         ranked = _ranked_members(public["scenarios"][identity_sid]["members"],
                                  entropy=entropy, scenario_id="pilot-usb-components")
         bindings[identity_sid] = ranked[:1]
-        history_ref = ranked[1]["subject_ref"]
-        bindings[history_sid] = [m for m in public["scenarios"][history_sid]["members"]
-                                 if m["subject_ref"] == history_ref]
+        if history_sid in public["scenarios"]:
+            history_ref = ranked[1]["subject_ref"]
+            bindings[history_sid] = [m for m in public["scenarios"][history_sid]["members"]
+                                     if m["subject_ref"] == history_ref]
     return {
         "schema_version": "private_assignment.v1",
         "population_manifest_sha256": public["manifest_sha256"],
@@ -701,7 +740,7 @@ def build_guest_plan(
         if scenario_id in scenario_paths:
             item["population_paths"] = scenario_paths[scenario_id]
         if scenario_id == "timestomp_01":
-            item["timestamps"] = _seeded_stomp_timestamps(seed)
+            item["timestamps"] = _seeded_stomp_timestamps(seed, count=scenario_contract["manipulation_count"])
             item["timestamp_basis"] = "utc"
             item["archive_last_write_utc"] = archive_control.ARCHIVE_LAST_WRITE_UTC
             item["minimum_backdating_seconds"] = archive_control.MINIMUM_BACKDATING_SECONDS
@@ -709,8 +748,9 @@ def build_guest_plan(
             item["require_archive_retention"] = True
             item["archive_restore_paths"] = archive_restore_paths(public)
         elif scenario_id == "ads_injection_01":
+            count = scenario_contract["manipulation_count"]
             names = [f"n_{_digest(seed, scenario_id, index, 'native-name')[:12]}"
-                     for index in range(3)]
+                     for index in range(max(3, count + 1))]
             item["stream_name"] = names[0]
             item["content_kind"] = "native_windows_pe_zip.v2"
             item["zip_stream_name"] = names[2]
@@ -722,6 +762,8 @@ def build_guest_plan(
             controls = [path for path in scenario_paths[scenario_id] if path not in targets]
             item["benign_stream_path"] = (controls or scenario_paths[scenario_id])[0]
             item["benign_stream_content"] = "document_revision=3;application=records"
+            if count > 2:
+                item["extra_stream_names"] = names[3:]
 
         elif scenario_id == "typed_path_residue_01":
             item["leaf_name"] = f"f_{_digest(seed, scenario_id, 0, 'leaf')[:12]}.txt"
@@ -740,35 +782,33 @@ def build_guest_plan(
             ]
         elif scenario_id == "bitmap_trailing_data_01":
             item["bitmap_operations"] = [
-                {"mode": "append", "byte_count": _seeded_padding_bytes(seed)},
-                {"mode": "truncate", "length": 54},
+                {"mode": "append", "byte_count": _seeded_padding_bytes(seed, index)} if index % 2 == 0
+                else {"mode": "truncate", "length": 54}
+                for index in range(scenario_contract["manipulation_count"])
             ]
         elif scenario_id == "shellbag_path_residue_01":
             item["visit_budgets"] = validate_visit_budgets(SHELLBAG_VISIT_BUDGETS)
         elif scenario_id == "directory_cleaning_i30_01":
+            child_counts = contract["scenarios"][scenario_id].get(
+                "directory_child_counts",
+                [4 if index < 8 else 80 for index in range(len(scenario_paths[scenario_id]))],
+            )
+            leaf_count = max(80, *child_counts)
             item["leaf_names"] = [
                 f"f_{index:02d}{_digest(seed, scenario_id, index, 'leaf')[:46]}.txt"
-                for index in range(80)
+                for index in range(leaf_count)
             ]
             item["directory_cases"] = [
                 {"path": path, "child_count": child_count}
-                for path, child_count in zip(
-                    scenario_paths[scenario_id],
-                    contract["scenarios"][scenario_id].get(
-                        "directory_child_counts",
-                        [4 if index < 8 else 80
-                         for index in range(len(scenario_paths[scenario_id]))],
-                    ),
-                    strict=True,
-                )
+                for path, child_count in zip(scenario_paths[scenario_id], child_counts, strict=True)
             ]
             item["delete_count_per_directory"] = 4
             item["delete_leaf_indexes"] = [13, 14, 15, 16]
             remaining = sorted(
-                range(22, 80),
+                range(ORDERED_LEAF_COUNT, leaf_count),
                 key=lambda index: _digest(seed, scenario_id, index, "order"),
             )
-            item["creation_order"] = list(range(22)) + remaining
+            item["creation_order"] = list(range(ORDERED_LEAF_COUNT)) + remaining
         if scenario_id in {"usbstor_setupapi_discrepancy_01", "usb_volume_activity_gap_01"}:
             item["file_name"] = f"f_{_digest(seed, 'native_media', 0, 'file')[:12]}.txt"
             item["replacement_name"] = f"f_{_digest(seed, 'native_media', 0, 'alternate')[:12]}.txt"
@@ -932,7 +972,7 @@ def _validate_receipt_fields(
                     raise PopulationError("timestamp receipt does not prove both fields backdated by at least 60 seconds")
     elif scenario_id == "ads_injection_01":
         streams = receipt.get("streams")
-        expected = [("pe", inputs["stream_name"]), ("zip", inputs["zip_stream_name"])] if case == "positive" else []
+        expected = ads_streams(inputs, len(refs)) if case == "positive" else []
         if (receipt.get("content_contract") != "named_stream_pe_zip.v2"
                 or not isinstance(streams, list) or len(streams) != len(expected)
                 or len(refs) != len(expected)
@@ -1060,16 +1100,9 @@ def _validate_receipt_fields(
     elif scenario_id == "bitmap_trailing_data_01":
         instances = receipt.get("instances")
         operations = inputs.get("bitmap_operations")
-        if (not isinstance(operations, list) or len(operations) != 2
-                or not all(isinstance(op, Mapping) for op in operations)
-                or operations[0].get("mode") != "append"
-                or set(operations[0]) != {"mode", "byte_count"}
-                or type(operations[0]["byte_count"]) is not int
-                or not (operations[0]["byte_count"] == 1024 if pilot else
-                        PADDING_BYTES_RANGE[0] <= operations[0]["byte_count"] <= PADDING_BYTES_RANGE[1])
-                or operations[0]["byte_count"] % 512 != 0
-                or operations[1] != {"mode": "truncate", "length": 54}
-                or type(operations[1]["length"]) is not int
+        if (not isinstance(operations, list) or not operations
+                or (case == "positive" and len(operations) != len(refs))
+                or not all(isinstance(op, Mapping) and _bitmap_operation_valid(op, pilot) for op in operations)
                 or _receipt_integer(receipt, "population_count", scenario_id) != population_count
                 or not isinstance(instances, list) or len(instances) != len(refs)):
             raise PopulationError("bitmap content-operation contract is invalid")
@@ -1099,8 +1132,8 @@ def _validate_receipt_fields(
         bindings = receipt["native_bindings"]
         media = inputs["media"]
         if (not isinstance(bindings, list) or len(bindings) != len(media)
-                or len(media) != 3):
-            raise PopulationError("pilot requires three complete native USB bindings")
+                or not 2 <= len(media) <= len(pilot_profile.MEDIA_PORTS)):
+            raise PopulationError("pilot requires one complete native USB binding for each drive")
         for expected, actual in zip(media, bindings, strict=True):
             if (not isinstance(actual, Mapping)
                     or set(actual) != {"subject_ref", "binding_file", "native_binding"}
@@ -1290,7 +1323,7 @@ def archive_restore_paths(public: Mapping[str, Any]) -> list[str]:
 
 
 def build_finding_reference(manifest: Mapping[str, Any], operation_truth: Mapping[str, Any],
-                            archive_receipt: dict[str, Any]) -> dict[str, Any]:
+                            archive_receipt: dict[str, Any] | None = None) -> dict[str, Any]:
     public = verify_public_manifest(manifest)
     if (operation_truth.get("schema_version") != "generation_ground_truth.v1"
             or operation_truth.get("population_manifest_sha256") != public["manifest_sha256"]
@@ -1299,11 +1332,14 @@ def build_finding_reference(manifest: Mapping[str, Any], operation_truth: Mappin
     scenarios = operation_truth.get("scenarios", [])
     if {s["scenario_id"] for s in scenarios} != set(public["scenarios"]) or len(scenarios) != len(public["scenarios"]):
         raise PopulationError("finding reference operation scope differs from the population")
-    time_members = public["scenarios"]["timestomp_01"]["members"]
-    paths = {_operational_path(m).casefold(): m["candidate_id"] for m in time_members}
-    archive_control.validate_receipt(archive_receipt, list(paths), restore_paths=archive_restore_paths(public))
+    if ("timestomp_01" in public["scenarios"]) != (archive_receipt is not None):
+        raise PopulationError("the finding reference takes the archive receipt exactly when the image has timestomp_01")
     restored = set()
-    for row in archive_receipt["records"]:
+    time_members = public["scenarios"].get("timestomp_01", {}).get("members", [])
+    paths = {_operational_path(m).casefold(): m["candidate_id"] for m in time_members}
+    if archive_receipt is not None:
+        archive_control.validate_receipt(archive_receipt, list(paths), restore_paths=archive_restore_paths(public))
+    for row in (archive_receipt or {}).get("records", []):
         before = datetime.fromisoformat(row["write_before_utc"].replace("Z", "+00:00"))
         after = datetime.fromisoformat(row["write_after_utc"].replace("Z", "+00:00"))
         if before.tzinfo is None or after.tzinfo is None:
@@ -1324,7 +1360,8 @@ def build_finding_reference(manifest: Mapping[str, Any], operation_truth: Mappin
         "reference_contract": "broad_native_findings.v1", "experiment": public["experiment"],
         "case": operation_truth["case"], "population_manifest_sha256": public["manifest_sha256"],
         "operation_truth_payload_sha256": _sha256(operation_truth),
-        "archive_receipt_payload_sha256": _sha256(archive_receipt), "scenarios": reference}
+        **({} if archive_receipt is None else {"archive_receipt_payload_sha256": _sha256(archive_receipt)}),
+        "scenarios": reference}
 
 
 __all__ = [

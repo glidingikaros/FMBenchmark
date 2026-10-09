@@ -1,5 +1,5 @@
 ---
-- name: Apply the two timestamp operations and verify them
+- name: Apply the timestamp operations and verify them
   ansible.windows.win_shell: |
     {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
     $ErrorActionPreference = 'Stop'
@@ -22,10 +22,10 @@
     $instances = [System.Collections.Generic.List[object]]::new()
     if ($case -eq 'positive') {
       $fmbFailurePhase = 'validate_cardinality'
-      if ($expectedPopulationCount -lt 2 -or
+      if ($expectedPopulationCount -lt 1 -or
           $populationPaths.Count -ne $expectedPopulationCount -or
-          $expectedOperationCount -ne 2 -or
-          $paths.Count -ne $expectedOperationCount -or $timestamps.Count -ne 2) {
+          $expectedOperationCount -lt 1 -or $expectedOperationCount -gt $expectedPopulationCount -or
+          $paths.Count -ne $expectedOperationCount -or $timestamps.Count -ne $expectedOperationCount) {
         throw "Timestamp operation cardinality is invalid"
       }
       $fmbFailurePhase = 'load_native_binding'

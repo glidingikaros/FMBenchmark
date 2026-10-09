@@ -7,7 +7,7 @@
     $case = [string]$scenarioInput.case
     $paths = @($scenarioInput.operation_refs)
     $operationRefsSha256 = Get-OperationRefsSha256 $paths
-    if($scenarioInput.native_pilot_profile -cne 'pilot_min.v1' -or @($scenarioInput.media).Count -ne 3 -or @($scenarioInput.native_bindings).Count -ne 3){throw 'Pilot history input is incomplete'}
+    if($scenarioInput.native_pilot_profile -cne 'pilot_min.v1' -or @($scenarioInput.media).Count -lt 2 -or @($scenarioInput.native_bindings).Count -ne @($scenarioInput.media).Count){throw 'Pilot history input is incomplete'}
     $results=@()
     foreach($volume in $scenarioInput.media) {
       $bound=@($scenarioInput.native_bindings | Where-Object subject_ref -CEQ $volume.subject_ref)

@@ -38,7 +38,7 @@ Without `NAME`, `fmb generate` and `fmb run` show the choices and ask.
 7. Run `uv run fmb run I1`.
 
 To replicate the paper, generate and run I1, I2 and I3. An image replicates when its admission passes. For
-admission, S3 must be exact on all nine questions.
+admission, S3 must be exact on all the questions of the image (nine for the images of the paper).
 
 On Linux, the first image after a base build waits approximately 70 min. The guest clock must be after the
 last event of the base build.
@@ -57,20 +57,52 @@ To make a new image:
 
 1. Copy `images/template.json` to `images/<name>.json`.
 2. Change `seed`. The seed sets the object names, the folders and the virtual hardware.
-3. Change `scenarios.<scenario>.configured_count`. This value sets the number of objects for a technique.
-4. Change `native_pilot_parameters.case_classes`. This value sets the supplementary cases and controls for
-   each question. Use each case not more times than I3 does.
-5. Run `uv run fmb generate <name>`.
+3. For each scenario in `scenarios`, set `configured_count` (the number of objects) and `manipulation_count` (the
+   number of manipulated objects, 1 to `configured_count`).
+4. As an option, remove questions. Remove all the scenarios of a question from `experiments.full_scale` and from
+   `scenarios`, and remove its cases from `native_pilot_parameters.case_classes`.
+5. Change `native_pilot_parameters.case_classes`. This value sets the supplementary cases and controls for each
+   question. Use each case not more times than I3 does.
+6. As an option, add the `generation` settings.
+7. Run `uv run fmb generate <name>`.
+
+| Question | Scenarios |
+|---|---|
+| BQ-TIME-01 | `timestomp_01` |
+| BQ-DELETE-01 | `typed_path_residue_01`, `usn_journal_01` |
+| BQ-SHELLBAG-01 | `shellbag_path_residue_01` |
+| BQ-DIRECTORY-01 | `directory_cleaning_i30_01` |
+| BQ-STREAM-01 | `ads_injection_01` |
+| BQ-USB-01 | `usbstor_setupapi_discrepancy_01`, `usb_volume_activity_gap_01` |
+| BQ-FILE-01 | `bitmap_trailing_data_01`, `ntfs_allocation_01` |
+| BQ-EXEC-01 | `prefetch_wipe_01`, `shimcache_path_residue_01` |
+| BQ-LOG-01 | `security_log_clear_event_01`, `event_record_sequence_gap_01` |
+
+| Scenario setting | Function |
+|---|---|
+| `assignment_pool_count` | FMBenchmark selects the manipulated objects from the first N objects. |
+| `timestomp_01.restore_stratum_end_indexes` | Divides the objects into groups that end at these positions. In each group, FMBenchmark restores half of the objects from an archive. This sets older times. The last value is `configured_count`. |
+| `ntfs_allocation_01.storage_modes` | One mode for each object: `ordinary`, `resident` or `preallocation_request_then_close`. FMBenchmark manipulates only `ordinary` objects. |
+| `directory_cleaning_i30_01.directory_child_counts` | The number of files in each folder, 1 to 200. FMBenchmark cleans only folders with 22 files or more. |
+
+| Generation setting | Function |
+|---|---|
+| `clock_bias_minutes` | The guest clock starts at UTC minus this value, −840 to 840. `"auto"` uses the Pacific time of the guest at generation time. The paper uses 480. |
+| `activity_count` | The number of user actions before the manipulations, 1 to 500. The paper uses 12. |
+| `activity_seed`, `hardware_seed` | The seeds of the user actions and of the virtual hardware. The default is `seed`. |
 
 Limits:
 
-- Do not change `manipulation_count`. The guest scripts set the number of manipulated objects.
-- Keep all fourteen scenarios.
-- Do not change the number of objects of the USB, NTFS-allocation and event-log scenarios.
+- `security_log_clear_event_01` and `event_record_sequence_gap_01` have one object each. The image has one
+  Security log.
+- The two USB scenarios use the same 2 to 4 virtual drives. Each scenario changes one drive.
+- `typed_path_residue_01` has 25 folders or fewer (Explorer keeps 25 typed paths). One folder or more stays.
+- `ntfs_allocation_01` and `directory_cleaning_i30_01` have 100 objects or fewer.
+- A question keeps all its scenarios or none.
 
 `fmb generate` checks the file before it starts and shows each item that is not correct. The recipe sets
 the manipulated objects at random. Thus two images from one file have the same population, but not the
-same disk.
+same disk. `fmb run` asks only the questions of the image.
 
 ## LLM comparison
 

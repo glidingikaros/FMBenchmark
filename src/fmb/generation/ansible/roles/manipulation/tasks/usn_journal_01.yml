@@ -16,7 +16,8 @@
     if (
       $expectedPopulationCount -lt 1 -or
       $populationPaths.Count -ne $expectedPopulationCount -or
-      $expectedOperationCount -ne $(if ($case -eq 'positive') { 1 } else { 0 }) -or
+      ($case -eq 'positive' -and ($expectedOperationCount -lt 1 -or $expectedOperationCount -gt $expectedPopulationCount)) -or
+      ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
       $paths.Count -ne $expectedOperationCount
     ) {
       throw "Journal population cardinality is invalid"
@@ -25,9 +26,11 @@
        Add-Content -LiteralPath ([string]$path) -Value "Revision." -Encoding Ascii 
     }
     if ($case -eq 'positive') {
-      $operationPath = [string]$paths[0]
-      Invoke-PaperOperation ("Remove-Item -LiteralPath " + (ConvertTo-OperationLiteral $operationPath) + " -Force")
-      $verified = -not (Test-Path -LiteralPath $operationPath)
+      foreach ($operationPath in @($paths | ForEach-Object { [string]$_ })) {
+        Invoke-PaperOperation ("Remove-Item -LiteralPath " + (ConvertTo-OperationLiteral $operationPath) + " -Force")
+      }
+      $remaining = @($paths | Where-Object { Test-Path -LiteralPath ([string]$_) }).Count
+      $verified = $remaining -eq 0
     }
     else {
       $retainedCount = @(
