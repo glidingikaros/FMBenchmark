@@ -82,7 +82,7 @@ def fewer_child_directories(contract):
 @pytest.mark.parametrize("edit,message", [
     (remove_scenario, "experiments.full_scale lists the scenarios of the image"),
     (more_drives, "2 to 4 virtual drives"),
-    (half_a_question, "BQ-DELETE-01 needs all of its scenarios"),
+    (half_a_question, "BQ-DELETE-01 lists all of its scenarios"),
     (two_changed_drives, "each changes one drive"),
     (without_native_profile, "native profile"),
     (oversized_supplement, "exceeds the released construction"),

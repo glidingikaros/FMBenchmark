@@ -233,3 +233,39 @@ def test_an_image_line_names_its_questions_when_it_asks_only_some():
     assert image_files.check(image).endswith(
         "questions " + ", ".join(image_files.questions(image.contract)))
     assert "questions" not in image_files.check(image_files.load(STRESS))
+
+
+PARTIAL = ROOT / "tests/fixtures/images/partial.json"
+
+
+def test_a_scenario_may_be_left_empty_inside_its_question(monkeypatch):
+    image, manifest, assignment, plan = _plan(PARTIAL)
+    empty = {"typed_path_residue_01", "shimcache_path_residue_01"}
+    assert {sid for sid, scenario in manifest["scenarios"].items() if not scenario["members"]} == empty
+    assert not empty & set(plan["scenario_inputs"]) and all(not assignment["bindings"][sid] for sid in empty)
+    assert len(image_files.questions(image.contract)) == 9
+    monkeypatch.setattr(population, "validate_guest_receipts", lambda guest_plan, receipts, case: list(receipts))
+    receipts = [{"scenario_id": sid, "case": item["case"], "postcondition_verified": True}
+                for sid, item in plan["scenario_inputs"].items()]
+    truth = population.build_ground_truth(manifest, assignment, receipts)
+    rows = {row["scenario_id"]: row for row in truth["scenarios"]}
+    assert set(rows) == set(manifest["scenarios"])
+    assert all(rows[sid]["candidate_ids"] == [] and rows[sid]["receipt"] == {
+        "scenario_id": sid, "case": "positive", "operation_count": 0, "operation_refs": [],
+        "postcondition_verified": True, "population_count": 0} for sid in empty)
+
+
+@pytest.mark.parametrize(("edit", "message"), [
+    (lambda value: value["scenarios"]["bitmap_trailing_data_01"].update(
+        configured_count=0, manipulation_count=0, assignment_pool_count=0), "bitmap_trailing_data_01 cannot be empty"),
+    (lambda value: value["scenarios"]["usn_journal_01"].update(configured_count=0, manipulation_count=0),
+     "BQ-DELETE-01 needs objects in one of its scenarios"),
+    (lambda value: value["scenarios"]["usn_journal_01"].update(manipulation_count=0), "invalid manipulation count"),
+])
+def test_an_empty_scenario_keeps_its_question_answerable(tmp_path, edit, message):
+    value = json.loads(PARTIAL.read_text())
+    edit(value)
+    path = tmp_path / "wrong.json"
+    path.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match=message):
+        image_files.load(path)

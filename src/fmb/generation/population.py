@@ -258,12 +258,12 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
             raise PopulationError(f"scenario {scenario_id!r} must be an object")
         count = item.get("configured_count")
         manipulation_count = item.get("manipulation_count")
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise PopulationError(f"scenario {scenario_id!r} has an invalid count")
         if (
             isinstance(manipulation_count, bool)
             or not isinstance(manipulation_count, int)
-            or not 1 <= manipulation_count <= count
+            or not min(count, 1) <= manipulation_count <= count
         ):
             raise PopulationError(
                 f"scenario {scenario_id!r} has an invalid manipulation count"
@@ -325,7 +325,7 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
             raise PopulationError(f"scenario {scenario_id!r} has at most {maximum} objects: {reason}")
     typed = scenarios.get("typed_path_residue_01")
     if (typed is not None and value.get("native_pilot_profile") == pilot_profile.PROFILE
-            and typed["manipulation_count"] >= typed["configured_count"]):
+            and typed["configured_count"] and typed["manipulation_count"] >= typed["configured_count"]):
         raise PopulationError("typed_path_residue_01 keeps one folder that is not deleted: the native profile "
                               "deletes and recreates it")
     identity = scenarios.get("usbstor_setupapi_discrepancy_01")
@@ -741,6 +741,8 @@ def build_guest_plan(
     seed = public["population_seed"]
     scenario_inputs: dict[str, dict[str, Any]] = {}
     for scenario_id in scenario_order:
+        if not public["scenarios"][scenario_id]["members"]:
+            continue
         selected_refs = operation_refs[scenario_id]
         if case == "benign":
             selected_refs = []
@@ -1291,6 +1293,11 @@ def build_ground_truth(
 
     scenario_truth = []
     for scenario_id in public["scenarios"]:
+        if scenario_id not in guest_plan["scenario_inputs"]:
+            scenario_truth.append({"scenario_id": scenario_id, "candidate_ids": [], "receipt": {
+                "scenario_id": scenario_id, "case": case, "operation_count": 0, "operation_refs": [],
+                "postcondition_verified": True, "population_count": 0}})
+            continue
         receipt = receipt_by_scenario[scenario_id]
         operation_refs = guest_plan["scenario_inputs"][scenario_id]["operation_refs"]
         host_receipt = {**receipt, "operation_refs": list(operation_refs)}

@@ -94,7 +94,8 @@ Limits:
 - The two USB scenarios use the same 2 to 4 virtual drives. Each scenario changes one drive.
 - `typed_path_residue_01` has 25 folders or fewer (Explorer keeps 25 typed paths). One folder or more stays.
 - `ntfs_allocation_01` and `directory_cleaning_i30_01` have 100 objects or fewer.
-- A question keeps all its scenarios or none.
+- A question lists all its scenarios or none. In BQ-DELETE-01 and BQ-EXEC-01, one of the two scenarios can be
+  empty: set its `configured_count` and `manipulation_count` to 0.
 
 `fmb generate` checks the file before it starts and shows each item that is not correct. The recipe sets
 the manipulated objects at random. Thus two images from one file have the same population, but not the

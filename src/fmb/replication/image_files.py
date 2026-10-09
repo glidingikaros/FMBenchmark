@@ -14,6 +14,7 @@ TEMPLATE = "template"
 SETTINGS = {"clock_bias_minutes": (-840, 840, "auto"), "activity_count": (1, 500, None),
             "activity_seed": (0, 2**63 - 1, None), "hardware_seed": (0, 2**63 - 1, None)}
 PROVIDER_KEYS = {"openai": "OPENAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
+EMPTY_SCENARIOS = ("typed_path_residue_01", "usn_journal_01", "prefetch_wipe_01", "shimcache_path_residue_01")
 FIXED_OBJECTS = {
     "security_log_clear_event_01": (1, "the image has one Security log"),
     "event_record_sequence_gap_01": (1, "the image has one Security log"),
@@ -72,8 +73,15 @@ def load(path: Path) -> Image:
     for pack in load_packs():
         needed = pack["generation"]["scenarios"]
         if 0 < len(set(needed) & set(present)) < len(needed):
-            raise ValueError(f"{path.name}: {pack['question_id']} needs all of its scenarios ({', '.join(needed)}) "
-                             "or none of them")
+            raise ValueError(f"{path.name}: {pack['question_id']} lists all of its scenarios ({', '.join(needed)}) "
+                             "or none of them; give one a configured_count of 0 to leave it empty")
+        if set(needed) <= set(present) and not any(contract["scenarios"][s]["configured_count"] for s in needed):
+            raise ValueError(f"{path.name}: {pack['question_id']} needs objects in one of its scenarios; remove its "
+                             "scenarios to drop the question")
+    empty = sorted(s for s in present if not contract["scenarios"][s]["configured_count"])
+    if set(empty) - set(EMPTY_SCENARIOS):
+        raise ValueError(f"{path.name}: {', '.join(sorted(set(empty) - set(EMPTY_SCENARIOS)))} cannot be empty; only "
+                         f"{', '.join(EMPTY_SCENARIOS)} can")
     supplement = pilot_profile.resolve_parameters(contract.get("native_pilot_parameters"))["case_classes"]
     unasked = sorted(set(supplement) - set(questions(contract)))
     if unasked:

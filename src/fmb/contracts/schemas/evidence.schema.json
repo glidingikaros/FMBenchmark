@@ -1868,7 +1868,7 @@
         },
         "declared_count": {
           "type": "integer",
-          "minimum": 1,
+          "minimum": 0,
           "maximum": 10000
         },
         "expected_completeness": {
@@ -1877,7 +1877,7 @@
         },
         "members": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 10000,
           "items": {
             "$ref": "#/$defs/populationManifestMember"

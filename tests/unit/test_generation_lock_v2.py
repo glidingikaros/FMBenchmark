@@ -318,7 +318,7 @@ def test_check_host_reports_a_missing_base_box_instead_of_raising(host, tmp_path
 
 
 @pytest.mark.parametrize("path", ["tests/fixtures/images/decoys.json", "tests/fixtures/images/stress.json",
-                                  "tests/fixtures/images/subset.json"])
+                                  "tests/fixtures/images/subset.json", "tests/fixtures/images/partial.json"])
 def test_an_image_of_your_own_freezes_and_loads_back(host, tmp_path, path):
     from fmb.replication import image_files
 
@@ -356,3 +356,24 @@ def test_an_image_of_your_own_freezes_its_own_seeds_and_settings(host, tmp_path)
         recipe.freeze_recipe(tmp_path / "other", source_root=SOURCE, config=config, population=public,
                              assignment=assignment, guest_plan=build_guest_plan(public, assignment, case="positive"),
                              dependency_lock=host.build(), activity_seed=4, hardware_seed=6)
+
+
+def test_the_guest_skips_the_scenarios_an_image_leaves_empty(host, tmp_path):
+    from fmb.replication import image_files
+
+    image = image_files.load(SOURCE.parents[2] / "tests/fixtures/images/partial.json")
+    config = recipe.image_config(image.seed, image.contract)
+    contract = recipe.resolved_contract(config)
+    public = build_public_manifest(experiment="full_scale", seed=image.seed, contract=contract)
+    assignment = select_private_assignment(public, entropy=b"a" * 32)
+    directory = tmp_path / "recipe"
+    recipe.freeze_recipe(directory, source_root=SOURCE, config=config, population=public, assignment=assignment,
+                         guest_plan=build_guest_plan(public, assignment, case="positive"),
+                         dependency_lock=host.build(), activity_seed=image.seed, hardware_seed=image.seed)
+    instance = pipeline.GenerationPipeline(
+        'vmware_desktop', 'baseline', 'vmdk', False, False, experiment='full_scale', case='positive',
+        population_seed=image.seed, windows_box='fmb/windows-11-arm64', vmware_bridge=None, recipe=directory,
+        output_root=tmp_path / 'run')
+    scenarios = instance.scenario.split(",")
+    assert not {"typed_path_residue_01", "shimcache_path_residue_01"} & set(scenarios)
+    assert len(scenarios) == 12 and scenarios[-1] == "timestomp_01"

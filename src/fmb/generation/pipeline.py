@@ -371,10 +371,11 @@ class GenerationPipeline:
         self.marker_receipt_times = []
         self.clock_block = None
         contract = self.population_contract if self.recipe_bundle is None else None
-        scenario_ids = (
-            contract["experiments"][experiment] if contract is not None
-            else population_scenario_order(self.recipe_bundle["private"]["population_manifest"])
-        )
+        if contract is not None:
+            scenario_ids = [s for s in contract["experiments"][experiment] if contract["scenarios"][s]["configured_count"]]
+        else:
+            public = self.recipe_bundle["private"]["population_manifest"]
+            scenario_ids = [s for s in population_scenario_order(public) if public["scenarios"][s]["members"]]
         self.scenario = ",".join(execution_order(scenario_ids))
         self.population_seed = population_seed
         self.export_format = export_format
