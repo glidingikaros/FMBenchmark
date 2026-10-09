@@ -97,6 +97,9 @@ Limits:
 - A question lists all its scenarios or none. In BQ-DELETE-01 and BQ-EXEC-01, one of the two scenarios can be
   empty: set its `configured_count` and `manipulation_count` to 0.
 
+To make a random image inside these limits, run `uv run python scripts/random_image.py SEED images/random.json`.
+The same seed gives the same file.
+
 `fmb generate` checks the file before it starts and shows each item that is not correct. The recipe sets
 the manipulated objects at random. Thus two images from one file have the same population, but not the
 same disk. `fmb run` asks only the questions of the image.

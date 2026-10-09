@@ -4,16 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       iso_url:
-        description: "A link to Windows11_Client_x64_en-us_26300_9457.iso from microsoft.com/software-download/windows11 (valid 24 hours; kept out of the logs)"
+        description: "A link to Windows11_Client_x64_en-us_26300_9457.iso from microsoft.com/software-download/windows11 (valid 24 hours; kept out of the logs). Linux runs need it only when the Actions cache does not hold the ISO yet"
         type: string
-        required: true
+        required: false
       hosts:
         description: "Windows hosts are work in progress: generation works, evidence collection does not yet"
         type: choice
         options: [linux, windows, both]
         default: linux
       images:
-        description: "The images to generate and run, as a JSON list of names of files in images/ (such as I1) or of paths ending in .json (such as tests/fixtures/images/stress.json)"
+        description: "The images to generate and run, as a JSON list of names of files in images/ (such as I1), of paths ending in .json (such as tests/fixtures/images/stress.json), or random (a random image seeded by the run ID)"
         type: string
         default: '["I1", "I2", "I3"]'
 
@@ -50,13 +50,33 @@ jobs:
           echo "FMB_CACHE=/mnt/fmb/cache" >> "$GITHUB_ENV"
           df -h / /mnt
           lscpu | grep -E 'Model name|Hypervisor'
+      - name: "runner: the pinned ISO's SHA-256"
+        id: pin
+        run: echo "sha256=$(jq -r .windows_iso.sha256 src/fmb/replication/pins.json)" >> "$GITHUB_OUTPUT"
+      - name: "runner: the ISO from this repository's Actions cache, when an earlier run kept it"
+        id: iso
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/Downloads/${{ env.ISO }}
+          key: windows-iso-${{ steps.pin.outputs.sha256 }}
       - name: Microsoft's ISO, saved in ~/Downloads as a browser saves it
+        if: steps.iso.outputs.cache-hit != 'true'
         run: |
-          url=$(jq -r .inputs.iso_url "$GITHUB_EVENT_PATH")
+          url=$(jq -r '.inputs.iso_url // empty' "$GITHUB_EVENT_PATH")
+          if [ -z "$url" ]; then echo "::error::the Actions cache holds no ISO yet: run the workflow with iso_url"; exit 1; fi
           echo "::add-mask::$url"
           mkdir -p ~/Downloads
           curl -fsSL --retry 5 --retry-all-errors -o ~/Downloads/"$ISO" "$url"
           ls -l ~/Downloads
+          echo "matches=$(sha256sum ~/Downloads/"$ISO" | cut -d' ' -f1 | grep -qx '${{ steps.pin.outputs.sha256 }}' && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+        id: download
+      - name: "runner: keep the pinned ISO in the Actions cache for later runs"
+        if: steps.download.outputs.matches == 'yes'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/Downloads/${{ env.ISO }}
+          key: windows-iso-${{ steps.pin.outputs.sha256 }}
       - name: "README, Linux: QEMU and OVMF (runner: -y answers apt's question)"
         run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils ovmf
       - name: "README, Linux: /dev/kvm (runner: later steps start through sg kvm, as a new login would)"
@@ -74,6 +94,9 @@ jobs:
         run: sg kvm -c "uv run fmb setup --check"
       - name: "README: setup --iso"
         run: sg kvm -c "uv run fmb setup --iso ~/Downloads/$ISO"
+      - name: "runner: a random image, seeded by the run ID"
+        if: matrix.image == 'random'
+        run: uv run python scripts/random_image.py "$GITHUB_RUN_ID" images/random.json && cat images/random.json
       - name: "README: generate ${{ matrix.image }}"
         run: sg kvm -c "uv run fmb generate ${{ matrix.image }}"
       - name: "README: run ${{ matrix.image }}"

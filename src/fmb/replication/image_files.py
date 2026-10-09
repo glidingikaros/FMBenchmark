@@ -15,6 +15,7 @@ SETTINGS = {"clock_bias_minutes": (-840, 840, "auto"), "activity_count": (1, 500
             "activity_seed": (0, 2**63 - 1, None), "hardware_seed": (0, 2**63 - 1, None)}
 PROVIDER_KEYS = {"openai": "OPENAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
 EMPTY_SCENARIOS = ("typed_path_residue_01", "usn_journal_01", "prefetch_wipe_01", "shimcache_path_residue_01")
+SUPPLEMENT_SCENARIOS = {"BQ-DELETE-01": "usn_journal_01", "BQ-EXEC-01": "prefetch_wipe_01"}
 FIXED_OBJECTS = {
     "security_log_clear_event_01": (1, "the image has one Security log"),
     "event_record_sequence_gap_01": (1, "the image has one Security log"),
@@ -87,6 +88,10 @@ def load(path: Path) -> Image:
     if unasked:
         raise ValueError(f"{path.name}: native_pilot_parameters.case_classes has cases for {', '.join(unasked)}, "
                          "which the image does not ask; remove them")
+    for question, scenario in SUPPLEMENT_SCENARIOS.items():
+        if question in supplement and not contract["scenarios"].get(scenario, {}).get("configured_count"):
+            raise ValueError(f"{path.name}: the cases of {question} need objects in {scenario}; remove the cases or "
+                             "leave the other scenario empty")
     for scenario, (configured, reason) in FIXED_OBJECTS.items():
         if scenario in present and contract["scenarios"][scenario]["configured_count"] != configured:
             raise ValueError(f"{path.name}: {scenario} keeps {configured} object(s): {reason}")
@@ -96,6 +101,64 @@ def load(path: Path) -> Image:
 def questions(contract: dict) -> list[str]:
     present = set(contract["experiments"]["full_scale"])
     return [pack["question_id"] for pack in load_packs() if set(pack["generation"]["scenarios"]) <= present]
+
+
+def random_definition(seed: int) -> dict:
+    import random
+
+    from fmb.core.paths import PROJECT_ROOT
+    from fmb.generation.pilot_profile import MEDIA_PORTS
+
+    rng = random.Random(seed)
+    value = read_json(PROJECT_ROOT.parent.parent / IMAGES / f"{TEMPLATE}.json")
+    scenarios = value["scenarios"]
+
+    def counts(scenario, configured, manipulated, **extra):
+        scenarios[scenario].update(configured_count=configured, manipulation_count=manipulated, **extra)
+
+    size, manipulated = rng.randint(6, 10), rng.randint(1, 3)
+    counts("timestomp_01", size, manipulated, assignment_pool_count=manipulated,
+           restore_stratum_end_indexes=[*range(1, manipulated + 1), size])
+    size = rng.randint(4, 9)
+    counts("ads_injection_01", size, rng.randint(1, min(3, size - 1)))
+    counts("prefetch_wipe_01", rng.randint(3, 6), rng.randint(1, 2))
+    counts("usn_journal_01", rng.randint(4, 8), rng.randint(1, 2))
+    counts("shimcache_path_residue_01", rng.randint(2, 5), rng.randint(1, 2))
+    size = rng.randint(3, 8)
+    counts("typed_path_residue_01", size, rng.randint(1, min(3, size - 1)))
+    counts("shellbag_path_residue_01", rng.randint(4, 7), rng.randint(1, 2))
+    ordinary = rng.randint(2, 5)
+    modes = ["ordinary"] * ordinary + ["resident", "preallocation_request_then_close"]
+    counts("ntfs_allocation_01", len(modes), rng.randint(1, 2), assignment_pool_count=ordinary, storage_modes=modes)
+    counts("bitmap_trailing_data_01", rng.randint(4, 8), rng.randint(1, 3))
+    cleaned = rng.randint(1, 2)
+    children = [rng.choice([40, 80, 120]) for _ in range(cleaned)] + [rng.choice([4, 10, 30])
+                                                                      for _ in range(rng.randint(1, 2))]
+    counts("directory_cleaning_i30_01", len(children), cleaned, assignment_pool_count=len(children),
+           directory_child_counts=children)
+    drives = rng.randint(2, len(MEDIA_PORTS))
+    counts("usbstor_setupapi_discrepancy_01", drives, 1)
+    counts("usb_volume_activity_gap_01", drives, 1)
+    cases = value["native_pilot_parameters"]["case_classes"]
+    for question, scenario_ids in (("BQ-DELETE-01", ["typed_path_residue_01", "usn_journal_01"]),
+                                   ("BQ-EXEC-01", ["shimcache_path_residue_01", "prefetch_wipe_01"])):
+        if rng.random() < 0.5:
+            emptied = rng.choice(scenario_ids)
+            counts(emptied, 0, 0)
+            if SUPPLEMENT_SCENARIOS[question] == emptied:
+                cases.pop(question)
+    for pack in rng.sample(load_packs(), rng.randint(0, 2)):
+        for scenario in pack["generation"]["scenarios"]:
+            value["experiments"]["full_scale"].remove(scenario)
+            del scenarios[scenario]
+        cases.pop(pack["question_id"], None)
+    for question, kinds in cases.items():
+        cases[question] = sorted(rng.sample(kinds, rng.randint(1, len(kinds))), key=kinds.index)
+    value["native_pilot_parameters"]["image_label"] = "random"
+    value["seed"] = seed
+    value["generation"] = {"clock_bias_minutes": "auto", "activity_count": rng.randint(8, 16),
+                           "activity_seed": rng.randrange(2**31), "hardware_seed": rng.randrange(2**31)}
+    return value
 
 
 def _settings(value, where: str) -> dict:

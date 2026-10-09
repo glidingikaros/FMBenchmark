@@ -265,7 +265,7 @@
     "package/question_packs.py": "bc8f71d3370201f4ccb121b16fd8c324ec003531014835861ed381a9d52be27b",
     "package/replication/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "package/replication/host.py": "803fb0068515ed3d480635ac71798334a4942b5b5d5fceef543e1447d3471638",
-    "package/replication/image_files.py": "798e6a45b64752bdf590eff246ac3c93105b9251691856be4ea86835528214ca",
+    "package/replication/image_files.py": "5385d15898793027bafbf42cb5084a4d6024daee4ef97032a1976c893b153686",
     "package/replication/pins.json": "74e8e8822447ee1b111f8b08945e6886dc0b18bced639a91b5dc5c6855229a3c",
     "package/replication/report.py": "f116d9ac968afe7e6e513f0a1a709174a9aa132df5aa84f65c6deca7b72b8832",
     "package/replication/run.py": "ce1a5515c068ea0393524b2fe2868a850fb33cb46f0118de30ff798d7a4e52ea",
