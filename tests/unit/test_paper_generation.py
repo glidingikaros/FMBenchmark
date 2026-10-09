@@ -104,13 +104,13 @@ def _usb_set(tmp_path):
 
 @pytest.mark.parametrize(
     "change",
-    ["missing", "repeated", "swapped", "tampered", "other_evidence", "same_companion"],
+    ["empty", "repeated", "swapped", "tampered", "other_evidence", "same_companion"],
 )
 def test_three_usb_source_receipts_are_complete_and_separately_bound(tmp_path, change):
     path, value = _usb_set(tmp_path)
     assert len(usb_volume_source_manifests(path)) == 3
-    if change == "missing":
-        value["volumes"].pop()
+    if change == "empty":
+        value["volumes"].clear()
     elif change == "repeated":
         value["volumes"][1] = deepcopy(value["volumes"][0])
     elif change == "swapped":

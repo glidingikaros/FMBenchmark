@@ -13,6 +13,7 @@ from fmb.collection.tsk_volume import (
 )
 from fmb.core.hashing import sha256_bytes, sha256_file
 from fmb.core.json_io import write_json
+from fmb.core.limits import MAX_POPULATION_SUBJECTS
 from fmb.index.scanners.mft import parse_directory_i30_record, parse_mft_record
 
 MAX_STREAM_BYTES = 16 * 1024 * 1024
@@ -42,8 +43,8 @@ def collect_ntfs_surfaces(
     output_dir: Path,
     evidence_sha256: str | None = None,
 ) -> Path:
-    if len(records) > 2000:
-        raise ValueError("native NTFS record request exceeds 2000-member bound")
+    if len(records) > MAX_POPULATION_SUBJECTS:
+        raise ValueError(f"native NTFS record request exceeds {MAX_POPULATION_SUBJECTS}-member bound")
     volume = bind_native_volume(open_image(evidence_image), raw_mft_path)
     size = volume.record_size
     output_dir.mkdir(parents=True, exist_ok=True)

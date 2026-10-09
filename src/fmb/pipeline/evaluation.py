@@ -10,7 +10,7 @@ SCORE_KEYS = ("passes", "exact_question_passes", "planned_question_passes", "eve
               "finding_counts", "execution_states", "selected_exposure_usd", "selected_request_seconds_sum",
               "provenance", "selection", "lineage", "metric_policy")
 
-RECORD_KEY = re.compile(r"\br\d{5}\b")
+RECORD_KEY = re.compile(r"\br\d{5,}\b")
 BOOTSTRAP_RESAMPLES = 2000
 BOOTSTRAP_SEED = 0
 
@@ -77,6 +77,11 @@ def _request_rows(question: str, request_id: str, sent: dict, options: dict, dec
     return rows
 
 
+def cited_keys(reason: str, request_keys: set) -> list[str]:
+    longest = max(map(len, request_keys), default=len("r00000"))
+    return sorted({key for key in RECORD_KEY.findall(reason) if len(key) <= longest})
+
+
 def citations(cited: list[str], card_keys: set, request_keys: set) -> dict:
     return {"on_subject_card": [k for k in cited if k in card_keys],
             "elsewhere_in_request": [k for k in cited if k not in card_keys and k in request_keys],
@@ -101,7 +106,7 @@ def _attach_answers(rows: dict, condition_runs: list[Path], names: list[str] | N
                 if rid != request_id:
                     continue
                 reason = reasons.get(row["display_id"], "")
-                cited = sorted(set(RECORD_KEY.findall(reason)))
+                cited = cited_keys(reason, row["_request_keys"])
                 row["llm"].setdefault(condition, []).append({
                     "pass": outcome["pass"], "state": outcome["status"],
                     "status": finding_status(two, finding_id) if completed else None,

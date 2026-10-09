@@ -14,12 +14,12 @@ from fmb.analysis.domain import (
     EvidenceCoverage,
     Observation,
 )
+from fmb.core.limits import MAX_SCENARIO_SUBJECTS
 from fmb.index.adapters.registry import is_typed_paths_registry_key
 from fmb.index.contract.constants import PARSER_ARTIFACT_FAMILIES_BY_KIND
 from fmb.index.contract.evidence_index import validate_candidate_populations
 from fmb.index.scanners.usn import ntfs_reference_set_sha256
 
-MAX_CANDIDATE_SUBJECTS = 5000
 GENERATION_CONTROL_MARKERS = (
     "fmb_generation_inputs_path",
     "generation_inputs.scenario_inputs",
@@ -811,9 +811,9 @@ def _validated_candidate_populations(
                 f"{label} subject_type does not match {definition.technique_id}"
             )
         raw_subjects = raw_population["subjects"]
-        if len(raw_subjects) > MAX_CANDIDATE_SUBJECTS:
+        if len(raw_subjects) > MAX_SCENARIO_SUBJECTS:
             raise ValueError(
-                f"candidate roster exceeds limit of {MAX_CANDIDATE_SUBJECTS} subjects"
+                f"candidate roster exceeds limit of {MAX_SCENARIO_SUBJECTS} subjects"
             )
         for subject_index, raw_subject in enumerate(raw_subjects):
             subject_label = f"{label} subject {subject_index}"
@@ -1718,9 +1718,9 @@ def _build_roster(
             grouped[next(iter(matching_keys))]["observation_ids"].append(
                 observation.observation_id
             )
-    if len(grouped) > MAX_CANDIDATE_SUBJECTS:
+    if len(grouped) > MAX_SCENARIO_SUBJECTS:
         raise ValueError(
-            f"candidate roster exceeds limit of {MAX_CANDIDATE_SUBJECTS} subjects"
+            f"candidate roster exceeds limit of {MAX_SCENARIO_SUBJECTS} subjects"
         )
     subjects = tuple(
         sorted(

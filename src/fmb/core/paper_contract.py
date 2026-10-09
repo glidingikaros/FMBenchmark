@@ -4,6 +4,7 @@ from pathlib import Path
 from fmb.core.paper_protocol import paper_protocol
 from fmb.core.schemas import validate_response_schema
 from fmb.core.sealed_records import canonical_json
+from fmb.core.windows_zones import windows_zone
 from fmb.core.case_contract import (
     SCOPES as L0_SCOPES,
     response_schema as base_response_schema,
@@ -16,8 +17,6 @@ _PLAIN_FINDING_NAMES = {
     "historical executable-path absence": "historically referenced executable path, now absent",
     "missing-directory browsing history": "historically browsed directory path, now absent",
 }
-
-_WINDOWS_ZONES = {"Pacific Standard Time": "America/Los_Angeles"}
 
 _FLAG_RENAMES = {"identity_conflict": "source_identity_conflict"}
 
@@ -191,7 +190,6 @@ def _neutral_flag_names(case: dict, options: dict | None, apply: bool) -> None:
 
 def _setupapi_utc(case: dict, options: dict | None, apply: bool) -> None:
     import datetime
-    import zoneinfo
 
     for card in case["candidate_roster"]:
         zone = next(
@@ -212,7 +210,7 @@ def _setupapi_utc(case: dict, options: dict | None, apply: bool) -> None:
             elif f.get("timestamp_basis") == "local_clock" and zone:
                 local = datetime.datetime.fromisoformat(
                     f["event_timestamp"]
-                ).replace(tzinfo=zoneinfo.ZoneInfo(_WINDOWS_ZONES[zone]))
+                ).replace(tzinfo=windows_zone(zone))
                 f["event_timestamp_utc"] = (
                     local.astimezone(datetime.timezone.utc).strftime(
                         "%Y-%m-%dT%H:%M:%S.%f"

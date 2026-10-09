@@ -5,7 +5,7 @@ from pathlib import Path
 from fmb.core.hashing import sha256_bytes, sha256_file
 from fmb.core.paper_artifacts import build_content_sha256
 from fmb.core.sealed_records import canonical_json, read_json
-from fmb.core.truth_guard import COMPANION_MEDIA, public_generation_files
+from fmb.core.truth_guard import COMPANION_MEDIA, public_generation_files, system_image
 
 SCOPE_RECORD_NAMES = ("population_manifest.json", "population-manifest.json", "factual-challenge-population.json")
 
@@ -47,10 +47,11 @@ def evidence_gate(generation: Path, case_label: str, roots: dict[str, Path] | No
     manifest_path = root / "manifest.json"
     manifest = read_json(manifest_path)
     recorded = {row["file"]: row["sha256"] for row in manifest.get("artifacts", []) if isinstance(row, dict) and "file" in row}
+    image = system_image(manifest)["file"]
     media = []
     for path in sorted(root.iterdir()):
         match = COMPANION_MEDIA.fullmatch(path.name)
-        if match and match.group(2) == "vmdk" and not path.is_symlink():
+        if match and match.group(2) != "json" and not path.is_symlink():
             record = file_ref(root / f"media_{match.group(1)}.json", roots=roots)
             if recorded.get(Path(record["path"]).name, record["sha256"]) != record["sha256"]:
                 raise ValueError("acquisition record differs from the generation manifest: " + record["path"])
@@ -66,12 +67,12 @@ def evidence_gate(generation: Path, case_label: str, roots: dict[str, Path] | No
         "case_label": case_label,
         "mode": "generated_benchmark",
         "generation_root": "generation" if roots else str(root),
-        "system_image": file_ref(root / "full_scale.vmdk", recorded=recorded, roots=roots),
+        "system_image": file_ref(root / image, recorded=recorded, roots=roots),
         "companion_media": media,
         "scope_records": scope,
         "generation_manifest": file_ref(manifest_path, roots=roots),
         "readable_paths": sorted((p.relative_to(root).as_posix() if roots else str(p))
-                                 for p in public_generation_files(root) if p.exists()),
+                                 for p in public_generation_files(root, image) if p.exists()),
     }
 
 
@@ -443,7 +444,7 @@ def source_table(analysis: Path, generation: Path, built: Path, roots: dict[str,
         gpt = binding["proof"]["gpt_partition_source_ref"].split(":")
         by_id.setdefault(":".join(gpt[:2]), {
             "sha256_prefix": gpt[1], "image_region": "GPT partition entries",
-            **located(Path(generation) / "full_scale.vmdk", roots),
+            **located(Path(generation) / system_image(read_json(Path(generation) / "manifest.json"))["file"], roots),
             "read_by": [{"parser": "native_drive_binding", "module": "GPT"}]})
     table, unknown = {}, []
     for key in sorted(cited):

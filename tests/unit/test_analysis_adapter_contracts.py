@@ -1324,7 +1324,7 @@ def test_ads_reference_parser_bounds_named_stream_observations(
     normalized = tmp_path / "normalized"
     normalized.mkdir()
     monkeypatch.setattr(
-        'fmb.index.adapters.ntfs_files.MAX_MFTECMD_ADS_OBSERVATIONS',
+        'fmb.index.adapters.ntfs_files.MAX_REFERENCE_ADS_STREAMS',
         1,
     )
 

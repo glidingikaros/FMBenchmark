@@ -18,7 +18,7 @@ def collection_boundary(tmp_path, monkeypatch):
     parsers = tmp_path / "windows-parsers"
     profile = fmb.profiles.resolve_paper_profile()
     guard = {"opened": set(), "denied": []}
-    monkeypatch.setattr(native, "truth_blind_reads", lambda path: nullcontext(guard))
+    monkeypatch.setattr(native, "truth_blind_reads", lambda path, image: nullcontext(guard))
     monkeypatch.setattr(fmb.profiles, "resolve_paper_profile", lambda: profile)
     monkeypatch.setattr(paper_host, "acquire_evidence_image_run_lock", lambda **kw: nullcontext())
     monkeypatch.setattr(paper_host, "default_current_root", lambda: tmp_path / "current")

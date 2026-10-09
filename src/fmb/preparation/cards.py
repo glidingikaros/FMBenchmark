@@ -12,7 +12,7 @@ from fmb.core.sealed_records import canonical_json, read_json
 _PROTOCOL = paper_protocol()
 SPLIT_QUESTIONS = tuple(_PROTOCOL["split_questions"])
 
-REF = re.compile(r"^r\d{5}$")
+REF = re.compile(r"^r\d{5,}$")
 
 LEVEL = _PROTOCOL["presentation"]
 

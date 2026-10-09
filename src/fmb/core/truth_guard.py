@@ -48,16 +48,35 @@ PUBLIC_GENERATION_NAMES = (
     "population_manifest.json",
     "population-manifest.json",
     "factual-challenge-population.json",
-    "full_scale.vmdk",
     "native_media.vmdk",
     "native_media_binding.json",
 )
-COMPANION_MEDIA = re.compile(r"media_([0-9a-f]{12})\.(json|vmdk)")
+DEFAULT_SYSTEM_IMAGE = "full_scale.vmdk"
+IMAGE_SUFFIXES = (".vmdk", ".raw", ".img", ".dd")
+COMPANION_MEDIA = re.compile(r"media_([0-9a-f]{12})\.(json|vmdk|raw|img|dd)")
 
 
-def public_generation_files(generation: Path) -> set[Path]:
+def is_disk_image(name: str) -> bool:
+    return Path(name).suffix.casefold() in IMAGE_SUFFIXES
+
+
+def _system_image_name(name) -> bool:
+    return (isinstance(name, str) and Path(name).name == name and "\\" not in name and is_disk_image(name)
+            and name != "native_media.vmdk" and not COMPANION_MEDIA.fullmatch(name))
+
+
+def system_image(manifest: dict) -> dict:
+    rows = manifest.get("artifacts") if isinstance(manifest, dict) else None
+    images = [row for row in rows if isinstance(row, dict) and _system_image_name(row.get("file"))
+              ] if isinstance(rows, list) else []
+    if len(images) != 1:
+        raise ValueError("the generation manifest must record exactly one system image (.vmdk, .raw, .img or .dd)")
+    return images[0]
+
+
+def public_generation_files(generation: Path, image: str = DEFAULT_SYSTEM_IMAGE) -> set[Path]:
     generation = generation.resolve(strict=True)
-    allowed = {generation / name for name in PUBLIC_GENERATION_NAMES}
+    allowed = {generation / name for name in (*PUBLIC_GENERATION_NAMES, image)}
     for path in generation.iterdir():
         if not path.is_symlink() and COMPANION_MEDIA.fullmatch(path.name):
             allowed.add(path)
@@ -65,9 +84,9 @@ def public_generation_files(generation: Path) -> set[Path]:
 
 
 @contextmanager
-def truth_blind_reads(generation: Path):
+def truth_blind_reads(generation: Path, image: str = DEFAULT_SYSTEM_IMAGE):
     generation = generation.resolve(strict=True)
-    allowed = public_generation_files(generation)
+    allowed = public_generation_files(generation, image)
     state = {
         "generation": generation,
         "allowed": allowed,
