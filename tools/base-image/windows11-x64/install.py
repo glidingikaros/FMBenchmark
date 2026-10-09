@@ -148,8 +148,9 @@ def monitor(port: int, command: str) -> None:
 def monitor_query(port: int, command: str) -> str:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=5) as connection:
+            connection.settimeout(30)
             def read(done) -> bytes:
-                data, deadline = b"", time.monotonic() + 15
+                data, deadline = b"", time.monotonic() + 60
                 while not done(data) and time.monotonic() < deadline and (chunk := connection.recv(65536)):
                     data += chunk
                 return data
@@ -193,6 +194,37 @@ def watch_console(monitor_port: int, label: str, seconds: int = 360, every: floa
             time.sleep(every)
 
     threading.Thread(target=take, daemon=True).start()
+
+
+class Machine:
+    def __init__(self, command: list[str], work: Path, relaunch_on_exit: bool):
+        self.command, self.work, self.relaunch_on_exit, self.relaunches = command, work, relaunch_on_exit, 0
+        self.process = self.launch("w")
+
+    def launch(self, mode: str) -> subprocess.Popen:
+        with (self.work / "qemu.log").open(mode) as qemu_log:
+            return subprocess.Popen(self.command, cwd=self.work, stdout=qemu_log, stderr=subprocess.STDOUT)
+
+    @property
+    def pid(self) -> int:
+        return self.process.pid
+
+    def poll(self) -> int | None:
+        return self.process.poll()
+
+    def wait(self, timeout: float | None = None) -> int:
+        return self.process.wait(timeout)
+
+    def kill(self) -> None:
+        self.process.kill()
+
+    def relaunched_after_guest_restart(self) -> bool:
+        if not self.relaunch_on_exit or self.process.poll() != 0 or self.relaunches >= 12:
+            return False
+        self.relaunches += 1
+        log(f"the guest restarted, which ends QEMU under -no-reboot: starting it again ({self.relaunches})")
+        self.process = self.launch("a")
+        return True
 
 
 class Stalled(Exception):
@@ -246,7 +278,7 @@ def serial_news(work: Path) -> None:
     SERIAL_SEEN[0] = len(lines)
 
 
-def wait_ready(vm: subprocess.Popen, work: Path, winrm_port: int, monitor_port: int, deadline: float,
+def wait_ready(vm: Machine | subprocess.Popen, work: Path, winrm_port: int, monitor_port: int, deadline: float,
                label: str, stall_seconds: int | None = None) -> str:
     usage = psutil.Process(vm.pid)
     usage.cpu_percent()
@@ -261,8 +293,11 @@ def wait_ready(vm: subprocess.Popen, work: Path, winrm_port: int, monitor_port: 
             elif now is not None and time.monotonic() - writing_since > stall_seconds:
                 raise Stalled(f"no disk writes for {stall_seconds // 60} minutes at {written} bytes")
         if vm.poll() is not None:
-            raise SystemExit("QEMU exited before WinRM answered:\n"
-                             + (work / "qemu.log").read_text(errors="replace")[-2000:])
+            if not (isinstance(vm, Machine) and vm.relaunched_after_guest_restart()):
+                raise SystemExit("QEMU exited before WinRM answered:\n"
+                                 + (work / "qemu.log").read_text(errors="replace")[-2000:])
+            usage = psutil.Process(vm.pid)
+            usage.cpu_percent()
         if time.monotonic() > deadline:
             raise SystemExit(f"no WinRM ({label})")
         monitor(monitor_port, f"screendump shots/{label}-{tick:03d}.png -f png")
@@ -319,7 +354,7 @@ def base_script(winrm_port: int, name: str) -> str:
     return output
 
 
-def finish(vm: subprocess.Popen, work: Path, winrm_port: int, monitor_port: int, edition: str) -> None:
+def finish(vm: Machine, work: Path, winrm_port: int, monitor_port: int, edition: str) -> None:
     if edition == "pro":
         log(guest(winrm_port, f"cscript //nologo C:\\Windows\\System32\\slmgr.vbs /ipk {PAPER_KEY}"))
     license_facts = activate(winrm_port) if edition == "eval" else json.loads(guest(winrm_port, LICENSE))
@@ -431,9 +466,10 @@ def main() -> int:
     shutil.copyfile(variables, work / "vars.fd")
     winrm_port, monitor_port = free_port(), free_port()
 
-    def start() -> subprocess.Popen:
+    def start() -> Machine:
         shutil.copyfile(variables, work / "vars.fd")
         (work / "win.qcow2").unlink(missing_ok=True)
+        (work / "serial.log").unlink(missing_ok=True)
         subprocess.run([qemu_tool(qemu, "qemu-img"), "create", "-q", "-f", "qcow2", "win.qcow2", "64G"], cwd=work,
                        check=True)
         rtc = datetime.now(GUEST_ZONE).strftime("%Y-%m-%dT%H:%M:%S")
@@ -453,12 +489,12 @@ def main() -> int:
             "-device", "e1000e,netdev=net0",
             "-vga", "std", "-display", "none",
             "-monitor", f"tcp:127.0.0.1:{monitor_port},server,nowait",
-            "-serial", "file:serial.log",
+            "-chardev", "file,id=serial0,path=serial.log,append=on", "-serial", "chardev:serial0",
+            *(["-no-reboot"] if accelerator == "whpx" else []),
         ]
         log(" ".join(command))
         SERIAL_SEEN[0], GUEST_SPOKE[0] = 0, False
-        with (work / "qemu.log").open("w") as qemu_log:
-            started = subprocess.Popen(command, cwd=work, stdout=qemu_log, stderr=subprocess.STDOUT)
+        started = Machine(command, work, relaunch_on_exit=accelerator == "whpx")
         boot_from_cd(monitor_port, work / "serial.log")
         return started
 
