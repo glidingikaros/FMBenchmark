@@ -243,6 +243,26 @@ def test_freezing_never_launches_a_vm(locked_recipe, tmp_path, monkeypatch):
     assert len(loaded["private"]["activity_plan"]) == 12
 
 
+def test_freezing_an_own_image_starts_its_clock_behind_the_mac_box(locked_recipe, tmp_path, monkeypatch):
+    from fmb.replication import host, steps
+
+    _, lock, *_ = locked_recipe
+    lock_path = tmp_path / "input-lock.json"
+    lock_path.write_text(json.dumps(lock))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(pipeline.GenerationPipeline, "run", lambda self: pytest.fail("freeze must not execute"))
+    monkeypatch.setattr(steps, "_load_generation_pipeline", lambda: pipeline)
+    monkeypatch.setattr(host, "base_guest_facts", lambda: pytest.fail("the Mac box has no base facts"))
+    definition = json.loads((SOURCE.parents[2] / "tests/fixtures/images/subset.json").read_text(encoding="utf-8"))
+    image = tmp_path / "own.json"
+    image.write_text(json.dumps({**definition, "generation": {"clock_bias_minutes": "auto"}}), encoding="utf-8")
+    destination = tmp_path / "frozen"
+    steps.freeze(image="own", provider="vmware_desktop", lock=str(lock_path), recipe=str(destination),
+                 image_file=str(image))
+    config = recipe.load_recipe(destination, source_root=SOURCE)["recipe"]["config"]
+    assert config["vmware_boot_clock_bias_minutes"] == 482
+
+
 def test_each_replay_gets_new_realization_identity(locked_recipe, tmp_path, monkeypatch):
     directory, lock, *_ = locked_recipe
     monkeypatch.setattr(pipeline.sys, "executable", lock["tools"]["python"]["path"])

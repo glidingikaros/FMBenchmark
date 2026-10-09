@@ -68,10 +68,12 @@ def freeze(image: str, provider: str, lock: str, recipe: str, image_file: str | 
         config = recipes.paper_config(image, provider)
         contract = PROJECT_ROOT / paper_protocol()["images"][image]["population_contract"]
     else:
-        from fmb.replication import image_files
+        from fmb.replication import host, image_files
 
         own = image_files.load(Path(image_file))
-        config = recipes.image_config(own.seed, own.contract, provider, settings=own.settings)
+        facts = (host.base_guest_facts() or {}) if provider == "qemu" else {}
+        config = recipes.image_config(own.seed, own.contract, provider, settings=own.settings,
+                                      guest_bias=recipes.guest_clock_bias(provider, facts.get("finished_utc")))
         contract = own.contract
     pipeline = _pipeline(config, default_current_root() / "generated", population_contract=contract)
     try:

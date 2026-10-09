@@ -70,24 +70,31 @@ def _shared(config):
     return {key: value for key, value in config.items() if key not in POPULATION_KEYS | set(SETTING_RANGES)}
 
 
-def auto_clock_bias(now=None):
-    from datetime import datetime, timezone
+def guest_clock_bias(provider, base_finished_utc=None):
+    from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    offset = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo(GUEST_ZONE)).utcoffset()
-    return AUTO_CLOCK_LAG_MINUTES - int(offset.total_seconds() // 60)
+    from fmb.generation.clock_protocol import GUEST_STANDARD_BIAS_MINUTES
+
+    if provider != "qemu" or base_finished_utc is None:
+        return GUEST_STANDARD_BIAS_MINUTES
+    offset = datetime.fromisoformat(base_finished_utc).astimezone(ZoneInfo(GUEST_ZONE)).utcoffset()
+    return -int(offset.total_seconds() // 60)
 
 
-def image_config(seed, contract, provider='vmware_desktop', windows_box=None, settings=None, now=None):
+def image_config(seed, contract, provider='vmware_desktop', windows_box=None, settings=None, guest_bias=None):
+    from fmb.generation.clock_protocol import GUEST_STANDARD_BIAS_MINUTES
+
     config = paper_config('I1', provider, windows_box)
     config.update(population_seed=seed, population_contract=contract)
     settings = dict(settings or {})
     if settings.get("clock_bias_minutes") == "auto":
-        settings["clock_bias_minutes"] = auto_clock_bias(now)
-    pacific = auto_clock_bias(now) - AUTO_CLOCK_LAG_MINUTES
-    if type(settings.get("clock_bias_minutes")) is int and settings["clock_bias_minutes"] < pacific:
-        raise ValueError(f"clock_bias_minutes is at least {pacific} now (Pacific's offset from UTC), "
-                         "or the guest clock starts ahead of the true time")
+        settings["clock_bias_minutes"] = (GUEST_STANDARD_BIAS_MINUTES if guest_bias is None else guest_bias
+                                          ) + AUTO_CLOCK_LAG_MINUTES
+    if (guest_bias is not None and type(settings.get("clock_bias_minutes")) is int
+            and settings["clock_bias_minutes"] < guest_bias):
+        raise ValueError(f"clock_bias_minutes is at least {guest_bias} on this host: Windows reads the guest's "
+                         "clock with that bias, so a smaller value starts it ahead of the true time")
     names = {"clock_bias_minutes": "vmware_boot_clock_bias_minutes"}
     config.update({names.get(key, key): value for key, value in settings.items()})
     return config
