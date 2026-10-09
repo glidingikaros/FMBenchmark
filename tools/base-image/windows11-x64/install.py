@@ -280,8 +280,7 @@ def serial_news(work: Path) -> None:
 
 def wait_ready(vm: Machine | subprocess.Popen, work: Path, winrm_port: int, monitor_port: int, deadline: float,
                label: str, stall_seconds: int | None = None) -> str:
-    usage = psutil.Process(vm.pid)
-    usage.cpu_percent()
+    usage = None
     tick = 0
     written, writing_since = None, time.monotonic()
     while (facts := ready(winrm_port)) is None:
@@ -296,15 +295,15 @@ def wait_ready(vm: Machine | subprocess.Popen, work: Path, winrm_port: int, moni
             if not (isinstance(vm, Machine) and vm.relaunched_after_guest_restart()):
                 raise SystemExit("QEMU exited before WinRM answered:\n"
                                  + (work / "qemu.log").read_text(errors="replace")[-2000:])
-            usage = psutil.Process(vm.pid)
-            usage.cpu_percent()
+            usage = None
         if time.monotonic() > deadline:
             raise SystemExit(f"no WinRM ({label})")
         monitor(monitor_port, f"screendump shots/{label}-{tick:03d}.png -f png")
         try:
+            usage = usage or psutil.Process(vm.pid)
             cpu = f"{usage.cpu_percent():.0f}%"
         except psutil.Error:
-            cpu = "ended (a guest restart, relaunched at the next check)"
+            usage, cpu = None, "ended (a guest restart, relaunched at the next check)"
         log(f"{label} {tick}: qemu cpu {cpu}")
         tick += 1
         time.sleep(30)
