@@ -221,6 +221,7 @@ def openrouter_reply(payload):
     (lambda c: c["mine-t0"]["settings"].update(model=" example/model-1"), "model is the provider's name"),
     (lambda c: c["mine-t0"]["settings"].update(reasoning_effort="extreme"), "reasoning_effort is one of"),
     (lambda c: c["mine-t0"]["settings"].update(max_output_tokens=True), "max_output_tokens is a whole number"),
+    (lambda c: c["mine-t0"]["settings"].update(context_window_tokens=6144), "or no request fits"),
     (lambda c: c["mine-t0"]["settings"].pop("route"), "names its route"),
     (lambda c: c["mine-t0"]["settings"].update(provider="openai"), "an openai condition has no route"),
     (lambda c: c["mine-t0"]["settings"].update(temperature=2.5), "temperature is a number from 0 to 2"),

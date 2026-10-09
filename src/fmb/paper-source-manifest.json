@@ -126,7 +126,7 @@
     "package/core/paper_contract.py": "af7547d9d8104779446fcb1b27a1d1bf1a4df4d7d8c858f13ac7dbc2541d9788",
     "package/core/paper_integrity.py": "700577fb17451e4eaa264291dd0f384a2c64c53f04e283368ccdd7137838e9ac",
     "package/core/paper_policy.py": "42d603252eacad168758456d7aebb932a28bff0bdc11f5bcd6aa4edb727a3f51",
-    "package/core/paper_protocol.py": "2b22b6af25880c6b3b814f0c57a57a996f7b6dad3354ddee1875ea1f07315352",
+    "package/core/paper_protocol.py": "62ababad4f418b2a845ee1b3f7eff43a59f4a0a15b0597d437436143a148ec13",
     "package/core/paper_results.py": "21d22204ca1090077cca9712cedbfa3810ed08a535e5dba3a0ec546521895c4f",
     "package/core/path_policy.py": "55da5a060d3625bf36711edf70ffe64cae81f09eafb4fd873056fc966ad80d3d",
     "package/core/paths.py": "f517bbd33bd214343f501dd6596d953b8ceed5f7c0b236c47157c384b0c335a5",

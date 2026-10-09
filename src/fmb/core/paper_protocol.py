@@ -62,6 +62,10 @@ def _check_declaration(name, declaration):
     for key in ("max_output_tokens", "timeout_seconds", "context_window_tokens"):
         if key in settings and (type(settings[key]) is not int or settings[key] < 1):
             raise ValueError(f"{name}: {key} is a whole number above 0")
+    if settings.get("context_window_tokens", DEFAULT_CONTEXT_WINDOW_TOKENS) <= (
+            settings["max_output_tokens"] + SAFETY_RESERVE_TOKENS):
+        raise ValueError(f"{name}: context_window_tokens must exceed max_output_tokens plus the "
+                         f"{SAFETY_RESERVE_TOKENS}-token reserve, or no request fits")
     if provider == "openrouter" and not _text(settings.get("route")):
         raise ValueError(f"{name}: an openrouter condition names its route, the one provider OpenRouter may use")
     if provider == "openai" and ("route" in settings or "upstream_provider" in declaration):
