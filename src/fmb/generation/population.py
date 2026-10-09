@@ -13,6 +13,11 @@ from fmb.generation import pilot_profile
 
 
 POPULATION_CONTRACT_PATH = Path(__file__).with_name("populations.pilot-i1-20260918.json")
+RELABELLED_CONTRACTS = {
+    "7a68fe204b28156d325172568d32e8927ba69630bcf5e59a3ed7f595bf60c84e": "populations.pilot-i1-20260918.json",
+    "9ab2a843430afdac1ab689e68c3f542aa224cc03c8cbf945a492e69fff4f7a4f": "populations.pilot-i2-20260918.json",
+    "27a3ddc446c8a0e6e9a948cdcc0dd7639dab885e19e880213d5ddf39be75f2f7": "populations.pilot-i3-20260918.json",
+}
 
 
 class PopulationError(ValueError):
@@ -231,7 +236,7 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
         raise PopulationError("unsupported native stream naming policy")
     if value.get("finding_reference_contract") != "broad_native_findings.v1":
         raise PopulationError("unsupported factual finding reference contract")
-    if value.get("contract_revision") != "stefan_content_formats.v2":
+    if value.get("contract_revision") != "content_formats.v2":
         raise PopulationError("unsupported native content-format revision")
     experiments = value.get("experiments")
     scenarios = value.get("scenarios")
@@ -509,11 +514,21 @@ def verify_public_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
         raise PopulationError(
             "population manifest does not match the generation analysis contract"
         ) from error
-    if complete != expected:
+    if complete != relabelled_manifest(expected, manifest):
         raise PopulationError(
             "population manifest does not match the generation analysis contract"
         )
     return complete
+
+
+def relabelled_manifest(expected: Mapping[str, Any], manifest: Mapping[str, Any]) -> dict[str, Any]:
+    name = RELABELLED_CONTRACTS.get(str(manifest.get("contract_sha256")))
+    if name is None or _sha256(load_population_contract(POPULATION_CONTRACT_PATH.parent / name)) != expected.get(
+            "contract_sha256"):
+        return dict(expected)
+    body = {key: value for key, value in expected.items() if key != "manifest_sha256"}
+    body["contract_sha256"] = manifest["contract_sha256"]
+    return {**body, "manifest_sha256": _sha256(body)}
 
 
 def _contract_for_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -522,6 +537,9 @@ def _contract_for_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
             contract = load_population_contract(path)
             if _sha256(contract) == manifest.get("contract_sha256"):
                 return contract
+    relabelled = RELABELLED_CONTRACTS.get(str(manifest.get("contract_sha256")))
+    if relabelled is not None:
+        return load_population_contract(POPULATION_CONTRACT_PATH.parent / relabelled)
     registered = population_contracts.registered(str(manifest.get("contract_sha256")))
     if registered is not None:
         return registered

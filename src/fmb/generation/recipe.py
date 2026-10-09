@@ -127,8 +127,8 @@ def validate_resolved_inputs(config, population, assignment, guest_plan):
     if not isinstance(population, dict):
         raise ValueError("recipe population differs from its configuration")
     population_support.verify_public_manifest(population)
-    expected = population_support.build_public_manifest(
-        experiment=config['experiment'], seed=config['population_seed'], contract=contract)
+    expected = population_support.relabelled_manifest(population_support.build_public_manifest(
+        experiment=config['experiment'], seed=config['population_seed'], contract=contract), population)
     if population != expected:
         raise ValueError("recipe population differs from its configuration")
     _object(assignment, {"schema_version", "population_manifest_sha256", "bindings"}, "private assignment")

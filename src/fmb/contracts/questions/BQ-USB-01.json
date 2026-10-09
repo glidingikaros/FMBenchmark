@@ -3,7 +3,7 @@
   "question_id": "BQ-USB-01",
   "order": 6,
   "group": {
-    "group_id": "stefan_usb_history_consistency",
+    "group_id": "usb_history_consistency",
     "title": "USB history consistency",
     "description": "Assess whether this USB device and referenced volume show inconsistencies in installation identity or filename history."
   },

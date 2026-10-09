@@ -3,7 +3,7 @@
   "question_id": "BQ-EXEC-01",
   "order": 8,
   "group": {
-    "group_id": "stefan_executable_residue",
+    "group_id": "executable_residue",
     "title": "Executable residue",
     "description": "Assess whether these executables have Prefetch or Shimcache residue despite no longer being present."
   },

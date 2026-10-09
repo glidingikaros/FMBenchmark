@@ -75,14 +75,7 @@ def toolchain() -> Path:
     root = host.toolchain_root()
     pins = host.PINS["eztools"]
     if not root.exists():
-        try:
-            data = fetch(pins["url"])
-        except OSError:
-            release = pins["release"]
-            with tempfile.TemporaryDirectory() as temporary:
-                run(["gh", "release", "download", release["tag"], "--repo", release["repository"],
-                     "--pattern", release["asset"], "--dir", temporary])
-                data = (Path(temporary) / release["asset"]).read_bytes()
+        data = (host.REPO / pins["file"]).read_bytes()
         if hashlib.sha256(data).hexdigest() != pins["sha256"]:
             raise SystemExit("the EZ tools archive does not match its pinned sha256")
         root.parent.mkdir(parents=True, exist_ok=True)

@@ -3,7 +3,7 @@
   "question_id": "BQ-LOG-01",
   "order": 9,
   "group": {
-    "group_id": "stefan_security_log_history",
+    "group_id": "security_log_history",
     "title": "Security log history",
     "description": "Assess whether this Security log shows evidence of clearing or an internal record-sequence discontinuity."
   },

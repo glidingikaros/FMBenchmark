@@ -3,7 +3,7 @@
   "question_id": "BQ-SHELLBAG-01",
   "order": 3,
   "group": {
-    "group_id": "stefan_shellbag_path_history",
+    "group_id": "shellbag_path_history",
     "title": "Shellbag path history",
     "description": "Assess whether these directory paths retain Shellbag history despite no longer being present."
   },

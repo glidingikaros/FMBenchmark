@@ -147,7 +147,7 @@
       "object_kind": "native_usb_device"
     }
   },
-  "contract_revision": "stefan_content_formats.v2",
+  "contract_revision": "content_formats.v2",
   "stream_name_policy": "role_independent.v1",
   "finding_reference_contract": "broad_native_findings.v1"
 }

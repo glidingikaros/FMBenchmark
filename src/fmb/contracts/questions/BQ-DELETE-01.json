@@ -3,7 +3,7 @@
   "question_id": "BQ-DELETE-01",
   "order": 2,
   "group": {
-    "group_id": "stefan_deleted_file_or_path_history",
+    "group_id": "deleted_file_or_path_history",
     "title": "Deleted file or path history",
     "description": "Assess whether these files or paths retain evidence that they were deleted or are no longer present."
   },

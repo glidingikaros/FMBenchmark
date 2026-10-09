@@ -181,7 +181,7 @@ def test_nested_format_annotation_is_not_model_evidence(tmp_path):
 
 
 def test_legacy_non_pe_measurements_cannot_certify_new_archive_absence():
-    from test_stefan_analysis import ads_records, assess
+    from test_rule_analysis import ads_records, assess
     records = ads_records(b'{"ordinary_metadata":3}')
     records[1]['fields'].pop('zip_signature_hex')
     records[1]['fields'].pop('zip_structure_status')

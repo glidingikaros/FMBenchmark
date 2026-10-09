@@ -3,7 +3,7 @@
   "question_id": "BQ-STREAM-01",
   "order": 5,
   "group": {
-    "group_id": "stefan_named_stream_content",
+    "group_id": "named_stream_content",
     "title": "Named stream content",
     "description": "Assess whether these files contain PE or ZIP content in a named NTFS stream."
   },

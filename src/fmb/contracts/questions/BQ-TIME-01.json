@@ -3,7 +3,7 @@
   "question_id": "BQ-TIME-01",
   "order": 1,
   "group": {
-    "group_id": "stefan_timestamp_backdating",
+    "group_id": "timestamp_backdating",
     "title": "Timestamp backdating",
     "description": "Assess whether these files show evidence of timestamp backdating."
   },

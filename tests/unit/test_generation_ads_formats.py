@@ -66,7 +66,7 @@ def test_current_ads_receipts(verified_receipts, case):
     module.validate_guest_receipts(plan, receipts, case=case)
     assert [row['format'] for row in receipt['streams']] == (['pe', 'zip'] if case == 'positive' else [])
     assert receipt['content_contract'] == 'named_stream_pe_zip.v2'
-    assert contract['contract_revision'] == 'stefan_content_formats.v2'
+    assert contract['contract_revision'] == 'content_formats.v2'
     schema = json.loads((PROJECT_ROOT / 'src/fmb/contracts/schemas/generation_recipe.schema.json').read_text())
     from jsonschema import Draft202012Validator
     Draft202012Validator(schema['$defs']['generation_inputs']['properties']['scenario_inputs']['additionalProperties']).validate(inputs)

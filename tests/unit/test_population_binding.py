@@ -1175,7 +1175,7 @@ def test_current_and_pre_content_contract_pins_match_retained_contract_bytes(fil
     digest = canonical_sha256(contract)
     if filename == 'populations.v1.json':
         assert digest == BOUNDED_POPULATION_CONTRACT_SHA256
-        assert contract['contract_revision'] == 'stefan_content_formats.v2'
+        assert contract['contract_revision'] == 'content_formats.v2'
         assert contract['scenarios']['ads_injection_01']['manipulation_count'] == 2
     else:
         assert digest in HISTORICAL_POPULATION_CONTRACT_SHA256

@@ -42,7 +42,7 @@ def test_fixed_profile_covers_all_nine_questions_and_fourteen_components_in_orde
     assert [item["question_id"] for item in questions] == list(EXPECTED_COMPONENTS)
     assert {item["question_id"]: item["technique_ids"] for item in questions} == EXPECTED_COMPONENTS
     assert {item["question_id"]: item["artifact_families"] for item in questions} == EXPECTED_FAMILIES
-    assert profile["question_group_version"] == "stefan_broad_questions_20260912.v1"
+    assert profile["question_group_version"] == "broad_questions_20260912.v1"
     components = [component for question in questions for component in question["components"]]
     assert len(components) == len({item["technique_id"] for item in components}) == 14
     assert {item["technique_id"] for item in components} == {item.technique_id for item in TECHNIQUES}

@@ -3,7 +3,7 @@
   "question_id": "BQ-FILE-01",
   "order": 7,
   "group": {
-    "group_id": "stefan_file_integrity",
+    "group_id": "file_integrity",
     "title": "File integrity",
     "description": "Assess whether these files show content-length or NTFS allocation inconsistencies."
   },

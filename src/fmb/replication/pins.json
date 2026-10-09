@@ -8,8 +8,7 @@
     "sha256": "bd4307df32bc8af33b39ccecb1174aeb345386630f89a2b86c7a4e36b55ea650"
   },
   "eztools": {
-    "url": "https://github.com/glidingikaros/FMBenchmark/releases/download/eztools-locked-v1/eztools-net9-locked.tar.gz",
-    "release": {"repository": "glidingikaros/FMBenchmark", "tag": "eztools-locked-v1", "asset": "eztools-net9-locked.tar.gz"},
+    "file": "tools/eztools/eztools-net9-locked.tar.gz",
     "sha256": "ea08df43c5e3b09c9a156a5a76c1bdefe9866bf394630145c1b1dda7131c818c"
   },
   "windows_parsers": {

@@ -15,7 +15,7 @@ from fmb.index.scanners.mft import parse_mft_record
 from paper_fixtures import projected_input
 from test_file_content_adapter import bmp_bytes
 from test_ntfs_surfaces import _record, _resident
-from test_stefan_analysis import assess
+from test_rule_analysis import assess
 
 
 def native_records(data, *, native_size=None):

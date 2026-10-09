@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-BROAD_QUESTION_GROUP_VERSION = "stefan_broad_questions_20260912.v1"
+BROAD_QUESTION_GROUP_VERSION = "broad_questions_20260912.v1"
 
 
 @dataclass(frozen=True)
@@ -16,14 +16,14 @@ class BroadQuestion:
 BROAD_QUESTIONS = (
     BroadQuestion(
         "BQ-TIME-01",
-        "stefan_timestamp_backdating",
+        "timestamp_backdating",
         "Timestamp backdating",
         "Assess whether these files show evidence of timestamp backdating.",
         ("timestamp_manipulation",),
     ),
     BroadQuestion(
         "BQ-DELETE-01",
-        "stefan_deleted_file_or_path_history",
+        "deleted_file_or_path_history",
         "Deleted file or path history",
         (
             "Assess whether these files or paths retain evidence that they were "
@@ -33,7 +33,7 @@ BROAD_QUESTIONS = (
     ),
     BroadQuestion(
         "BQ-SHELLBAG-01",
-        "stefan_shellbag_path_history",
+        "shellbag_path_history",
         "Shellbag path history",
         (
             "Assess whether these directory paths retain Shellbag history despite "
@@ -43,7 +43,7 @@ BROAD_QUESTIONS = (
     ),
     BroadQuestion(
         "BQ-DIRECTORY-01",
-        "stefan_directory_index_residue",
+        "directory_index_residue",
         "Directory index residue",
         (
             "Assess whether these directory entries retain index evidence for "
@@ -53,7 +53,7 @@ BROAD_QUESTIONS = (
     ),
     BroadQuestion(
         "BQ-STREAM-01",
-        "stefan_named_stream_content",
+        "named_stream_content",
         "Named stream content",
         (
             "Assess whether these files contain PE or ZIP content in a named "
@@ -63,7 +63,7 @@ BROAD_QUESTIONS = (
     ),
     BroadQuestion(
         "BQ-USB-01",
-        "stefan_usb_history_consistency",
+        "usb_history_consistency",
         "USB history consistency",
         (
             "Assess whether this USB device and referenced volume show "
@@ -73,7 +73,7 @@ BROAD_QUESTIONS = (
     ),
     BroadQuestion(
         "BQ-FILE-01",
-        "stefan_file_integrity",
+        "file_integrity",
         "File integrity",
         (
             "Assess whether these files show content-length or NTFS allocation "
@@ -83,7 +83,7 @@ BROAD_QUESTIONS = (
     ),
     BroadQuestion(
         "BQ-EXEC-01",
-        "stefan_executable_residue",
+        "executable_residue",
         "Executable residue",
         (
             "Assess whether these executables have Prefetch or Shimcache residue "
@@ -93,7 +93,7 @@ BROAD_QUESTIONS = (
     ),
     BroadQuestion(
         "BQ-LOG-01",
-        "stefan_security_log_history",
+        "security_log_history",
         "Security log history",
         (
             "Assess whether this Security log shows evidence of clearing or an "

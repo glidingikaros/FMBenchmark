@@ -3,7 +3,7 @@
   "question_id": "BQ-DIRECTORY-01",
   "order": 4,
   "group": {
-    "group_id": "stefan_directory_index_residue",
+    "group_id": "directory_index_residue",
     "title": "Directory index residue",
     "description": "Assess whether these directory entries retain index evidence for objects that are no longer present."
   },

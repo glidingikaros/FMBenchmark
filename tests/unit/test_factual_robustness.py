@@ -130,7 +130,7 @@ def test_incomplete_export_can_prove_retained_clear_but_not_internal_gap(has_cle
 def test_positive_stream_not_suppressed_by_an_unreadable_sibling():
     from fmb.analysis.catalog import technique_definition
     from fmb.analysis.inputs import build_analysis_input
-    from test_stefan_analysis import ads_records, pe_bytes
+    from test_rule_analysis import ads_records, pe_bytes
     records = ads_records(pe_bytes())
     sibling = deepcopy(ads_records(b"ordinary metadata", content_complete=False))
     for row in sibling:
@@ -150,7 +150,7 @@ def test_positive_stream_not_suppressed_by_an_unreadable_sibling():
 def test_native_complete_short_signature_is_a_decoy_but_partial_extraction_is_unknown(data, complete):
     from fmb.analysis.catalog import technique_definition
     from fmb.analysis.inputs import build_analysis_input
-    from test_stefan_analysis import ads_records
+    from test_rule_analysis import ads_records
     index = {"schema_version": "evidence_index.v1", "run_id": "native-signature-decoy",
              "artifact_coverage": [{"artifact_family": f, "status": "complete"} for f in ("ntfs.ads", "ntfs.mft")],
              "parser_runs": [{"parser_kind": "ntfs_ads", "status": "consumed", "coverage_status": "complete",
@@ -199,7 +199,7 @@ def test_comparison_assessor_distinguishes_original_object_from_path_replacement
 @pytest.mark.parametrize("vdl,expected", [(0, "not_supported"), (4097, "not_supported"), (4098, "supported"), (None, "indeterminate")])
 def test_native_valid_data_length_is_not_confused_with_allocation_rounding(vdl, expected):
     from paper_fixtures import bundle_for
-    from test_stefan_analysis import allocation_fields
+    from test_rule_analysis import allocation_fields
     fields = allocation_fields(valid_data_length=vdl, total_clusters=1000,
                                data_runs=[{"vcn": 0, "lcn": 50, "cluster_count": 2}])
     fields.pop("runlist_in_volume")
