@@ -87,10 +87,9 @@ def verify_preparation(prepared: Path, *, sources: bool = False) -> dict:
     if (not selected or selected != [qid for qid in QIDS if qid in selected]
             or [row["question_id"] for row in manifest["rows"]] != selected):
         raise ValueError("incomplete prepared question roster")
+    planned = manifest["planned_counts"]
     for row in manifest["rows"]:
-        if [row["subjects"], row["targets"]] != manifest["planned_counts"][
-            row["question_id"]
-        ]:
+        if planned is not None and [row["subjects"], row["targets"]] != planned[row["question_id"]]:
             raise ValueError("prepared population differs from declared scope")
     if sources:
         for name, row in read_json(prepared / "source-records.json").items():
