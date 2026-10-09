@@ -116,22 +116,21 @@ replicates is the protocol and the result.
 `fmb replicate run` also takes image files of your own, alone or next to the paper's images:
 
 ```bash
-uv run fmb replicate run examples/timestamps.json
+uv run fmb replicate run examples/decoys.json
 ```
 
 An image file is a paper image's population with a `seed`, and its file name is the image's name.
-`examples/timestamps.json` is I3 with twice the timestamp-tampered files and only timestamp supplements.
-Copy it and edit:
+`examples/decoys.json` is I3 with twice as many untouched objects around the same manipulations. Copy it
+and edit:
 
 - `seed`, which picks the objects' names and folders and the virtual hardware;
-- `scenarios`: how many objects each anti-forensic technique creates (`configured_count`) and how many it
-  manipulates (`manipulation_count`);
+- `scenarios`: how many objects each anti-forensic technique creates (`configured_count`). Its guest
+  script fixes how many of them it manipulates, so `manipulation_count` keeps the paper's value;
 - `native_pilot_parameters.case_classes`: each question's supplementary cases and controls, at most as
   many of each as I3 has.
 
-`run` checks every image file before it starts and says what does not fit. All fourteen scenarios stay,
-the two USB scenarios keep three drives with one manipulated, and the two event-log scenarios keep one log
-each. Results go to `replication/<name>/`, scored against the image's own ground truth. The Windows base,
+`run` checks every image file before it starts and says what does not fit. All fourteen scenarios stay; the
+USB, NTFS-allocation and event-log scenarios also keep their number of objects. Results go to `replication/<name>/`, scored against the image's own ground truth. The Windows base,
 the guest settings and the pipeline stay the paper's.
 
 ### Changing the code

@@ -263,7 +263,7 @@
     "package/question_packs.py": "01e5acaa48b15425670314d0ea275290425967f4625442e8d563f5e3b5c5ffc5",
     "package/replication/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "package/replication/host.py": "7bdbc273c8e79b4d35e49bf218a5db13eca7f7a83bf0b1ee0eeecac441a85805",
-    "package/replication/image_files.py": "7c8525f203e81f44df98aedcc509c6b973ed24ca01b5d45cfdf3862dda49cc9b",
+    "package/replication/image_files.py": "31deeceaf16d1e49c95ab562fb46f71bc4466918352b45bac206d1de49d04098",
     "package/replication/pins.json": "0fc0ccf79e9ce94cc88abb581e60cee32dbd66f627987c48b2743d0a5c5efa5f",
     "package/replication/run.py": "e08247f0d985c31b064ee9b5de1c5f3332413a85a758c9576e674e7e9b0681a4",
     "package/replication/setup.py": "b3bd3efd6d3c6897048884e46ee053fcdf37a3673ca3142507f1d80fdeb909fd",

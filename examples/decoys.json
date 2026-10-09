@@ -24,15 +24,15 @@
   },
   "scenarios": {
     "timestomp_01": {
-      "configured_count": 12,
-      "manipulation_count": 4,
-      "assignment_pool_count": 4,
+      "configured_count": 6,
+      "manipulation_count": 2,
+      "assignment_pool_count": 2,
       "restore_stratum_end_indexes": [
+        1,
         2,
         4,
-        8,
-        10,
-        12
+        5,
+        6
       ],
       "object_kind": "file",
       "name_prefix": "f",
@@ -43,7 +43,7 @@
       ]
     },
     "ads_injection_01": {
-      "configured_count": 7,
+      "configured_count": 14,
       "manipulation_count": 2,
       "object_kind": "file",
       "name_prefix": "f",
@@ -69,7 +69,7 @@
       "native_name": "Security"
     },
     "usn_journal_01": {
-      "configured_count": 6,
+      "configured_count": 12,
       "manipulation_count": 1,
       "object_kind": "file",
       "name_prefix": "f",
@@ -79,7 +79,7 @@
       ]
     },
     "shimcache_path_residue_01": {
-      "configured_count": 3,
+      "configured_count": 6,
       "manipulation_count": 1,
       "object_kind": "executable",
       "name_prefix": "x",
@@ -89,7 +89,7 @@
       ]
     },
     "typed_path_residue_01": {
-      "configured_count": 5,
+      "configured_count": 10,
       "manipulation_count": 2,
       "object_kind": "directory",
       "name_prefix": "d",
@@ -176,13 +176,44 @@
   "native_pilot_profile": "pilot_min.v1",
   "native_pilot_parameters": {
     "schema_version": "native_pilot_parameters.v1",
-    "image_label": "timestamps",
+    "image_label": "decoys",
     "case_classes": {
       "BQ-TIME-01": [
         "same_year",
         "old_copy",
+        "old_copy",
+        "forward",
         "forward",
         "access_only"
+      ],
+      "BQ-DELETE-01": [
+        "deleted",
+        "recreated",
+        "entry_reused"
+      ],
+      "BQ-EXEC-01": [
+        "renamed",
+        "recreated"
+      ],
+      "BQ-SHELLBAG-01": [
+        "deleted",
+        "renamed",
+        "recreated",
+        "present_case"
+      ],
+      "BQ-DIRECTORY-01": [
+        "recreated_children",
+        "renamed_children",
+        "moved_children"
+      ],
+      "BQ-STREAM-01": [
+        "second_pe",
+        "signature_decoy",
+        "empty_zip"
+      ],
+      "BQ-FILE-01": [
+        "append_four",
+        "valid_bmp"
       ]
     },
     "directory_child_count": 80,

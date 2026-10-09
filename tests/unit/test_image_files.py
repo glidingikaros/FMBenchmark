@@ -13,7 +13,7 @@ from fmb.generation.pipeline import GenerationPipeline
 from fmb.replication import image_files, run
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / "examples/timestamps.json"
+EXAMPLE = ROOT / "examples/decoys.json"
 PAPER_I3 = ROOT / "src/fmb/generation/populations.pilot-i3-20260918.json"
 
 
@@ -34,14 +34,15 @@ def write_image(path: Path, contract: dict, seed=4242) -> Path:
     return path
 
 
-def test_the_example_is_i3_with_more_timestamp_manipulation():
+def test_the_example_is_i3_with_more_decoys_around_the_same_manipulations():
     image = image_files.load(EXAMPLE)
     paper = population.load_population_contract(PAPER_I3)
-    assert (image.name, image.seed) == ("timestamps", 4242)
-    assert image.contract["scenarios"]["timestomp_01"]["configured_count"] == 12
-    assert {key: value for key, value in image.contract["scenarios"].items() if key != "timestomp_01"} == {
-        key: value for key, value in paper["scenarios"].items() if key != "timestomp_01"}
-    assert image_files.check(image) == "timestamps: seed 4242, 62 objects, 20 manipulated, 4 supplementary cases"
+    added = {key: item["configured_count"] - paper["scenarios"][key]["configured_count"]
+             for key, item in image.contract["scenarios"].items()}
+    assert (image.name, image.seed) == ("decoys", 4242)
+    assert {key: count for key, count in added.items() if count} == {
+        "ads_injection_01": 7, "usn_journal_01": 6, "shimcache_path_residue_01": 3, "typed_path_residue_01": 5}
+    assert image_files.check(image) == "decoys: seed 4242, 77 objects, 18 manipulated, 23 supplementary cases"
 
 
 def test_a_paper_population_with_a_seed_is_an_image(tmp_path):
@@ -55,6 +56,14 @@ def remove_scenario(contract):
 
 def more_drives(contract):
     contract["scenarios"]["usb_volume_activity_gap_01"]["configured_count"] = 5
+
+
+def more_timestomping(contract):
+    contract["scenarios"]["timestomp_01"].update(manipulation_count=4, assignment_pool_count=4)
+
+
+def fewer_streams(contract):
+    contract["scenarios"]["ads_injection_01"]["manipulation_count"] = 1
 
 
 def without_native_profile(contract):
@@ -72,6 +81,8 @@ def fewer_child_directories(contract):
 @pytest.mark.parametrize("edit,message", [
     (remove_scenario, "keeps all 14 scenarios"),
     (more_drives, "three virtual USB drives"),
+    (more_timestomping, "timestomp_01 manipulates 2 object"),
+    (fewer_streams, "ads_injection_01 manipulates 2 object"),
     (without_native_profile, "native profile"),
     (oversized_supplement, "exceeds the released construction"),
     (fewer_child_directories, "child-count strata"),
@@ -140,7 +151,7 @@ def test_the_generator_takes_another_seed_only_with_its_population(tmp_path):
     finally:
         generator.cleanup_population_inputs()
     assert manifest["population_seed"] == 4242
-    assert manifest["scenarios"]["timestomp_01"]["declared_count"] == 12
+    assert manifest["scenarios"]["ads_injection_01"]["declared_count"] == 14
 
 
 def test_activating_a_recipe_of_your_own_registers_its_population_and_permits_changed_code(monkeypatch, tmp_path):
@@ -189,7 +200,7 @@ def test_run_checks_image_files_before_anything_starts(tmp_path):
     with pytest.raises(ValueError, match="three virtual USB drives"):
         run.images([str(write_image(tmp_path / "mine.json", broken))], tmp_path / "replication", 1)
     with pytest.raises(SystemExit, match="same name"):
-        run.images([str(EXAMPLE), str(write_image(tmp_path / "timestamps.json", example()))], tmp_path / "out", 1)
+        run.images([str(EXAMPLE), str(write_image(tmp_path / "decoys.json", example()))], tmp_path / "out", 1)
     with pytest.raises(SystemExit, match="name I1, I2, I3 or an image file ending in .json"):
         main(["replicate", "run", "I4"])
     assert not (tmp_path / "replication").exists() and not (tmp_path / "out").exists()

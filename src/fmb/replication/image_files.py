@@ -8,11 +8,18 @@ from fmb.core.paper_protocol import paper_protocol
 from fmb.core.sealed_records import read_json
 
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
-FIXED_COUNTS = {
-    "usbstor_setupapi_discrepancy_01": (3, 1, "the native layout has three virtual USB drives"),
-    "usb_volume_activity_gap_01": (3, 1, "the native layout has three virtual USB drives"),
-    "security_log_clear_event_01": (1, 1, "the image has one Security log"),
-    "event_record_sequence_gap_01": (1, 1, "the image has one log of this kind"),
+MANIPULATED = {
+    "timestomp_01": 2, "ads_injection_01": 2, "prefetch_wipe_01": 1, "security_log_clear_event_01": 1,
+    "usn_journal_01": 1, "shimcache_path_residue_01": 1, "typed_path_residue_01": 2, "shellbag_path_residue_01": 1,
+    "ntfs_allocation_01": 1, "bitmap_trailing_data_01": 2, "usbstor_setupapi_discrepancy_01": 1,
+    "usb_volume_activity_gap_01": 1, "event_record_sequence_gap_01": 1,
+}
+FIXED_OBJECTS = {
+    "usbstor_setupapi_discrepancy_01": (3, "the native layout has three virtual USB drives"),
+    "usb_volume_activity_gap_01": (3, "the native layout has three virtual USB drives"),
+    "ntfs_allocation_01": (4, "its guest script builds one file for each of four storage modes"),
+    "security_log_clear_event_01": (1, "the image has one Security log"),
+    "event_record_sequence_gap_01": (1, "the image has one Security log"),
 }
 
 
@@ -47,11 +54,13 @@ def load(path: Path) -> Image:
     if set(contract["experiments"]["full_scale"]) != set(population.SCENARIO_ANALYSIS):
         raise ValueError(f"{path.name}: experiments.full_scale keeps all {len(population.SCENARIO_ANALYSIS)} "
                          "scenarios, which the native profile builds on; change their counts instead")
-    for scenario, (configured, manipulated, reason) in FIXED_COUNTS.items():
-        item = contract["scenarios"][scenario]
-        if (item["configured_count"], item["manipulation_count"]) != (configured, manipulated):
-            raise ValueError(f"{path.name}: {scenario} stays at {configured} objects with {manipulated} "
-                             f"manipulated: {reason}")
+    for scenario, manipulated in MANIPULATED.items():
+        if contract["scenarios"][scenario]["manipulation_count"] != manipulated:
+            raise ValueError(f"{path.name}: {scenario} manipulates {manipulated} object(s), which its guest script "
+                             "fixes; change configured_count, the objects around them, instead")
+    for scenario, (configured, reason) in FIXED_OBJECTS.items():
+        if contract["scenarios"][scenario]["configured_count"] != configured:
+            raise ValueError(f"{path.name}: {scenario} keeps {configured} object(s): {reason}")
     return Image(path.stem, seed, contract, path)
 
 
