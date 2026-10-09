@@ -201,9 +201,10 @@ foreach($m in $ordered) {
     $t=[FactualFileInfo]::Times($p)
     switch($kind) {
       'same_year' {
+        $years=@([DateTime]::FromFileTimeUtc($t.Creation).Year,[DateTime]::FromFileTimeUtc($t.Write).Year)
         $t.Creation+=[long]$m.timestamp_deltas.creation_filetime
         $t.Write+=[long]$m.timestamp_deltas.modified_filetime
-        if([DateTime]::FromFileTimeUtc($t.Creation).Year -ne 2026 -or [DateTime]::FromFileTimeUtc($t.Write).Year -ne 2026){throw 'Pilot same-year target is outside frozen year'}
+        if([DateTime]::FromFileTimeUtc($t.Creation).Year -ne $years[0] -or [DateTime]::FromFileTimeUtc($t.Write).Year -ne $years[1]){throw 'Pilot same-year target crossed its calendar year'}
         [FactualFileInfo]::Set($p,$t)
       }
       'forward' {$t.Write+=[long]$m.timestamp_deltas.modified_filetime;$t.Change=0;[FactualFileInfo]::Set($p,$t)}
