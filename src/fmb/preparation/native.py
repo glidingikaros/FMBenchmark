@@ -5,7 +5,7 @@ from pathlib import Path
 from fmb.core.hashing import sha256_bytes, sha256_file
 from fmb.core.sealed_records import canonical_json, now, read_json, write_json
 from fmb.core.case_contract import QIDS
-from fmb.core.truth_guard import truth_blind_reads
+from fmb.core.truth_guard import system_image, truth_blind_reads
 from fmb.analysis.native_preparation import repair_usb_companion_rows, repair_native_stream_rows
 
 def collect_native(*, evidence: Path, output: Path, windows_parsers: Path | None = None,
@@ -28,7 +28,7 @@ def collect_native(*, evidence: Path, output: Path, windows_parsers: Path | None
         "guard_scope": "collector Python process; subprocesses receive public image paths",
     }
     write_json(receipt, record)
-    with truth_blind_reads(evidence.parent) as guard:
+    with truth_blind_reads(evidence.parent, evidence.name) as guard:
         primary_error = None
         try:
             if profile is None:
@@ -69,15 +69,13 @@ def collect_native(*, evidence: Path, output: Path, windows_parsers: Path | None
     return {"status": "collected", "output": str(output), "truth_guard": str(receipt)}
 
 
-SYSTEM_IMAGE = "full_scale.vmdk"
 IMAGE_HASH_RECORDS = ("native-surface-preparation.json", "public-population-binding.json")
 
 
 def image_binding(*, analysis: Path, generation: Path) -> dict:
-    declared = {row["file"]: row["sha256"] for row in read_json(generation / "manifest.json").get("artifacts", [])
-                if isinstance(row, dict) and "file" in row}
+    image = system_image(read_json(generation / "manifest.json"))
     collection = read_json(analysis / "factual-collection.json")
-    if SYSTEM_IMAGE not in declared or Path(collection["evidence"]).name != SYSTEM_IMAGE:
+    if Path(collection["evidence"]).name != image["file"]:
         raise ValueError("the collection's evidence is not the generation's system image")
     supplement = analysis / "factual-supplement"
     records = ["factual-supplement/" + name for name in IMAGE_HASH_RECORDS]
@@ -86,9 +84,9 @@ def image_binding(*, analysis: Path, generation: Path) -> dict:
         if read_json(analysis / "collection.json").get("status") != "completed":
             raise ValueError("the collection has no completed image-hash receipt")
     recorded = {name: read_json(analysis / name).get("evidence_sha256") for name in records}
-    if any(value != declared[SYSTEM_IMAGE] for value in recorded.values()):
+    if any(value != image["sha256"] for value in recorded.values()):
         raise ValueError("the collection was made from another image than the generation's")
-    binding = {"image": SYSTEM_IMAGE, "image_sha256": declared[SYSTEM_IMAGE],
+    binding = {"image": image["file"], "image_sha256": image["sha256"],
                "image_hash_records": records,
                "evidence_index_sha256": collection["evidence_index_sha256"]}
     population = read_json(supplement / "public-population-binding.json").get("public_manifest_sha256")
@@ -243,12 +241,12 @@ def prepare_cases(
         from fmb.analysis.population_binding import load_generated_population_bundle
         from fmb.collection.factual_challenge import load_public_population
 
-        generated = load_generated_population_bundle(generation / SYSTEM_IMAGE, verify_evidence_sha256=False)
+        generated = load_generated_population_bundle(generation / binding["image"], verify_evidence_sha256=False)
         if generated is None or base_data.get("population_manifest") != generated.population_manifest:
             raise ValueError("the collection's base population differs from the generation's")
         if base_data.get("collector_runs") != index.get("collector_runs"):
             raise ValueError("the base population belongs to another collection")
-        public = load_public_population(generation / SYSTEM_IMAGE)
+        public = load_public_population(generation / binding["image"])
         if public is None or binding.get("scope_record_sha256") != sha256_file(generation / "factual-challenge-population.json"):
             raise ValueError("the collection lacks a binding to the complete public population")
         population_binding = read_json(supplement / "public-population-binding.json")

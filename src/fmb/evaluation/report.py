@@ -15,6 +15,7 @@ from fmb.core.hashing import sha256_file
 from fmb.core.paper_protocol import paper_protocol, validate_condition
 from fmb.core.paper_results import finding_status
 from fmb.core.sealed_records import contained_path, read_json, write_json
+from fmb.core.truth_guard import system_image
 
 
 def decimal_text(value, places):
@@ -203,18 +204,12 @@ def build_report(*, index: Path, archive_root: Path):
             key: read_json(contained_path(archive_root, value))
             for key, value in paths.items()
         }
-        images = [
-            r
-            for r in records["image_manifest"]["artifacts"]
-            if r["file"].endswith("full_scale.vmdk")
-        ]
-        if len(images) != 1:
-            raise ValueError("measurement manifest must identify one system image")
+        system = system_image(records["image_manifest"])
         measurements[image] = {
             "generation_seconds": records["generation"]["elapsed_seconds"],
             "collection_seconds": records["collection"]["elapsed_seconds"],
-            "image_bytes": images[0]["size_bytes"],
-            "image_sha256": images[0]["sha256"],
+            "image_bytes": system["size_bytes"],
+            "image_sha256": system["sha256"],
             "recorded_rule_seconds": sum(
                 r["deterministic_elapsed_seconds"]
                 for r in records["preparation"]["rows"]

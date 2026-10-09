@@ -8,6 +8,7 @@ from typing import Any
 from fmb.analysis.inputs import population_ntfs_scope_and_references
 from fmb.analysis.population_binding import bind_population_manifest
 from fmb.core.schemas import validate_payload
+from fmb.core.truth_guard import is_disk_image
 from fmb.index.adapters.logfile import raw_logfile_reference_parser_run
 from fmb.index.adapters.mft import (
     build_mft_presence_context,
@@ -337,8 +338,8 @@ def collect_evidence_index(evidence: Path, *, profile: dict, output_dir: Path, r
     from fmb.collection.paper_host import collect_host
 
     evidence = evidence.expanduser().absolute()
-    if not evidence.is_file() or evidence.suffix.casefold() != '.vmdk':
-        raise ValueError('paper collection requires an existing VMDK')
+    if not evidence.is_file() or not is_disk_image(evidence.name):
+        raise ValueError('paper collection requires an existing VMDK or raw (.raw, .img, .dd) disk image')
     generated = load_generated_population_bundle(evidence, verify_evidence_sha256=False)
     if generated is None:
         raise ValueError('paper collection requires a bound public population')

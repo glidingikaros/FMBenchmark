@@ -8,6 +8,7 @@ from typing import Any
 from fmb.collection.tsk_volume import DATA, NtfsVolume, ntfs_volume_offsets, open_image
 from fmb.core.hashing import sha256_file
 from fmb.core.json_io import write_json
+from fmb.core.truth_guard import COMPANION_MEDIA
 from fmb.index.scanners.usb_volume import lecmd_link_row, shell_link_from_lecmd
 
 MAX_COMPANION_BYTES = 64 * 1024 * 1024
@@ -24,6 +25,13 @@ def manifest_artifact(manifest_path: Path, name: str) -> Path:
     if path.stat().st_size != row["size_bytes"] or sha256_file(path) != row["sha256"]:
         raise ValueError("native USB artifact does not match its generation manifest")
     return path
+
+
+def _companion_of(binding_file: str, companion: Any) -> bool:
+    if binding_file == "native_media_binding.json":
+        return companion == "native_media.vmdk"
+    match = COMPANION_MEDIA.fullmatch(str(companion))
+    return bool(match) and match.group(2) != "json" and binding_file == f"media_{match.group(1)}.json"
 
 
 def extract_companion_streams(companion: Path, binding: dict[str, Any]) -> dict[str, bytes]:
@@ -53,9 +61,8 @@ def collect_usb_volume(*, generation_manifest_path: Path, kape_root: Path,
         raise ValueError("unsupported native USB binding filename")
     binding_path = manifest_artifact(generation_manifest_path, binding_file)
     binding = json.loads(binding_path.read_text(encoding="utf-8-sig"))
-    expected_companion = "native_media.vmdk" if binding_file == "native_media_binding.json" else Path(binding_file).with_suffix(".vmdk").name
     if (binding.get("schema_version") != "native_media_binding.v1"
-            or binding.get("companion_file") != expected_companion
+            or not _companion_of(binding_file, binding.get("companion_file"))
             or binding.get("disk_bus_type") != "USB"
             or binding.get("attachment_kind") != "hypervisor_virtual_usb_mass_storage"
             or binding.get("physical_host_device") is not False):
