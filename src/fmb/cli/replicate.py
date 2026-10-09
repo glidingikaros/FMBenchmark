@@ -19,8 +19,9 @@ def add_replicate_parser(subcommands) -> None:
     setup.add_argument("--unpinned-iso", action="store_true",
                        help="Build the base from an ISO that is not the pinned one, such as a newer build; every result "
                             "records the base's build and the ISO's SHA-256.")
-    run = actions.add_parser("run", allow_abbrev=False, help="Generate, collect and analyse paper images.")
-    run.add_argument("images", nargs="*", choices=["I1", "I2", "I3"], help="default: I1 I2 I3")
+    run = actions.add_parser("run", allow_abbrev=False, help="Generate, collect and analyse images.")
+    run.add_argument("images", nargs="*",
+                     help="the paper's images (I1 I2 I3) or image files of your own (.json); default: I1 I2 I3")
     run.add_argument("--output", type=Path, default=Path("replication"))
     run.add_argument("--attempts", type=int, default=3,
                      help="Generation attempts per image when booting or provisioning fails (default 3).")
@@ -38,4 +39,7 @@ def run_replicate(args: argparse.Namespace) -> int:
     if args.replicate_action == "setup":
         setup.all_steps(build_base=not args.skip_base, iso=args.iso, unpinned_iso=args.unpinned_iso)
         return 0
+    unknown = [name for name in args.images if name not in {"I1", "I2", "I3"} and not name.endswith(".json")]
+    if unknown:
+        raise SystemExit(f"unknown image {unknown[0]}: name I1, I2, I3 or an image file ending in .json")
     return run.images(list(args.images) or ["I1", "I2", "I3"], args.output, args.attempts)

@@ -12,13 +12,9 @@ on:
         options: [both, linux, windows]
         default: both
       images:
-        description: "The images, as a JSON list"
+        description: "The images, as a JSON list of paper images or image files such as examples/timestamps.json"
         type: string
         default: '["I1", "I2", "I3"]'
-      study:
-        description: "A study folder in this repository, such as examples/timestamps, whose images to run instead of the paper's"
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -40,6 +36,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
+      - name: "runner: the image's name"
+        id: image
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: echo "name=$(basename "$IMAGE" .json)" >> "$GITHUB_OUTPUT"
       - name: "runner: disk (fmb's cache, FMB_CACHE, and the run's replication/ folder on the scratch disk)"
         run: |
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache /usr/share/dotnet /usr/local/share/boost
@@ -76,12 +77,7 @@ jobs:
         continue-on-error: true
         run: sg kvm -c "uv run fmb replicate doctor"
       - name: "README: run ${{ matrix.image }}"
-        env:
-          STUDY: ${{ inputs.study }}
-          IMAGE: ${{ matrix.image }}
-        run: |
-          if [ -n "$STUDY" ]; then sg kvm -c "uv run fmb study run '$STUDY' '$IMAGE' --output replication"
-          else sg kvm -c "uv run fmb replicate run '$IMAGE'"; fi
+        run: sg kvm -c "uv run fmb replicate run ${{ matrix.image }}"
       - name: Summary
         if: always()
         run: |
@@ -90,7 +86,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: user-path-linux-${{ matrix.image }}
+          name: user-path-linux-${{ steps.image.outputs.name }}
           path: |
             /mnt/fmb/replication/summary.json
             /mnt/fmb/replication/*/*.log
@@ -133,6 +129,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
+      - name: "runner: the image's name"
+        id: image
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: '"name=$([IO.Path]::GetFileNameWithoutExtension($env:IMAGE))" >> $env:GITHUB_OUTPUT'
       - name: Git's line-ending settings the checkout ran with
         run: git config --show-origin --get-all core.autocrlf; git ls-files --eol src/fmb/replication/run.py
       - name: Microsoft's ISO, saved in Downloads as a browser saves it
@@ -191,12 +192,7 @@ jobs:
         continue-on-error: true
         run: uv run fmb replicate doctor
       - name: "README: run ${{ matrix.image }}"
-        env:
-          STUDY: ${{ inputs.study }}
-          IMAGE: ${{ matrix.image }}
-        run: |
-          if ($env:STUDY) { uv run fmb study run $env:STUDY $env:IMAGE --output replication }
-          else { uv run fmb replicate run $env:IMAGE }
+        run: uv run fmb replicate run ${{ matrix.image }}
       - name: Summary
         if: always()
         run: |
@@ -208,7 +204,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: user-path-windows-${{ matrix.image }}
+          name: user-path-windows-${{ steps.image.outputs.name }}
           path: |
             replication/summary.json
             replication/*/*.log

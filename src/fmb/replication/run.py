@@ -77,11 +77,11 @@ def completed(root: Path) -> Path | None:
                  if (manifest.parent / "full_scale.vmdk").is_file()), None)
 
 
-def generate(image: str, lock: Path, folder: Path, attempts: int, study: Path | None = None) -> Path:
+def generate(image: str, lock: Path, folder: Path, attempts: int, image_file: Path | None = None) -> Path:
     recipe = folder / "recipe"
     if not recipe.exists():
         if step("freeze", image=image, provider=host.provider(), lock=lock, recipe=recipe,
-                **({"study": study} if study else {})) != 0:
+                **({"image_file": image_file} if image_file else {})) != 0:
             raise SystemExit(f"{image}: freezing the recipe failed")
     await_base_clock(recipe)
     for attempt in range(1, attempts + 1):
@@ -125,24 +125,30 @@ def write_summary(output: Path, results: list[dict]) -> None:
     (output / "summary.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
 
-def implementation(study) -> dict:
+def implementation(paper: list[str]) -> dict:
     from fmb.core import paper_integrity
 
     changed = paper_integrity.modified_files()
-    if study is None:
-        if changed:
-            raise SystemExit(f"{len(changed)} files differ from the released implementation, such as {changed[0]}. "
-                             "`fmb replicate` reproduces the paper with the released code only; run changed code "
-                             "as your own study with `fmb study run`.")
-        return {}
-    state = "modified" if changed else "released"
-    log(f"study {study.name}: {state} implementation" + (f", {len(changed)} files changed" if changed else ""))
-    return {"study": study.name, "implementation": state, "changed_files": changed}
+    if changed and paper:
+        raise SystemExit(f"{len(changed)} files differ from the released implementation, such as {changed[0]}. "
+                         f"The paper's images ({', '.join(paper)}) run with the released code only; images of your "
+                         "own may run with changed code.")
+    if changed:
+        log(f"your images run with changed code: {len(changed)} files differ from the release")
+    return {"implementation": "modified" if changed else "released", "changed_files": changed}
 
 
-def images(names: list[str], output: Path, attempts: int, study=None) -> int:
+def images(names: list[str], output: Path, attempts: int) -> int:
+    from fmb.replication import image_files
+
     output = output.resolve()
-    provenance = implementation(study)
+    own = {name: image_files.load(Path(name)) for name in names if name.endswith(".json")}
+    labels = [own[name].name if name in own else name for name in names]
+    if len(set(labels)) != len(labels):
+        raise SystemExit("two images have the same name: " + ", ".join(labels))
+    provenance = implementation([name for name in names if name not in own])
+    for image in own.values():
+        log(image_files.check(image))
     output.mkdir(parents=True, exist_ok=True)
     base = host.windows_base()
     if base and base["iso_pinned"] is False:
@@ -152,17 +158,18 @@ def images(names: list[str], output: Path, attempts: int, study=None) -> int:
     try:
         lock = dependency_lock(output)
     except SystemExit as error:
-        results = [provenance | {"image": image, "admission": "not reached", "error": str(error)} for image in names]
+        results = [{"image": label, "admission": "not reached", "error": str(error)} for label in labels]
         write_summary(output, results)
         raise
-    for image in names:
-        folder = output / image
+    for name, label in zip(names, labels):
+        folder = output / label
         folder.mkdir(exist_ok=True)
+        image_file = own[name].path if name in own else None
         try:
-            row = analyse(image, generate(image, lock, folder, attempts, study and study.path), folder)
+            row = analyse(label, generate(label, lock, folder, attempts, image_file), folder)
         except SystemExit as error:
-            row = {"image": image, "admission": "not reached", "error": str(error)}
-        results.append(provenance | row)
+            row = {"image": label, "admission": "not reached", "error": str(error)}
+        results.append(({"image_file": str(image_file), **provenance} if image_file else {}) | row)
         write_summary(output, results)
     for row in results:
         log(f"{row['image']}: admission {row['admission']}"

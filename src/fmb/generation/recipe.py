@@ -26,7 +26,7 @@ CLOSURE_DATA = ("index/scanners/dfir-ntfs-lock.json",)
 SHA256 = re.compile(r"[0-9a-f]{64}")
 VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]*")
 BOX = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-STUDY_KEYS = {"population_seed", "population_contract"}
+POPULATION_KEYS = {"population_seed", "population_contract"}
 
 
 def _object(value, fields, label):
@@ -64,10 +64,10 @@ def _paper_candidates(image):
 
 
 def _shared(config):
-    return {key: value for key, value in config.items() if key not in STUDY_KEYS}
+    return {key: value for key, value in config.items() if key not in POPULATION_KEYS}
 
 
-def study_config(seed, contract, provider='vmware_desktop', windows_box=None):
+def image_config(seed, contract, provider='vmware_desktop', windows_box=None):
     config = paper_config('I1', provider, windows_box)
     config.update(population_seed=seed, population_contract=contract)
     return config
@@ -90,8 +90,8 @@ def resolved_contract(config):
         return population_support.load_population_contract(
             PROJECT_ROOT / protocol['images'][image]['population_contract'])
     if not any(digest(_shared(config)) == digest(_shared(candidate)) for candidate in _paper_candidates('I1')):
-        raise ValueError("a study image changes only its seed and population; its other generation settings "
-                         "are the paper's")
+        raise ValueError("an image of your own changes only its seed and population; its other generation "
+                         "settings are the paper's")
     return population_support.register_population_contract(config['population_contract'])
 
 

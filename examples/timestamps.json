@@ -1,4 +1,5 @@
 {
+  "seed": 4242,
   "schema_version": "bounded_population.v1",
   "experiments": {
     "timestomp": [
@@ -175,7 +176,7 @@
   "native_pilot_profile": "pilot_min.v1",
   "native_pilot_parameters": {
     "schema_version": "native_pilot_parameters.v1",
-    "image_label": "T1",
+    "image_label": "timestamps",
     "case_classes": {
       "BQ-TIME-01": [
         "same_year",

@@ -338,13 +338,13 @@ class GenerationPipeline:
         self.experiment = experiment
         if population_contract is not None and recipe is not None:
             raise ValueError("a frozen recipe rejects a population-contract override")
-        study_contract = population_contract if isinstance(population_contract, dict) else None
+        custom_contract = population_contract if isinstance(population_contract, dict) else None
         if self.recipe_bundle is not None:
-            study_contract = self.recipe_bundle["recipe"]["config"].get("population_contract")
-        if study_contract is None and population_seed not in {2026091811, 2026091812, 2026091813}:
+            custom_contract = self.recipe_bundle["recipe"]["config"].get("population_contract")
+        if custom_contract is None and population_seed not in {2026091811, 2026091812, 2026091813}:
             raise ValueError("generation is restricted to the fixed paper configuration")
-        if study_contract is not None:
-            self.population_contract = register_population_contract(study_contract)
+        if custom_contract is not None:
+            self.population_contract = register_population_contract(custom_contract)
         elif population_contract is not None:
             contract_path = Path(population_contract).expanduser().resolve(strict=True)
             source_root = Path(__file__).parent.resolve()

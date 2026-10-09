@@ -33,10 +33,6 @@ jobs:
       - name: Install
         run: uv sync --locked --extra dev --extra generation --extra factual --extra collection
       - name: CLI
-        shell: bash
-        run: |
-          uv run --no-sync fmb replicate --help
-          uv run --no-sync fmb study new "${{ runner.temp }}/study" --seed 1
-          uv run --no-sync fmb study check "${{ runner.temp }}/study"
+        run: uv run --no-sync fmb replicate --help
       - name: Test suite
         run: uv run --no-sync python -m pytest -m "not external" -n 4 -q -p no:cacheprovider

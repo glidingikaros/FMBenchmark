@@ -61,18 +61,18 @@ def lock(path: str, provider: str, windows_build: str | None = None) -> dict:
     }
 
 
-def freeze(image: str, provider: str, lock: str, recipe: str, study: str | None = None) -> dict:
+def freeze(image: str, provider: str, lock: str, recipe: str, image_file: str | None = None) -> dict:
     from fmb.generation import recipe as recipes
 
-    if study is None:
+    if image_file is None:
         config = recipes.paper_config(image, provider)
         contract = PROJECT_ROOT / paper_protocol()["images"][image]["population_contract"]
     else:
-        from fmb import studies
+        from fmb.replication import image_files
 
-        definition = studies.load(Path(study)).images[image]
-        config = recipes.study_config(definition.seed, definition.contract, provider)
-        contract = definition.contract
+        own = image_files.load(Path(image_file))
+        config = recipes.image_config(own.seed, own.contract, provider)
+        contract = own.contract
     pipeline = _pipeline(config, default_current_root() / "generated", population_contract=contract)
     try:
         pipeline.prepare_population()
@@ -103,9 +103,9 @@ def analyse(config: str, recipe: str | None = None) -> dict:
     from fmb.pipeline.runner import load_config, run_pipeline
 
     if recipe is not None:
-        from fmb import studies
+        from fmb.replication import image_files
 
-        studies.activate(Path(recipe))
+        image_files.activate(Path(recipe))
     return run_pipeline(load_config(Path(config)))
 
 

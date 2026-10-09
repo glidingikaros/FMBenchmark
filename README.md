@@ -111,32 +111,28 @@ Generation retries a boot or provisioning failure with the same frozen recipe, u
 (default 3). Images are never bit-identical: each frozen recipe draws a fresh random assignment. What
 replicates is the protocol and the result.
 
-## Your own studies
+## Your own images
 
-`fmb study` runs images of your own design through the same generator and pipeline. Set the host up with
-`fmb replicate doctor` and `fmb replicate setup` first.
+`fmb replicate run` also takes image files of your own, alone or next to the paper's images:
 
 ```bash
-uv run fmb study new studies/timestamps --from I3
-uv run fmb study check studies/timestamps
-uv run fmb study run studies/timestamps
+uv run fmb replicate run examples/timestamps.json
 ```
 
-- `new` writes `study.json` with one image (`--image`, default `S1`) and a random seed, and a copy of a
-  paper image's population file (`--from I1`, `I2` or `I3`).
-- In the population file, `scenarios` sets how many objects each anti-forensic technique creates
-  (`configured_count`) and how many it manipulates (`manipulation_count`).
-  `native_pilot_parameters.case_classes` picks each question's supplementary cases and controls, at most
-  as many of each as I3 has. A study can hold several images, each with its own seed and population file.
-- `check` builds every image's population and plan without a VM, and says what does not fit. All
-  fourteen scenarios stay. The two USB scenarios keep three drives with one manipulated, and the two
-  event-log scenarios keep one log each.
-- `run` writes `study-runs/<study>/<image>/` and a `summary.json` like `replicate`'s. Each image is scored
-  against its own ground truth.
+An image file is a paper image's population with a `seed`, and its file name is the image's name.
+`examples/timestamps.json` is I3 with twice the timestamp-tampered files and only timestamp supplements.
+Copy it and edit:
 
-`examples/timestamps` is a ready-made study: I3 with twice the timestamp-tampered files and only
-timestamp supplements. A study changes what an image contains. The base image, the guest settings and the
-pipeline stay the paper's.
+- `seed`, which picks the objects' names and folders and the virtual hardware;
+- `scenarios`: how many objects each anti-forensic technique creates (`configured_count`) and how many it
+  manipulates (`manipulation_count`);
+- `native_pilot_parameters.case_classes`: each question's supplementary cases and controls, at most as
+  many of each as I3 has.
+
+`run` checks every image file before it starts and says what does not fit. All fourteen scenarios stay,
+the two USB scenarios keep three drives with one manipulated, and the two event-log scenarios keep one log
+each. Results go to `replication/<name>/`, scored against the image's own ground truth. The Windows base,
+the guest settings and the pipeline stay the paper's.
 
 ### Changing the code
 
@@ -149,9 +145,9 @@ New techniques, questions or rules are code changes:
 | A question | A question pack in `src/fmb/contracts/questions/`, `QIDS` in `src/fmb/core/case_contract.py`, and its rule; collection, preparation and evaluation assume the nine-question roster, so let the tests guide you |
 | An S3 engine or a stage implementation | `ENGINES` in `src/fmb/assessment/stage.py`, or `IMPLEMENTATIONS` in `src/fmb/pipeline/implementations.py` |
 
-`fmb study run` runs changed code. `summary.json` lists the changed files, and each image's preparation
-keeps a copy of the code it ran. `fmb replicate` runs only the released code, and stops before generating
-if any file differs.
+The paper's images run with the released code only: `run` stops before generating them if any file
+differs. Your own images also run with changed code; `summary.json` lists the changed files, and each
+image keeps a copy of the code it ran.
 
 ## Licence
 
