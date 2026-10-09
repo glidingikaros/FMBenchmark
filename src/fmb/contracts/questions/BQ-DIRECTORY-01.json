@@ -1,0 +1,61 @@
+{
+  "schema_version": "fmb.question_pack.v1",
+  "question_id": "BQ-DIRECTORY-01",
+  "order": 4,
+  "group": {
+    "group_id": "directory_index_residue",
+    "title": "Directory index residue",
+    "description": "Assess whether these directory entries retain index evidence for objects that are no longer present."
+  },
+  "definition": {
+    "title": "Directory-index residue assessment",
+    "question_text": "Assess whether these directories retain references to file objects that are no longer present."
+  },
+  "components": [
+    {
+      "technique_id": "i30_directory_residue",
+      "component_question_id": "Q-DEL-03",
+      "subject_type": "directory_entry",
+      "required_artifact_families": [
+        "ntfs.i30",
+        "ntfs.mft"
+      ],
+      "optional_artifact_families": [
+        "ntfs.usn"
+      ],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "ntfs.i30",
+        "ntfs.mft",
+        "ntfs.usn"
+      ]
+    }
+  ],
+  "presentation": {
+    "request_per_card": true,
+    "listing_lookup": false,
+    "transforms": []
+  },
+  "assessment": {
+    "engine": "rules",
+    "components": [
+      "i30_directory_residue"
+    ]
+  },
+  "reference": {
+    "supplemental_supported": [
+      "mixed_children",
+      "recreated_children"
+    ],
+    "supplemental_negative": [
+      "all_present",
+      "moved_children",
+      "renamed_children"
+    ]
+  },
+  "generation": {
+    "scenarios": [
+      "directory_cleaning_i30_01"
+    ]
+  }
+}

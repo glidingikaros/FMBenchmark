@@ -1,0 +1,367 @@
+{
+  "schema_version": "paper_protocol.v1",
+  "implementation_version": "0.6.0",
+  "study_date_utc": "2026-09-18",
+  "scope": "native I1-I3 deterministic/LLM assessment comparison; screened cohort",
+  "stages": {
+    "S1": "resolve profile",
+    "S2": "collect and prepare",
+    "S3": "deterministic assessment",
+    "S3prime": "LLM assessment",
+    "S4": "compare and evaluate"
+  },
+  "interfaces": {
+    "G1": "evidence image",
+    "G2": "artefact profile",
+    "G3": "evidence cards",
+    "G4": "separate analysis results for each engine",
+    "G5": "evaluation report"
+  },
+  "rule_adapter": "shared_native_rules.v4",
+  "rule_module_version": 7,
+  "presentation": "L0N",
+  "passes": 3,
+  "stream_head_bytes": 1024,
+  "split_questions": [
+    "BQ-DELETE-01",
+    "BQ-SHELLBAG-01",
+    "BQ-DIRECTORY-01",
+    "BQ-EXEC-01"
+  ],
+  "images": {
+    "I1": {
+      "accepted_realization": "I1-01",
+      "population_seed": 2026091811,
+      "requests_per_pass": 30,
+      "planned_counts": {
+        "BQ-DELETE-01": [
+          11,
+          11
+        ],
+        "BQ-DIRECTORY-01": [
+          2,
+          2
+        ],
+        "BQ-EXEC-01": [
+          7,
+          7
+        ],
+        "BQ-FILE-01": [
+          10,
+          10
+        ],
+        "BQ-LOG-01": [
+          1,
+          2
+        ],
+        "BQ-SHELLBAG-01": [
+          5,
+          5
+        ],
+        "BQ-STREAM-01": [
+          7,
+          7
+        ],
+        "BQ-TIME-01": [
+          7,
+          7
+        ],
+        "BQ-USB-01": [
+          3,
+          6
+        ]
+      },
+      "findings": 57,
+      "population_contract": "generation/populations.pilot-i1-20260918.json",
+      "activity_seed": 2026091811,
+      "hardware_seed": 2026091811
+    },
+    "I2": {
+      "accepted_realization": "I2-02",
+      "population_seed": 2026091812,
+      "requests_per_pass": 36,
+      "planned_counts": {
+        "BQ-DELETE-01": [
+          12,
+          12
+        ],
+        "BQ-DIRECTORY-01": [
+          3,
+          3
+        ],
+        "BQ-EXEC-01": [
+          8,
+          8
+        ],
+        "BQ-FILE-01": [
+          12,
+          12
+        ],
+        "BQ-LOG-01": [
+          1,
+          2
+        ],
+        "BQ-SHELLBAG-01": [
+          8,
+          8
+        ],
+        "BQ-STREAM-01": [
+          8,
+          8
+        ],
+        "BQ-TIME-01": [
+          9,
+          9
+        ],
+        "BQ-USB-01": [
+          3,
+          6
+        ]
+      },
+      "findings": 68,
+      "population_contract": "generation/populations.pilot-i2-20260918.json",
+      "activity_seed": 2026091812,
+      "hardware_seed": 2026091812
+    },
+    "I3": {
+      "accepted_realization": "I3-05",
+      "population_seed": 2026091813,
+      "requests_per_pass": 43,
+      "planned_counts": {
+        "BQ-DELETE-01": [
+          15,
+          15
+        ],
+        "BQ-DIRECTORY-01": [
+          5,
+          5
+        ],
+        "BQ-EXEC-01": [
+          9,
+          9
+        ],
+        "BQ-FILE-01": [
+          12,
+          12
+        ],
+        "BQ-LOG-01": [
+          1,
+          2
+        ],
+        "BQ-SHELLBAG-01": [
+          9,
+          9
+        ],
+        "BQ-STREAM-01": [
+          10,
+          10
+        ],
+        "BQ-TIME-01": [
+          12,
+          12
+        ],
+        "BQ-USB-01": [
+          3,
+          6
+        ]
+      },
+      "findings": 80,
+      "population_contract": "generation/populations.pilot-i3-20260918.json",
+      "activity_seed": 2026091813,
+      "hardware_seed": 2026091813
+    }
+  },
+  "conditions": {
+    "luna-high": {
+      "settings": {
+        "max_output_tokens": 16384,
+        "model": "gpt-5.6-luna",
+        "provider": "openai",
+        "reasoning_effort": "high",
+        "timeout_seconds": 900
+      },
+      "source_run_id": "E2E-I1-01-luna-high",
+      "source_protocol_sha256": "525cc735849649b305357de4ad36aa5d5c153682656ae21389ecd6fe27b2218b",
+      "price_basis": "historical recorded settings, not a current quotation or spending authorization"
+    },
+    "luna-max": {
+      "settings": {
+        "max_output_tokens": 65536,
+        "model": "gpt-5.6-luna",
+        "provider": "openai",
+        "reasoning_effort": "max",
+        "timeout_seconds": 1800
+      },
+      "source_run_id": "E2E-I1-01-luna-max",
+      "source_protocol_sha256": "7e349abe7c1f2427d9c8aa290b2c80b64a61a9c19a9b38d3e826074c9044ed9a",
+      "price_basis": "historical recorded settings, not a current quotation or spending authorization",
+      "completion_policy": {
+        "question": "BQ-LOG-01",
+        "context_precheck_allowance": 2100000,
+        "max_output_tokens": 65536,
+        "immutable_inputs_and_schema": "must match",
+        "replaces": "unanswered"
+      }
+    },
+    "sonnet5-high": {
+      "settings": {
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 16384,
+        "model": "anthropic/claude-sonnet-5",
+        "price_usd_per_million": {
+          "input": "2.000",
+          "output": "10.000"
+        },
+        "provider": "openrouter",
+        "reasoning_effort": "high",
+        "route": "anthropic",
+        "structured_output": "json_schema",
+        "timeout_seconds": 600
+      },
+      "source_run_id": "PANEL-E2E-I1-01-sonnet5-high",
+      "source_protocol_sha256": "54cce22afc2beb1966bb4d5ce106c1c6dbac8953e8b529fe81443a1bf4ac433f",
+      "price_basis": "historical recorded settings, not a current quotation or spending authorization",
+      "upstream_provider": "Anthropic"
+    },
+    "gemini38flash-high": {
+      "settings": {
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 16384,
+        "model": "google/gemini-3.8-flash",
+        "price_usd_per_million": {
+          "input": "0.750",
+          "output": "3.750"
+        },
+        "provider": "openrouter",
+        "reasoning_effort": "high",
+        "route": "google-ai-studio",
+        "structured_output": "json_schema",
+        "timeout_seconds": 600
+      },
+      "source_run_id": "PANEL-E2E-I1-01-gemini38flash-high",
+      "source_protocol_sha256": "9f2d578e32f04652d27f97824d5e2318dd771517bb3bfe005f1bb6e29e984974",
+      "price_basis": "historical recorded settings, not a current quotation or spending authorization",
+      "upstream_provider": "Google AI Studio"
+    },
+    "deepseekv4pro-high": {
+      "settings": {
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 16384,
+        "model": "deepseek/deepseek-v4-pro-0813",
+        "price_usd_per_million": {
+          "input": "0.579",
+          "output": "1.738"
+        },
+        "provider": "openrouter",
+        "reasoning_effort": "high",
+        "route": "baidu/fp8",
+        "structured_output": "json_schema",
+        "timeout_seconds": 600
+      },
+      "source_run_id": "PANEL-E2E-I1-01-deepseekv4pro-high",
+      "source_protocol_sha256": "32576d722037dd2bd49952e9c4cb80e40119c87a17f0733cb17d54c69e041dbf",
+      "price_basis": "historical recorded settings, not a current quotation or spending authorization",
+      "upstream_provider": "Baidu"
+    },
+    "glm53flash-high": {
+      "settings": {
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 16384,
+        "model": "z-ai/glm-5.3-flash",
+        "price_usd_per_million": {
+          "input": "0.075",
+          "output": "0.25"
+        },
+        "provider": "openrouter",
+        "reasoning_effort": "high",
+        "route": "deepinfra/fp4",
+        "structured_output": "json_schema",
+        "timeout_seconds": 600
+      },
+      "source_run_id": "PANEL-E2E-I1-01-glm53flash-high-deepinfra",
+      "source_protocol_sha256": "a7a7ba684d7ce4d1cbfeb253ec0a8d1f040c2f2af8cdf18d0348408eeebeaecd",
+      "price_basis": "historical recorded settings, not a current quotation or spending authorization",
+      "completion_policy": {
+        "when": "primary got no answer; select the completed companion without looking at the reference score",
+        "replaces": "unanswered",
+        "companion_route": "fireworks",
+        "immutable_inputs_and_schema": "must match",
+        "historical_price_usd_per_million": {
+          "input": "0.150",
+          "output": "0.500"
+        },
+        "upstream_provider": "Fireworks"
+      },
+      "upstream_provider": "DeepInfra"
+    },
+    "qwen38-27b-xhigh": {
+      "settings": {
+        "context_window_tokens": 262144,
+        "max_output_tokens": 65536,
+        "model": "qwen/qwen3.8-27b",
+        "price_usd_per_million": {
+          "input": "0.214",
+          "output": "2.550"
+        },
+        "provider": "openrouter",
+        "reasoning_effort": "xhigh",
+        "route": "reka/fp8",
+        "structured_output": "json_schema",
+        "timeout_seconds": 1500
+      },
+      "source_run_id": "PANEL-E2E-I1-01-qwen38-27b-xhigh",
+      "source_protocol_sha256": "210f30a093ee9fda123c529604bb2105bf3c1ec24c1d0d944100bee5deb75c07",
+      "price_basis": "historical recorded settings, not a current quotation or spending authorization",
+      "upstream_provider": "Reka"
+    },
+    "mistralsmall2603-high": {
+      "settings": {
+        "context_window_tokens": 262144,
+        "max_output_tokens": 16384,
+        "model": "mistralai/mistral-small-2603",
+        "price_usd_per_million": {
+          "input": "0.150",
+          "output": "0.600"
+        },
+        "provider": "openrouter",
+        "reasoning_effort": "high",
+        "route": "mistral/zdr",
+        "structured_output": "json_schema",
+        "timeout_seconds": 600
+      },
+      "source_run_id": "PANEL-E2E-I1-01-mistralsmall2603-high",
+      "source_protocol_sha256": "e52bfa6efd03f6909b194e695b340477344394277510356c66a6391aac97bcb9",
+      "price_basis": "historical recorded settings, not a current quotation or spending authorization",
+      "upstream_provider": "Mistral"
+    }
+  },
+  "sampling_settings": "temperature, top_p and seed omitted",
+  "transport_retry": {
+    "maximum_attempts": 3,
+    "retryable": "transport, timeout, HTTP 408/429/5xx only; identical request"
+  },
+  "reference_policy": "generation-derived host records; frozen predictions and model requests before reference admission",
+  "claim_ceiling": "prepared evidence comparison on admitted images; no independently validated regeneration or held-out accuracy",
+  "historical_no_answer": {
+    "security_requests": 27,
+    "context_precheck_refusals": 26,
+    "local_budget_refusals": 1,
+    "additional_glm_i3_terminal_429": 1
+  },
+  "historical_rule_lock_sha256": "e4c6d4ae515a5d263d1d7fe05580e0265835c2bb6ac1d3f7b9e4bcd64582dac8",
+  "generation": {
+    "experiment": "full_scale",
+    "case": "positive",
+    "factual_challenge": "pilot_min.v1",
+    "provider": "vmware_desktop",
+    "windows_box": "fmb/windows-11-arm64",
+    "base_box_version": "0",
+    "activity_count": 12,
+    "randomize_hw": false,
+    "vmware_bridge": null,
+    "vmware_boot_clock_bias_minutes": 480,
+    "clock_policy": "host_sync_then_service_stopped",
+    "native_context": null,
+    "export_format": "vmdk"
+  }
+}

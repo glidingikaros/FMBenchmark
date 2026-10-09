@@ -1,0 +1,19 @@
+Description: $SDS
+Author: Eric Zimmerman and Andrew Rathbun
+Version: 1.1
+Id: 72d56db2-b8da-4830-a2e7-37437c90e18f
+RecreateDirectories: true
+Targets:
+    -
+        Name: $SDS
+        Category: FileSystem
+        Path: C:\
+        FileMask: $Secure:$SDS
+        AlwaysAddToQueue: true
+        SaveAsFileName: $Secure_$SDS
+    -
+        Name: $SDS
+        Category: FileSystem
+        Path: C:\
+        FileMask: $Secure_$SDS
+        SaveAsFileName: $Secure_$SDS

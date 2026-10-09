@@ -1,0 +1,833 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reference.schema.json",
+  "title": "FMB Reference Documents",
+  "description": "Validates authored shared reference documents under contracts/reference.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/scenario_reference"
+    },
+    {
+      "$ref": "#/$defs/artifact_family_reference"
+    },
+    {
+      "$ref": "#/$defs/detector_reference"
+    },
+    {
+      "$ref": "#/$defs/rule_pack_reference"
+    }
+  ],
+  "$defs": {
+    "artifact_family_reference": {
+      "title": "FMB Artifact Family Reference",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "artifact_families"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string",
+          "const": "../schemas/reference.schema.json"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "artifact_family_reference.v1"
+        },
+        "artifact_families": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "display_name",
+              "logical_sources",
+              "extractor_id",
+              "supported_export_formats",
+              "retrieval_mode",
+              "chunking_policy",
+              "collection"
+            ],
+            "properties": {
+              "display_name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "logical_sources": {
+                "$ref": "#/$defs/string_list",
+                "minItems": 1
+              },
+              "extractor_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "supported_export_formats": {
+                "$ref": "#/$defs/string_list",
+                "minItems": 1
+              },
+              "retrieval_mode": {
+                "type": "string",
+                "minLength": 1,
+                "enum": [
+                  "bounded_materialization",
+                  "derived_inventory",
+                  "derived_parser_output",
+                  "derived_rule_output",
+                  "reference_only"
+                ]
+              },
+              "chunking_policy": {
+                "type": "string",
+                "minLength": 1,
+                "enum": [
+                  "file_level",
+                  "line_level",
+                  "match_level",
+                  "record_level",
+                  "reference_only"
+                ]
+              },
+              "collection": {
+                "type": "object",
+                "required": [
+                  "windows"
+                ],
+                "properties": {
+                  "windows": {
+                    "type": "object",
+                    "required": [
+                      "targets"
+                    ],
+                    "properties": {
+                      "targets": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "target_id",
+                            "mode",
+                            "status",
+                            "rationale",
+                            "known_blind_spots",
+                            "parser_state",
+                            "validation_state"
+                          ],
+                          "properties": {
+                            "target_id": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "mode": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "status": {
+                              "type": "string",
+                              "minLength": 1,
+                              "enum": [
+                                "active",
+                                "deferred"
+                              ]
+                            },
+                            "logical_source": {
+                              "type": "string"
+                            },
+                            "scenario_ids": {
+                              "$ref": "#/$defs/string_list"
+                            },
+                            "known_blind_spots": {
+                              "$ref": "#/$defs/string_list"
+                            },
+                            "parser_state": {
+                              "type": "string"
+                            },
+                            "validation_state": {
+                              "type": "string"
+                            },
+                            "rationale": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "profile_role": {
+                              "type": "string",
+                              "enum": [
+                                "primary_evidence",
+                                "support_artifact",
+                                "deferred_extraction"
+                              ]
+                            }
+                          },
+                          "additionalProperties": true
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "minProperties": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "detector_reference": {
+      "title": "FMB Detector Reference",
+      "description": "Defines deterministic detector references, including detector identity, truth-source allowance, source status, and detector definitions.",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "pack_id",
+        "name",
+        "version",
+        "purpose",
+        "truth_sources_allowed",
+        "detectors",
+        "source_status"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string",
+          "const": "../schemas/reference.schema.json"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "detector_reference.v1"
+        },
+        "pack_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_status": {
+          "type": "string",
+          "enum": [
+            "maintained_tool_output",
+            "bounded_synthetic_benchmark"
+          ]
+        },
+        "truth_sources_allowed": {
+          "type": "boolean",
+          "const": false
+        },
+        "detectors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/detector_reference/$defs/detector"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "$defs": {
+        "detector": {
+          "type": "object",
+          "required": [
+            "detector_id",
+            "detector_type",
+            "scenario_id",
+            "manipulation_type",
+            "artifact_family",
+            "detector_weight",
+            "interpretation_level",
+            "implementation",
+            "parser_or_backend",
+            "claim_boundary"
+          ],
+          "properties": {
+            "detector_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "detector_type": {
+              "type": "string",
+              "enum": [
+                "rule_output",
+                "parser_observation",
+                "artifact_correlation"
+              ]
+            },
+            "scenario_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "manipulation_type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "artifact_family": {
+              "type": "string",
+              "minLength": 1
+            },
+            "detector_weight": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "interpretation_level": {
+              "type": "string",
+              "minLength": 1
+            },
+            "parser_or_backend": {
+              "type": "string",
+              "minLength": 1
+            },
+            "claim_boundary": {
+              "type": "string",
+              "minLength": 1
+            },
+            "implementation": {
+              "type": "object",
+              "minProperties": 1
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "detector_type": {
+                    "const": "parser_observation"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "implementation": {
+                    "required": [
+                      "parser_kind",
+                      "observation_types",
+                      "subject_predicate",
+                      "select",
+                      "evidence"
+                    ],
+                    "properties": {
+                      "parser_kind": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "observation_types": {
+                        "$ref": "#/$defs/string_list",
+                        "minItems": 1
+                      },
+                      "subject_predicate": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "select": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "evidence": {
+                        "type": "array",
+                        "minItems": 1
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "detector_type": {
+                    "const": "artifact_correlation"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "implementation": {
+                    "required": [
+                      "correlation_kind",
+                      "select",
+                      "evidence"
+                    ],
+                    "properties": {
+                      "correlation_kind": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "select": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "evidence": {
+                        "type": "array",
+                        "minItems": 1
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "detector_type": {
+                    "const": "rule_output"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "implementation": {
+                    "required": [
+                      "engine",
+                      "rule_ids"
+                    ],
+                    "properties": {
+                      "engine": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "rule_ids": {
+                        "$ref": "#/$defs/string_list",
+                        "minItems": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "evaluation_scenario": {
+      "type": "object",
+      "required": [
+        "scenario_id",
+        "manipulation_category",
+        "specific_technique",
+        "implementation_status",
+        "ground_truth_required"
+      ],
+      "properties": {
+        "scenario_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manipulation_category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "specific_technique": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implementation_status": {
+          "type": "string",
+          "enum": [
+            "implemented",
+            "planned",
+            "deferred"
+          ]
+        },
+        "ground_truth_required": {
+          "type": "boolean"
+        },
+        "notes": {
+          "$ref": "#/$defs/string_list"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule_pack_reference": {
+      "title": "FMB Rule Pack Reference",
+      "description": "Defines logical external rule pack references, including provenance, pinned package metadata, and execution notes.",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "rule_packs"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string",
+          "const": "../schemas/reference.schema.json"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "rule_pack_reference.v1"
+        },
+        "rule_packs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "pack_id",
+              "framework",
+              "rule_source",
+              "rule_ids",
+              "question_ids",
+              "status",
+              "source_kind",
+              "purpose",
+              "source",
+              "external_package",
+              "version",
+              "artifact_families",
+              "question_mappings",
+              "execution"
+            ],
+            "properties": {
+              "pack_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "framework": {
+                "type": "string",
+                "enum": [
+                  "yara",
+                  "sigma"
+                ]
+              },
+              "rule_source": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rule_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "question_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "production_reference",
+                  "production_trusted"
+                ]
+              },
+              "source_kind": {
+                "type": "string",
+                "enum": [
+                  "upstream_pinned_pack"
+                ]
+              },
+              "purpose": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "url",
+                  "maintainer",
+                  "license"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "format": "uri"
+                  },
+                  "maintainer": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "license": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              "version": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "value",
+                  "retrieved_at"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "git_commit",
+                      "release_tag"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "retrieved_at": {
+                    "type": "string",
+                    "minLength": 1,
+                    "format": "date"
+                  }
+                },
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "kind": {
+                          "const": "git_commit"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "value": {
+                          "pattern": "^[0-9a-f]{40}$"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "external_package": {
+                "type": "object",
+                "required": [
+                  "type",
+                  "name",
+                  "url",
+                  "commit",
+                  "subpath",
+                  "cache_key"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "git"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "format": "uri"
+                  },
+                  "commit": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{40}$"
+                  },
+                  "subpath": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+                  },
+                  "cache_key": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              "artifact_families": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "question_mappings": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "question_id",
+                    "role",
+                    "expected_artifact_families"
+                  ],
+                  "properties": {
+                    "question_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "role": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "expected_artifact_families": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "execution": {
+                "type": "object",
+                "required": [
+                  "engine",
+                  "default_flags",
+                  "output_adapter"
+                ],
+                "properties": {
+                  "engine": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "default_flags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "output_adapter": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "backend": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "execution_notes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "scenario_reference": {
+      "title": "FMB Scenario Reference",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "scenarios"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string",
+          "const": "../schemas/reference.schema.json"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "scenario_reference.v1"
+        },
+        "scenarios": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "manipulation_type",
+              "artifact_requirements",
+              "evaluation",
+              "detector_refs"
+            ],
+            "properties": {
+              "manipulation_type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifact_requirements": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "artifact_family",
+                    "evidentiary_role",
+                    "known_blind_spots"
+                  ],
+                  "properties": {
+                    "artifact_family": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "evidentiary_role": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "known_blind_spots": {
+                      "$ref": "#/$defs/string_list"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "minItems": 1
+              },
+              "evaluation": {
+                "$ref": "#/$defs/evaluation_scenario"
+              },
+              "detector_refs": {
+                "$ref": "#/$defs/string_list"
+              }
+            },
+            "additionalProperties": false
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "string_list": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    }
+  }
+}

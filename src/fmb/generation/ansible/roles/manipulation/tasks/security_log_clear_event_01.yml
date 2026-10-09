@@ -1,0 +1,60 @@
+---
+- name: Clear and verify the bounded Security log subject
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    $ErrorActionPreference = 'Stop'
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $case = [string]$scenarioInput.case
+    if ($case -notin @('positive', 'benign')) {
+      throw "Unsupported generation case"
+    }
+    $paths = @($scenarioInput.operation_refs)
+    $operationRefsSha256 = Get-OperationRefsSha256 $paths
+    if ($case -eq 'positive') {
+      if ($paths.Count -ne 1 -or [string]$paths[0] -cne 'Security') {
+        throw "Event-log population is invalid"
+      }
+
+      Invoke-PaperOperation ("Clear-EventLog -LogName " + (ConvertTo-OperationLiteral ([string]$paths[0])))
+      Start-Sleep -Seconds 2
+    }
+    elseif ($paths.Count -ne 0) {
+      throw "Benign event-log population cardinality is invalid"
+    }
+    $event = Get-WinEvent -FilterHashtable @{
+      LogName = 'Security'
+      Id = 1102
+    } -MaxEvents 1 -ErrorAction SilentlyContinue
+    if ($case -eq 'positive') {
+      $verified = $null -ne $event
+      $eventId = 1102
+      $recordId = $event.RecordId
+    }
+    else {
+      $verified = $null -eq $event
+      $eventId = $null
+      $recordId = $null
+    }
+    if (-not $verified) {
+      throw "Security-log clear postcondition failed"
+    }
+    [ordered]@{
+      scenario_id = 'security_log_clear_event_01'
+      case = $case
+      operation_count = $paths.Count
+      operation_refs_sha256 = $operationRefsSha256
+      postcondition_verified = $verified
+      event_id = $eventId
+      record_id = $recordId
+    } | ConvertTo-Json -Compress
+  args:
+    stdin: "{{ generation_inputs.scenario_inputs.security_log_clear_event_01 | to_json }}"
+  register: event_log_receipt
+  no_log: true
+
+- name: Emit host-captured event-log receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - "{{ event_log_receipt.stdout | trim }}"
+      - "GROUND_TRUTH_END"

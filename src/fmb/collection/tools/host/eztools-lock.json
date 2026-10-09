@@ -1,0 +1,241 @@
+{
+  "schema_version": "fmb_host_toolchain_lock.v1",
+  "generated_at": "2026-09-12T10:01:58+02:00",
+  "dotnet_sdk": "10.0.107",
+  "dotnet_runtime": "Microsoft.NETCore.App 10.0.7",
+  "roll_forward": "Major",
+  "build_report": "~/.cache/fmb/eztools/build-report.json",
+  "tools": [
+    {
+      "tool": "MFTECmd",
+      "executable": "MFTECmd.exe",
+      "directory": "MFTECmd",
+      "entry_assembly": "MFTECmd.dll",
+      "entry_assembly_sha256": "462624856d4c5a89a21f1564a05c04b926b11a8aaa76f115bccb0dd683f59044",
+      "entry_assembly_size_bytes": 2812928,
+      "version": "2026.5.0+6aadd87ae0526efca95dd5a59e62e186806cd4c8",
+      "host_runnable": true,
+      "host_runnable_note": null,
+      "source": {
+        "repository": "https://github.com/EricZimmerman/MFTECmd",
+        "commit_sha": "6aadd87ae0526efca95dd5a59e62e186806cd4c8",
+        "commit_date": "2026-05-10T09:45:26-04:00",
+        "project": "MFTECmd/MFTECmd.csproj",
+        "csproj_version": "2026.5.0",
+        "fody_disabled": false,
+        "target_framework": "net9.0"
+      }
+    },
+    {
+      "tool": "EvtxECmd",
+      "executable": "EvtxECmd\\EvtxECmd.exe",
+      "directory": "EvtxECmd",
+      "entry_assembly": "EvtxECmd.dll",
+      "entry_assembly_sha256": "9e3e30c88498f31dfbeacb45c4ed7ffcd447428feb87a05b0c861607e1b0e31a",
+      "entry_assembly_size_bytes": 3377152,
+      "version": "2026.5.0+bfc7f47ccbf65ffc9a3777cde5498db2fdd94664",
+      "host_runnable": true,
+      "host_runnable_note": null,
+      "source": {
+        "repository": "https://github.com/EricZimmerman/evtx",
+        "commit_sha": "bfc7f47ccbf65ffc9a3777cde5498db2fdd94664",
+        "commit_date": "2026-05-05T15:29:06-04:00",
+        "project": "EvtxECmd/EvtxECmd.csproj",
+        "csproj_version": "2026.5.0",
+        "fody_disabled": false,
+        "target_framework": "net9.0"
+      }
+    },
+    {
+      "tool": "RECmd",
+      "executable": "RECmd\\RECmd.exe",
+      "directory": "RECmd",
+      "entry_assembly": "RECmd.dll",
+      "entry_assembly_sha256": "1d45f0c56819e0f04ed8415a1f3e010a4c71192f213a7bbc4fed6a88483f62b0",
+      "entry_assembly_size_bytes": 3865088,
+      "version": "2026.5.0+bcd0ac33ed98de61ea6de551eef96052bddbbd49",
+      "host_runnable": true,
+      "host_runnable_note": null,
+      "source": {
+        "repository": "https://github.com/EricZimmerman/RECmd",
+        "commit_sha": "bcd0ac33ed98de61ea6de551eef96052bddbbd49",
+        "commit_date": "2026-05-04T13:12:59-04:00",
+        "project": "RECmd/RECmd.csproj",
+        "csproj_version": "2026.5.0",
+        "fody_disabled": false,
+        "target_framework": "net9.0"
+      }
+    },
+    {
+      "tool": "PECmd",
+      "executable": "PECmd.exe",
+      "directory": "PECmd",
+      "entry_assembly": "PECmd.dll",
+      "entry_assembly_sha256": "6c98e888e9e4b2dff4adcb74c662a4878c1c663c2262c7f0bd783e2cda155eba",
+      "entry_assembly_size_bytes": 2322944,
+      "version": "2026.5.0+bde430c69ba4d97fea8b71fdddb6df7849419c10",
+      "host_runnable": false,
+      "host_runnable_note": "PECmd exits on non-Windows hosts (MAM decompression uses ntdll RtlDecompressBuffer); it runs in the Windows parser appliance",
+      "source": {
+        "repository": "https://github.com/EricZimmerman/PECmd",
+        "commit_sha": "bde430c69ba4d97fea8b71fdddb6df7849419c10",
+        "commit_date": "2026-04-29T13:48:41-04:00",
+        "project": "PECmd/PECmd.csproj",
+        "csproj_version": "2026.5.0",
+        "fody_disabled": false,
+        "target_framework": "net9.0"
+      }
+    },
+    {
+      "tool": "AmcacheParser",
+      "executable": "AmcacheParser.exe",
+      "directory": "AmcacheParser",
+      "entry_assembly": "AmcacheParser.dll",
+      "entry_assembly_sha256": "a1338f0e76849e33d5980504881716ff09f7197f04ffb3a9d7e03b32c5f9c51e",
+      "entry_assembly_size_bytes": 2359808,
+      "version": "2026.5.2+9a8513d8a83c9dcf08125f54b171bf3c2a9fe25f",
+      "host_runnable": true,
+      "host_runnable_note": null,
+      "source": {
+        "repository": "https://github.com/EricZimmerman/AmcacheParser",
+        "commit_sha": "9a8513d8a83c9dcf08125f54b171bf3c2a9fe25f",
+        "commit_date": "2026-05-22T15:00:30-04:00",
+        "project": "AmcacheParser/AmcacheParser.csproj",
+        "csproj_version": "2026.5.2",
+        "fody_disabled": false,
+        "target_framework": "net9.0"
+      }
+    },
+    {
+      "tool": "AppCompatCacheParser",
+      "executable": "AppCompatCacheParser.exe",
+      "directory": "AppCompatCacheParser",
+      "entry_assembly": "AppCompatCacheParser.dll",
+      "entry_assembly_sha256": "4d806d6c60c36c512fcb7947d4dbf7fd69f368fb1e0dfd49447371e3381ce65d",
+      "entry_assembly_size_bytes": 2235392,
+      "version": "2026.5.0+0cf059f40c2f7b31acdccb142461945402217398",
+      "host_runnable": true,
+      "host_runnable_note": null,
+      "source": {
+        "repository": "https://github.com/EricZimmerman/AppCompatCacheParser",
+        "commit_sha": "0cf059f40c2f7b31acdccb142461945402217398",
+        "commit_date": "2026-05-03T17:25:28-04:00",
+        "project": "AppCompatCacheParser/AppCompatCacheParser.csproj",
+        "csproj_version": "2026.5.0",
+        "fody_disabled": false,
+        "target_framework": "net9.0"
+      }
+    },
+    {
+      "tool": "LECmd",
+      "executable": "LECmd.exe",
+      "directory": "LECmd",
+      "entry_assembly": "LECmd.dll",
+      "entry_assembly_sha256": "0749d124b18957407b3ed3269553b599f812b0bf5f0f357ac95a64cc2b57e202",
+      "entry_assembly_size_bytes": 3301376,
+      "version": "2026.5.0+8107efc4f9f9b4f80fd7b50ed659ffb736e29dd1",
+      "host_runnable": true,
+      "host_runnable_note": null,
+      "source": {
+        "repository": "https://github.com/EricZimmerman/LECmd",
+        "commit_sha": "8107efc4f9f9b4f80fd7b50ed659ffb736e29dd1",
+        "commit_date": "2026-05-13T15:01:35-04:00",
+        "project": "LECmd/LECmd.csproj",
+        "csproj_version": "2026.5.0",
+        "fody_disabled": false,
+        "target_framework": "net9.0"
+      }
+    },
+    {
+      "tool": "JLECmd",
+      "executable": "JLECmd.exe",
+      "directory": "JLECmd",
+      "entry_assembly": "JLECmd.dll",
+      "entry_assembly_sha256": "432497b343c0ae0c9ad6b51235ec6f7c89e68a6682efc5bcb298db6a9a04affe",
+      "entry_assembly_size_bytes": 3375104,
+      "version": "2026.5.0+ba276d761682d7abaf2d07da9aad4120b28f0938",
+      "host_runnable": true,
+      "host_runnable_note": null,
+      "source": {
+        "repository": "https://github.com/EricZimmerman/JLECmd",
+        "commit_sha": "ba276d761682d7abaf2d07da9aad4120b28f0938",
+        "commit_date": "2026-05-05T12:25:10-04:00",
+        "project": "JLECmd/JLECmd.csproj",
+        "csproj_version": "2026.5.0",
+        "fody_disabled": false,
+        "target_framework": "net9.0"
+      }
+    }
+  ],
+  "registry_plugins": {
+    "repository": "https://github.com/EricZimmerman/RegistryPlugins",
+    "commit_sha": "4c922338b5155a859e8e9352fe16fe881b9ce9bd",
+    "commit_date": "2026-04-26T13:40:51-04:00",
+    "directory": "RECmd/Plugins",
+    "file_count": 66,
+    "tree_sha256": "d26b7726f63684e1ddc860d55306d10b74a6c77f1302e1b36647559827c9e0ae",
+    "target_framework": "netstandard2.0",
+    "previous_tree_sha256_unrecorded_recipe": "df558bea079f1e4b77c10db0a464b043777555c6d5298f323e7a4a44fe27e1af",
+    "tree_hash_recipe": "fmb_tree_sha256.v1"
+  },
+  "assets": {
+    "EvtxECmd/Maps": {
+      "sources": [
+        {
+          "repository": "https://github.com/EricZimmerman/evtx",
+          "commit_sha": "503bd2744babe513eb19e03aea1316d8f3bf4994",
+          "path": "evtx/Maps"
+        },
+        {
+          "repository": "https://github.com/EricZimmerman/evtx",
+          "commit_sha": "5aa1d999d65dc5f8330215f463b1df88cecd204d",
+          "path": "evtx/Maps",
+          "files": [
+            "Microsoft-Windows-Storage-ClassPnP-Operational_Microsoft-Windows-Storage-ClassPnP_507.map",
+            "Microsoft-Windows-VHDMP-Operational_Microsoft-Windows-VHDMP_1.map",
+            "Microsoft-Windows-VHDMP-Operational_Microsoft-Windows-VHDMP_2.map"
+          ]
+        }
+      ],
+      "file_count": 429,
+      "tree_sha256": "8548fe56eb28e3c4953b7de6d8e569791834d47c0b03f9db4ae75e86b1933134",
+      "previous_tree_sha256_unrecorded_recipe": "0d6b0aa7ca99a07eb9cd3c275d8b20b5f9100ba834d99481773f8a08d9f9a329",
+      "tree_hash_recipe": "fmb_tree_sha256.v1",
+      "historical_origin": "KAPE archive kape-fdtp-current-mftecmd-20260524.zip Modules/bin/EvtxECmd/Maps (sha256 5399945d55052267994a1a76decf54b8d463fd5fd29f65e1aca6f4b365516e31)"
+    },
+    "RECmd/BatchExamples": {
+      "sources": [
+        {
+          "repository": "https://github.com/EricZimmerman/RECmd",
+          "commit_sha": "36ebdaeb7b88070375fe2acd9b2c61edc5f14471",
+          "path": "BatchExamples"
+        }
+      ],
+      "file_count": 23,
+      "tree_sha256": "6174d9e81d6174260eda20893971507296d92b64e02618aac4031a144d25746a",
+      "previous_tree_sha256_unrecorded_recipe": "267023bfde706108dfd25cc244260b489f1e0f86b822004ba8ac784c49feab42",
+      "tree_hash_recipe": "fmb_tree_sha256.v1",
+      "historical_origin": "KAPE archive kape-fdtp-current-mftecmd-20260524.zip Modules/bin/RECmd/BatchExamples (sha256 5399945d55052267994a1a76decf54b8d463fd5fd29f65e1aca6f4b365516e31)"
+    }
+  },
+  "windows_only_processors": {
+    "SBECmd.exe": {
+      "reason": "closed source; runs in the Windows parser appliance",
+      "download": "https://download.ericzimmermanstools.com/SBECmd.zip",
+      "validated_builds": {
+        "9089806f62151b546ec102717a7df83c267a6fdf45959968cb8f36ba3045ac0f": "SBECmd.exe of 27 Apr 2026 (official download)",
+        "f0d8b6c7465cc68eb06283840110cfe7d4bc77a6a20a22ba13df9eb0918494fa": "SBECmd.exe of 23 Feb 2022 (used for the paper's runs)"
+      }
+    },
+    "PECmd.exe": {
+      "reason": "builds from source but exits on non-Windows hosts; runs in the Windows parser appliance",
+      "download": "https://download.ericzimmermanstools.com/PECmd.zip",
+      "validated_builds": {
+        "cc33aa9715da4138ef581d78c03e2857df4c9796c52d0303aeb5e5c3acf55008": "PECmd.exe of 29 Apr 2026 (official download)",
+        "26759e06a61e5089273fba882d3238dfe6a3d16b89784943a4191991c8a22a42": "PECmd.exe of 28 Jan 2022 (used for the paper's runs)"
+      }
+    }
+  },
+  "tree_hash_recipe": "fmb_tree_sha256.v1",
+  "tree_hash_note": "tree hashes regenerated 2026-09-12 with the documented recipe (review finding F08); the earlier values had no recorded recipe and are kept for provenance"
+}

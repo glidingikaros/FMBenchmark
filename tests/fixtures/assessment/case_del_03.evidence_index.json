@@ -1,0 +1,1254 @@
+{
+  "candidate_populations": [
+    {
+      "coverage_status": "complete",
+      "population_id": "population:case_del_03",
+      "question_id": "Q-DEL-03",
+      "subject_type": "directory_entry",
+      "subjects": [
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89299:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:001:001",
+            "observation:case_del_03:001:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_3aa7f0cf9519"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89300:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:002:001",
+            "observation:case_del_03:002:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_a41b786420a7"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89301:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:003:001",
+            "observation:case_del_03:003:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_9a987a35c06a"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89302:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:004:001",
+            "observation:case_del_03:004:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_db3408118b8a"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89303:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:005:001",
+            "observation:case_del_03:005:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_743f4afb7411"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89304:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:006:001",
+            "observation:case_del_03:006:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_fced964d2538"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89305:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:007:001",
+            "observation:case_del_03:007:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_734432e401d6"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:20399:10"
+          },
+          "observation_ids": [
+            "observation:case_del_03:008:002",
+            "observation:case_del_03:008:003",
+            "observation:case_del_03:008:004"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_1b7a952cbe6f"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89306:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:009:001",
+            "observation:case_del_03:009:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_c298da0e1cdd"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89307:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:010:001",
+            "observation:case_del_03:010:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_efe28d8cb260"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89308:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:011:001",
+            "observation:case_del_03:011:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_feb4b39ac99f"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89309:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:012:001",
+            "observation:case_del_03:012:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_e7e62ed9e4f7"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89310:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:013:001",
+            "observation:case_del_03:013:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_6771974c6f0b"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89311:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:014:001",
+            "observation:case_del_03:014:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_adc2a51fdb52"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89312:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:015:001",
+            "observation:case_del_03:015:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_b6b130d9891f"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89313:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:016:001",
+            "observation:case_del_03:016:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_46b7b59c6121"
+        },
+        {
+          "identity": {
+            "object_id": "ntfs:mft-source:fixture-case-del-03:89314:3"
+          },
+          "observation_ids": [
+            "observation:case_del_03:017:001",
+            "observation:case_del_03:017:002"
+          ],
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_85303ad12985"
+        }
+      ],
+      "technique_id": "i30_directory_residue"
+    }
+  ],
+  "collector_runs": [
+    {
+      "artifact_count": 2,
+      "artifacts": [
+        {
+          "artifact_families": [
+            "ntfs.i30"
+          ],
+          "artifact_family": "ntfs.i30",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "ntfs.i30",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:8306fd0bf9cdd17393dcefe2",
+          "path": "benchmark/case_del_03/ntfs_i30-raw.json",
+          "relative_path": "benchmark/case_del_03/ntfs_i30-raw.json",
+          "sha256": "8306fd0bf9cdd17393dcefe25aed0a605710066edcd2b7a32b854686ea4673e8",
+          "size_bytes": 0
+        },
+        {
+          "artifact_families": [
+            "ntfs.mft"
+          ],
+          "artifact_family": "ntfs.mft",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "ntfs.mft",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:1d0240f6731ce8decd5b08c8",
+          "path": "benchmark/case_del_03/ntfs_mft-raw.json",
+          "relative_path": "benchmark/case_del_03/ntfs_mft-raw.json",
+          "sha256": "1d0240f6731ce8decd5b08c83642d32ad45db5fdc3895ee85774cde8f7e13d7e",
+          "size_bytes": 0
+        }
+      ],
+      "collector": "kape",
+      "input_kind": "external_tool_output",
+      "output_root": "benchmark/case_del_03",
+      "provenance": {
+        "adapter": "fmb.tool_output_adapter",
+        "adapter_scope": "inventory_existing_tool_output_no_collection_execution"
+      },
+      "status": "consumed"
+    }
+  ],
+  "external_inputs_allowed": false,
+  "parser_runs": [
+    {
+      "coverage_families": [
+        "ntfs.i30"
+      ],
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "ntfs.i30"
+        ],
+        "artifact_family": "ntfs.i30",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "ntfs.i30",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:c8819201ea594cc9613b4cb2",
+        "artifact_record_id": "source:c8819201ea594cc9",
+        "path": "benchmark/case_del_03/ntfs_i30-normalized.json",
+        "record_count": 18,
+        "relative_path": "benchmark/case_del_03/ntfs_i30-normalized.json",
+        "sha256": "c8819201ea594cc9613b4cb23c71d727e89fa48c5b05189a162d6b5a30408d1b",
+        "size_bytes": 0
+      },
+      "observation_count": 18,
+      "observation_families": [
+        "ntfs.i30"
+      ],
+      "observations": [
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_3aa7f0cf9519",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89299,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:001:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:001",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_3aa7f0cf9519"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_a41b786420a7",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89300,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:002:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:002",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_a41b786420a7"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_9a987a35c06a",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89301,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:003:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:003",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_9a987a35c06a"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_db3408118b8a",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89302,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:004:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:004",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_db3408118b8a"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_743f4afb7411",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89303,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:005:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:005",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_743f4afb7411"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_fced964d2538",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89304,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:006:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:006",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_fced964d2538"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_734432e401d6",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89305,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:007:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:007",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_734432e401d6"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_1b7a952cbe6f",
+            "index_allocation_parsed": false,
+            "index_allocation_present": true,
+            "mft_entry": 20399,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 1,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 1,
+            "scan_complete": true,
+            "sequence_number": 10,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:008:004",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:008",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_1b7a952cbe6f"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_entry_number": 20399,
+            "directory_in_use": true,
+            "directory_path": "\\MFT-VOLUME\\Users\\vagrant\\Documents\\d_1b7a952cbe6f",
+            "entry_name": "F_D1B4~1.TXT",
+            "entry_path": "\\MFT-VOLUME\\Users\\vagrant\\Documents\\d_1b7a952cbe6f\\F_D1B4~1.TXT",
+            "entry_reference_entry": 220559,
+            "entry_reference_sequence": 9,
+            "file_reference_entry": 220559,
+            "file_reference_sequence": 9,
+            "from_slack": true,
+            "has_index_allocation": true,
+            "i30_entry_state": "slack",
+            "i30_state_source": "record_slack",
+            "mft_active_path_match": false,
+            "mft_active_presence_basis": "file_reference_entry_reused",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_absent",
+            "mft_active_reference_match": false,
+            "mft_entry": 20399,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_namespace": 2,
+            "parent_path": "\\MFT-VOLUME\\Users\\vagrant\\Documents\\d_1b7a952cbe6f",
+            "parent_reference_entry": 20399,
+            "parent_reference_sequence": 10,
+            "record_index": 20399,
+            "residue_surface": "record_slack",
+            "sequence_number": 10
+          },
+          "observation_id": "observation:case_del_03:008:003",
+          "observation_type": "i30_filename_residue",
+          "source_record_ref": "source:8306fd0bf9cdd173:1",
+          "subject_ref": "\\MFT-VOLUME\\Users\\vagrant\\Documents\\d_1b7a952cbe6f\\F_D1B4~1.TXT"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_c298da0e1cdd",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89306,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:009:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:009",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_c298da0e1cdd"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_efe28d8cb260",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89307,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:010:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:010",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_efe28d8cb260"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_feb4b39ac99f",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89308,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:011:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:011",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_feb4b39ac99f"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_e7e62ed9e4f7",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89309,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:012:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:012",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_e7e62ed9e4f7"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_6771974c6f0b",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89310,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:013:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:013",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_6771974c6f0b"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_adc2a51fdb52",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89311,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:014:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:014",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_adc2a51fdb52"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_b6b130d9891f",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89312,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:015:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:015",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_b6b130d9891f"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_46b7b59c6121",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89313,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:016:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:016",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_46b7b59c6121"
+        },
+        {
+          "artifact_family": "ntfs.i30",
+          "fields": {
+            "directory_path": ".\\Users\\vagrant\\Documents\\d_85303ad12985",
+            "index_allocation_parsed": false,
+            "index_allocation_present": false,
+            "mft_entry": 89314,
+            "mft_record_slack_scanned": true,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "record_slack_entry_count": 0,
+            "resident_entry_count": 0,
+            "resident_index_root_scanned": true,
+            "residue_count": 0,
+            "scan_complete": true,
+            "sequence_number": 3,
+            "supported_surface": "resident_index_root_and_mft_record_slack"
+          },
+          "observation_id": "observation:case_del_03:017:002",
+          "observation_type": "i30_directory_scan",
+          "source_record_ref": "source:8306fd0bf9cdd173:scan:017",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_85303ad12985"
+        }
+      ],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "ntfs_i30",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "ntfs.i30"
+          ],
+          "artifact_family": "ntfs.i30",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "ntfs.i30",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:8306fd0bf9cdd17393dcefe2",
+          "artifact_record_id": "source:8306fd0bf9cdd173",
+          "path": "benchmark/case_del_03/ntfs_i30-raw.json",
+          "relative_path": "benchmark/case_del_03/ntfs_i30-raw.json",
+          "sha256": "8306fd0bf9cdd17393dcefe25aed0a605710066edcd2b7a32b854686ea4673e8",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    },
+    {
+      "coverage_families": [
+        "ntfs.mft"
+      ],
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "ntfs.mft"
+        ],
+        "artifact_family": "ntfs.mft",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "ntfs.mft",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:998046c40bc15d9ec21e64fc",
+        "artifact_record_id": "source:998046c40bc15d9e",
+        "path": "benchmark/case_del_03/ntfs_mft-normalized.json",
+        "record_count": 18,
+        "relative_path": "benchmark/case_del_03/ntfs_mft-normalized.json",
+        "sha256": "998046c40bc15d9ec21e64fc44328cb627e166e1ca26a960de484b5f34d21fcd",
+        "size_bytes": 0
+      },
+      "observation_count": 18,
+      "observation_families": [
+        "ntfs.mft"
+      ],
+      "observations": [
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89299,
+            "file_name": "d_3aa7f0cf9519",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89299,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_3aa7f0cf9519",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:001:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:1",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_3aa7f0cf9519"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89300,
+            "file_name": "d_a41b786420a7",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89300,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_a41b786420a7",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:002:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:2",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_a41b786420a7"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89301,
+            "file_name": "d_9a987a35c06a",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89301,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_9a987a35c06a",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:003:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:3",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_9a987a35c06a"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89302,
+            "file_name": "d_db3408118b8a",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89302,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_db3408118b8a",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:004:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:4",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_db3408118b8a"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89303,
+            "file_name": "d_743f4afb7411",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89303,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_743f4afb7411",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:005:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:5",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_743f4afb7411"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89304,
+            "file_name": "d_fced964d2538",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89304,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_fced964d2538",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:006:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:6",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_fced964d2538"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89305,
+            "file_name": "d_734432e401d6",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89305,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_734432e401d6",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:007:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:7",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_734432e401d6"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 220559,
+            "file_name": "iadata",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 220559,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "DosWindows",
+            "parent_entry_number": 220530,
+            "parent_path": ".\\Program Files\\WindowsApps\\microsoft.windowscommunicationsapps_16005.14326.22342.0_arm64__8wekyb3d8bbwe",
+            "parent_sequence_number": 3,
+            "path": ".\\Program Files\\WindowsApps\\microsoft.windowscommunicationsapps_16005.14326.22342.0_arm64__8wekyb3d8bbwe\\iadata",
+            "sequence_number": 11
+          },
+          "observation_id": "observation:case_del_03:008:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:8",
+          "subject_ref": ".\\Program Files\\WindowsApps\\microsoft.windowscommunicationsapps_16005.14326.22342.0_arm64__8wekyb3d8bbwe\\iadata"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 20399,
+            "file_name": "d_1b7a952cbe6f",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 20399,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_1b7a952cbe6f",
+            "sequence_number": 10
+          },
+          "observation_id": "observation:case_del_03:008:002",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:9",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_1b7a952cbe6f"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89306,
+            "file_name": "d_c298da0e1cdd",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89306,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_c298da0e1cdd",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:009:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:10",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_c298da0e1cdd"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89307,
+            "file_name": "d_efe28d8cb260",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89307,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_efe28d8cb260",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:010:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:11",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_efe28d8cb260"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89308,
+            "file_name": "d_feb4b39ac99f",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89308,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_feb4b39ac99f",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:011:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:12",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_feb4b39ac99f"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89309,
+            "file_name": "d_e7e62ed9e4f7",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89309,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_e7e62ed9e4f7",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:012:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:13",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_e7e62ed9e4f7"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89310,
+            "file_name": "d_6771974c6f0b",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89310,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_6771974c6f0b",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:013:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:14",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_6771974c6f0b"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89311,
+            "file_name": "d_adc2a51fdb52",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89311,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_adc2a51fdb52",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:014:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:15",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_adc2a51fdb52"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89312,
+            "file_name": "d_b6b130d9891f",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89312,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_b6b130d9891f",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:015:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:16",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_b6b130d9891f"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89313,
+            "file_name": "d_46b7b59c6121",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89313,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_46b7b59c6121",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:016:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:17",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_46b7b59c6121"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": 89314,
+            "file_name": "d_85303ad12985",
+            "file_size": 0,
+            "has_ads": false,
+            "in_use": true,
+            "is_ads": false,
+            "is_directory": true,
+            "mft_entry": 89314,
+            "mft_volume_id": "mft-source:fixture-case-del-03",
+            "name_type": "Windows",
+            "parent_entry_number": 87612,
+            "parent_path": ".\\Users\\vagrant\\Documents",
+            "parent_sequence_number": 1,
+            "path": ".\\Users\\vagrant\\Documents\\d_85303ad12985",
+            "sequence_number": 3
+          },
+          "observation_id": "observation:case_del_03:017:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:1d0240f6731ce8de:18",
+          "subject_ref": ".\\Users\\vagrant\\Documents\\d_85303ad12985"
+        }
+      ],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "ntfs_mft",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "ntfs.mft"
+          ],
+          "artifact_family": "ntfs.mft",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "ntfs.mft",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:1d0240f6731ce8decd5b08c8",
+          "artifact_record_id": "source:1d0240f6731ce8de",
+          "path": "benchmark/case_del_03/ntfs_mft-raw.json",
+          "relative_path": "benchmark/case_del_03/ntfs_mft-raw.json",
+          "sha256": "1d0240f6731ce8decd5b08c83642d32ad45db5fdc3895ee85774cde8f7e13d7e",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    }
+  ],
+  "question": {
+    "question_id": "Q-DEL-03",
+    "question_text": "Is there at least one filename residue in resident $INDEX_ROOT or MFT-record slack that references an object absent from the active $MFT?"
+  },
+  "rule_runs": [],
+  "run_id": "benchmark-evidence:case_del_03",
+  "schema_version": "evidence_index.v1",
+  "tool_alignment": {
+    "collection_tools_supported": [
+      "kape",
+      "uac"
+    ],
+    "collection_tools_used": [
+      "kape"
+    ],
+    "custom_forensic_heuristics_allowed": false,
+    "normalization_role": "map_tool_outputs_to_project_contracts_only",
+    "parser_tools_supported": [
+      "fmb_bounded_parser"
+    ],
+    "parser_tools_used": [
+      "fmb_bounded_parser"
+    ],
+    "rule_engines_supported": [
+      "yara",
+      "sigma"
+    ],
+    "rule_engines_used": [],
+    "synthetic_fixture_role": "ground_truth_for_final_evaluation_only_not_analysis_input"
+  }
+}

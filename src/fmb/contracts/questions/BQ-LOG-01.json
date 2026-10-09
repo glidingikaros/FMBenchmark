@@ -1,0 +1,73 @@
+{
+  "schema_version": "fmb.question_pack.v1",
+  "question_id": "BQ-LOG-01",
+  "order": 9,
+  "group": {
+    "group_id": "security_log_history",
+    "title": "Security log history",
+    "description": "Assess whether this Security log shows evidence of clearing or an internal record-sequence discontinuity."
+  },
+  "definition": {
+    "title": "Security-log integrity assessment",
+    "question_text": "Assess whether this Security log shows evidence of clearing or gaps in its retained record sequence.",
+    "scope": "The declared retained Security-log interval."
+  },
+  "components": [
+    {
+      "technique_id": "security_log_clear_event",
+      "component_question_id": "Q-LOG-01",
+      "subject_type": "event_log",
+      "required_artifact_families": [
+        "windows.event_log.security"
+      ],
+      "optional_artifact_families": [
+        "windows.event_log.record_sequence"
+      ],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "windows.event_log.record_sequence",
+        "windows.event_log.security"
+      ]
+    },
+    {
+      "technique_id": "event_record_sequence_gap",
+      "component_question_id": "Q-LOG-01",
+      "subject_type": "event_log",
+      "required_artifact_families": [
+        "windows.event_log.record_sequence"
+      ],
+      "optional_artifact_families": [
+        "windows.event_log.security"
+      ],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "windows.event_log.record_sequence",
+        "windows.event_log.security"
+      ]
+    }
+  ],
+  "presentation": {
+    "request_per_card": false,
+    "listing_lookup": false,
+    "transforms": [
+      "u_log_sorted"
+    ]
+  },
+  "assessment": {
+    "engine": "rules",
+    "components": [
+      "security_log_clear_event",
+      "event_record_sequence_gap"
+    ]
+  },
+  "reference": {
+    "supplemental_supported": [],
+    "supplemental_negative": []
+  },
+  "generation": {
+    "scenarios": [
+      "event_record_sequence_gap_01",
+      "security_log_clear_event_01"
+    ]
+  }
+}

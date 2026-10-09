@@ -1,0 +1,11 @@
+{
+  "_comment": "Example var-file for windows11-arm64.pkr.hcl. Copy to e.g. my.pkrvars.json, replace the PLACEHOLDER values, then pass it with -var-file. iso_path/iso_sha256 come from Microsoft's Windows 11 ARM64 download page; drivers_dir must contain NetKVM/w11/ARM64/*.inf.",
+  "iso_path": "/REPLACE/with/absolute/path/to/Win11_ARM64.iso",
+  "iso_sha256": "REPLACE_with_the_64_hex_char_sha256_from_microsoft",
+  "drivers_dir": "/REPLACE/with/absolute/path/to/virtio-win-netkvm",
+  "answer_media": "./build/answer.iso",
+  "output_dir": "./output/windows-11-arm64",
+  "cpus": 4,
+  "memory": 8192,
+  "disk_size": "64G"
+}

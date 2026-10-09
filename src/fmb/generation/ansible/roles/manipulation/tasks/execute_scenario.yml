@@ -1,0 +1,31 @@
+---
+- name: Reset the remote connection before the scenario operation
+  ansible.builtin.meta: reset_connection
+
+- name: Retain a native Security checkpoint before the scheduled clearing
+  ansible.builtin.include_tasks: factual_security_checkpoint.yml
+  when:
+    - fmb_scenario_item.strip() == 'security_log_clear_event_01'
+    - fmb_factual_challenge_plan is defined
+
+- name: Run the supplemental factual cohort before the final timestamp operation
+  ansible.builtin.include_tasks:
+    file: pilot_challenge.yml
+  vars:
+    fmb_pilot_stage: operate
+  when:
+    - fmb_scenario_item.strip() == 'timestomp_01'
+    - fmb_factual_challenge_plan is defined
+
+- name: Restore archive metadata immediately before the final timestamp operation
+  ansible.builtin.include_tasks: archive_restore_controls.yml
+  when:
+    - fmb_scenario_item.strip() == 'timestomp_01'
+    - generation_inputs is defined
+    - generation_inputs.scenario_inputs.timestomp_01.require_archive_retention | default(false)
+
+- name: Execute the selected scenario operation
+  ansible.builtin.include_tasks:
+    file: >-
+      {{ 'pilot_' if fmb_scenario_item.strip() in ['bitmap_trailing_data_01', 'typed_path_residue_01',
+         'usbstor_setupapi_discrepancy_01', 'usb_volume_activity_gap_01', 'ntfs_allocation_01'] else '' }}{{ fmb_scenario_item.strip() }}.yml
