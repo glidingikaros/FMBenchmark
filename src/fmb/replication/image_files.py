@@ -9,6 +9,7 @@ from fmb.core.sealed_records import read_json
 
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
 IMAGES = Path("images")
+TEMPLATE = "template"
 PROVIDER_KEYS = {"openai": "OPENAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
 MANIPULATED = {
     "timestomp_01": 2, "ads_injection_01": 2, "prefetch_wipe_01": 1, "security_log_clear_event_01": 1,
@@ -31,19 +32,34 @@ class Image:
     seed: int
     contract: dict
     path: Path
+    paper: bool = False
+
+
+def paper_definition(name: str) -> dict:
+    from fmb.core.paths import PROJECT_ROOT
+    from fmb.generation import population
+
+    image = paper_protocol()["images"][name]
+    contract = population.load_population_contract(PROJECT_ROOT / image["population_contract"])
+    return {"seed": image["population_seed"], **contract}
 
 
 def load(path: Path) -> Image:
     from fmb.generation import pilot_profile, population
 
     path = Path(path).expanduser().resolve()
-    paper = sorted(paper_protocol()["images"])
-    if not NAME.fullmatch(path.stem) or path.stem in paper:
-        raise ValueError(f"{path.name}: the file name is the image's name: a letter, then letters, digits or '_'; "
-                         f"{', '.join(paper)} are the paper's")
+    if not NAME.fullmatch(path.stem) or path.stem == TEMPLATE:
+        raise ValueError(f"{path.name}: the file name is the image's name: a letter, then letters, digits or '_' "
+                         f"(and not {TEMPLATE})")
     if not path.is_file():
         raise ValueError(f"no image file {path}")
     value = read_json(path)
+    if path.stem in paper_protocol()["images"]:
+        if value != paper_definition(path.stem):
+            raise ValueError(f"{path.name} differs from the paper's {path.stem}: restore it (git checkout {path.name}) "
+                             "or save your version under another name")
+        seed = value.pop("seed")
+        return Image(path.stem, seed, value, path, paper=True)
     seed = value.pop("seed", None) if isinstance(value, dict) else None
     if type(seed) is not int or seed < 0:
         raise ValueError(f"{path.name}: give the image a seed, a non-negative integer")
@@ -68,7 +84,6 @@ def load(path: Path) -> Image:
 
 def check(image: Image) -> str:
     from fmb.generation import population, recipe
-    from fmb.generation.pilot_profile import resolve_parameters
 
     config = recipe.image_config(image.seed, image.contract)
     try:
@@ -81,11 +96,16 @@ def check(image: Image) -> str:
         recipe._factual_challenge_plan(config, guest_plan, manifest)
     except (KeyError, IndexError, TypeError, ValueError) as error:
         raise ValueError(f"{image.path.name}: the generator cannot build this population: {error!r}") from error
-    scenarios = [contract["scenarios"][scenario] for scenario in contract["experiments"][config["experiment"]]]
-    supplement = resolve_parameters(contract.get("native_pilot_parameters"))["case_classes"]
-    return (f"{image.name}: seed {image.seed}, {sum(item['configured_count'] for item in scenarios)} objects, "
-            f"{sum(item['manipulation_count'] for item in scenarios)} manipulated, "
-            f"{len_cases(supplement)}")
+    return f"{image.name}: " + population_line({"seed": image.seed, **contract})
+
+
+def population_line(definition: dict) -> str:
+    from fmb.generation.pilot_profile import resolve_parameters
+
+    scenarios = [definition["scenarios"][scenario] for scenario in definition["experiments"]["full_scale"]]
+    supplement = resolve_parameters(definition.get("native_pilot_parameters"))["case_classes"]
+    return (f"seed {definition['seed']}, {sum(item['configured_count'] for item in scenarios)} objects, "
+            f"{sum(item['manipulation_count'] for item in scenarios)} manipulated, {len_cases(supplement)}")
 
 
 def len_cases(supplement: dict) -> str:
@@ -105,33 +125,23 @@ def activate(recipe_directory: Path) -> bool:
     return True
 
 
-def paper_image(name: str) -> Image:
-    from fmb.core.paths import PROJECT_ROOT
-    from fmb.generation import population
-
-    image = paper_protocol()["images"][name]
-    path = PROJECT_ROOT / image["population_contract"]
-    return Image(name, image["population_seed"], population.load_population_contract(path), path)
-
-
-def resolve_image(name: str) -> str:
-    if name in paper_protocol()["images"] or name.endswith(".json"):
-        return name
-    path = IMAGES / f"{name}.json"
+def resolve(name: str) -> Path:
+    path = Path(name).expanduser() if name.endswith(".json") else IMAGES / f"{name}.json"
     if not path.is_file():
-        raise ValueError(f"no image {name}: name I1, I2, I3, a file in {IMAGES}/ or a path ending in .json")
-    return str(path)
+        raise ValueError(f"no image {name}: name a file in {IMAGES}/ without .json, or give a path ending in .json")
+    return path
 
 
-def available_images() -> list[tuple[str, str]]:
+def available() -> list[tuple[str, str]]:
     rows = []
-    for name in paper_protocol()["images"]:
-        rows.append((name, "paper, " + check(paper_image(name)).split(", ", 1)[1]))
     for path in sorted(IMAGES.glob("*.json")):
+        if path.stem == TEMPLATE:
+            continue
         try:
-            rows.append((path.stem, f"{path}, " + check(load(path)).split(", ", 1)[1]))
+            image = load(path)
+            rows.append((image.name, ("paper image, " if image.paper else "") + check(image).split(", ", 1)[1]))
         except ValueError as error:
-            rows.append((path.stem, f"{path}: {error}"))
+            rows.append((path.stem, str(error)))
     return rows
 
 
@@ -165,7 +175,7 @@ def llm_dispatch(conditions: list[str], cap_usd: float | None, prices: list[str]
     rates = {}
     for name in dict.fromkeys(conditions):
         if name not in declared:
-            raise ValueError(f"no LLM condition {name}; `fmb list` shows them")
+            raise ValueError(f"no LLM condition {name}; the conditions are " + ", ".join(declared))
         settings = declared[name]["settings"]
         price = given.get(name) or settings.get("price_usd_per_million")
         if price is None:
@@ -176,19 +186,3 @@ def llm_dispatch(conditions: list[str], cap_usd: float | None, prices: list[str]
             raise ValueError(f"{name} calls {settings['provider']}: set {key}")
         rates[name] = {"input": str(price["input"]), "output": str(price["output"])}
     return {"conditions": list(rates), "dispatch": {"execute": True, "cap_usd": str(cap_usd), "rates": rates}}
-
-
-def scaffold(name: str, template: str, seed: int) -> Path:
-    import json
-
-    paper = sorted(paper_protocol()["images"])
-    if not NAME.fullmatch(name) or name in paper:
-        raise ValueError(f"an image name is a letter, then letters, digits or '_'; {', '.join(paper)} are the paper's")
-    path = IMAGES / f"{name}.json"
-    if path.exists():
-        raise ValueError(f"{path} already exists")
-    contract = json.loads(paper_image(template).path.read_text(encoding="utf-8"))
-    contract["native_pilot_parameters"]["image_label"] = name
-    IMAGES.mkdir(exist_ok=True)
-    path.write_text(json.dumps({"seed": seed, **contract}, indent=2) + "\n", encoding="utf-8")
-    return path

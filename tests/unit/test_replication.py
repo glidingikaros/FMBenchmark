@@ -58,14 +58,14 @@ def test_the_base_needs_an_iso_the_user_downloads_and_says_where_from(monkeypatc
     assert pin["edition"] == "pro" and len(pin["sha256"]) == 64
 
 
-def test_the_cli_offers_doctor_setup_and_run(capsys):
-    for action in ("doctor", "setup", "run"):
+def test_the_cli_offers_setup_generate_and_run(capsys):
+    for action in ("setup", "generate", "run"):
         try:
-            main(["replicate", action, "--help"])
+            main([action, "--help"])
         except SystemExit as exit:
             assert exit.code == 0
     out = capsys.readouterr().out
-    assert "I1" in out and "--iso" in out and "--unpinned-iso" in out
+    assert all(flag in out for flag in ("--check", "--iso", "--unpinned-iso", "I1", "--compare", "--llm", "--cap-usd"))
 
 
 @pytest.mark.skipif(os.name == "nt", reason="pip writes .exe launchers on Windows; fmb checks console scripts on POSIX only")
@@ -128,21 +128,17 @@ def test_setup_builds_the_base_only_from_the_pinned_iso_unless_told_otherwise(tm
     assert command[command.index("--iso-sha256") + 1] == setup.file_sha256(tmp_path / "Downloads" / "newer.iso")
 
 
-def test_every_summary_row_names_the_windows_base_and_whether_its_iso_is_the_pinned_one(tmp_path, monkeypatch):
+def test_every_result_names_the_windows_base_and_whether_its_iso_is_the_pinned_one(monkeypatch):
     facts = {"build": "26300", "ubr": 9999, "iso_sha256": "ab" * 32}
     monkeypatch.setattr(host, "provider", lambda: "qemu")
     monkeypatch.setattr(host, "base_guest_facts", lambda: facts)
-    run.write_summary(tmp_path, [{"image": "I1", "admission": "passed"}])
-    row, = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
-    assert row == {"image": "I1", "admission": "passed",
-                   "windows_base": {"build": "26300.9999", "iso_sha256": "ab" * 32, "iso_pinned": False}}
+    assert host.windows_base() == {"build": "26300.9999", "iso_sha256": "ab" * 32, "iso_pinned": False}
     facts["iso_sha256"] = host.PINS["windows_iso"]["sha256"]
     assert host.windows_base()["iso_pinned"] is True
     del facts["iso_sha256"]
     assert host.windows_base()["iso_pinned"] is None
     monkeypatch.setattr(host, "provider", lambda: "vmware_desktop")
-    run.write_summary(tmp_path, [{"image": "I1", "admission": "passed"}])
-    assert json.loads((tmp_path / "summary.json").read_text(encoding="utf-8")) == [{"image": "I1", "admission": "passed"}]
+    assert not host.windows_base()
 
 
 def test_doctor_names_the_qemu_packages_of_the_linux_distribution(monkeypatch):

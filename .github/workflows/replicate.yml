@@ -13,7 +13,7 @@ on:
         options: [linux, windows, both]
         default: linux
       images:
-        description: "The images, as a JSON list of paper images or image files such as images/decoys.json"
+        description: "The images to generate and run, as a JSON list of names of files in images/, such as I1 or decoys"
         type: string
         default: '["I1", "I2", "I3"]'
 
@@ -42,11 +42,11 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
         run: echo "name=$(basename "$IMAGE" .json)" >> "$GITHUB_OUTPUT"
-      - name: "runner: disk (fmb's cache, FMB_CACHE, and the run's replication/ folder on the scratch disk)"
+      - name: "runner: disk (fmb's cache, FMB_CACHE, and the generated/ and results/ folders on the scratch disk)"
         run: |
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache /usr/share/dotnet /usr/local/share/boost
-          sudo mkdir -p /mnt/fmb/replication && sudo chown -R "$USER" /mnt/fmb
-          ln -s /mnt/fmb/replication replication
+          sudo mkdir -p /mnt/fmb/generated /mnt/fmb/results && sudo chown -R "$USER" /mnt/fmb
+          ln -s /mnt/fmb/generated generated && ln -s /mnt/fmb/results results
           echo "FMB_CACHE=/mnt/fmb/cache" >> "$GITHUB_ENV"
           df -h / /mnt
           lscpu | grep -E 'Model name|Hypervisor'
@@ -69,33 +69,35 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: "README: uv sync --locked --all-extras"
         run: uv sync --locked --all-extras
-      - name: "README: doctor, before setup"
+      - name: "README: setup --check, before setup"
         continue-on-error: true
-        run: sg kvm -c "uv run fmb replicate doctor"
+        run: sg kvm -c "uv run fmb setup --check"
       - name: "README: setup --iso"
-        run: sg kvm -c "uv run fmb replicate setup --iso ~/Downloads/$ISO"
-      - name: "README: doctor, after setup"
-        continue-on-error: true
-        run: sg kvm -c "uv run fmb replicate doctor"
+        run: sg kvm -c "uv run fmb setup --iso ~/Downloads/$ISO"
+      - name: "README: generate ${{ matrix.image }}"
+        run: sg kvm -c "uv run fmb generate ${{ matrix.image }}"
       - name: "README: run ${{ matrix.image }}"
-        run: sg kvm -c "uv run fmb replicate run ${{ matrix.image }}"
+        run: sg kvm -c "uv run fmb run ${{ matrix.image }}"
       - name: Summary
         if: always()
         run: |
-          base=/mnt/fmb/cache/qemu-bases/fmb-VAGRANTSLASH-windows-11-x64/0/guest.json
-          { echo '```'; cat /mnt/fmb/replication/summary.json "$base"; echo '```'; } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          cat /mnt/fmb/results/*/*/report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          { echo '```'; cat /mnt/fmb/cache/qemu-bases/fmb-VAGRANTSLASH-windows-11-x64/0/guest.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: user-path-linux-${{ steps.image.outputs.name }}
           path: |
-            /mnt/fmb/replication/summary.json
-            /mnt/fmb/replication/*/*.log
-            /mnt/fmb/replication/*/generation/**/*.png
-            /mnt/fmb/replication/*/generation/**/ground_truth.json
-            /mnt/fmb/replication/*/run/gates/*.json
-            /mnt/fmb/replication/*/run/run-manifest.json
-            /mnt/fmb/replication/*/run/analysis/evidence_index.json
+            /mnt/fmb/results/*/*/report.md
+            /mnt/fmb/results/*/*/summary.json
+            /mnt/fmb/results/*/*/pipeline.log
+            /mnt/fmb/results/*/*/receipts/
+            /mnt/fmb/results/*/*/run/gates/*.json
+            /mnt/fmb/results/*/*/run/run-manifest.json
+            /mnt/fmb/results/*/*/run/analysis/evidence_index.json
+            /mnt/fmb/generated/*/*.log
+            /mnt/fmb/generated/*/image.json
+            /mnt/fmb/generated/*/generation/**/*.png
             /mnt/fmb/cache/qemu-bases/**/guest.json
             /mnt/fmb/cache/base-build/*.log
             /mnt/fmb/cache/base-build/shots/
@@ -184,36 +186,38 @@ jobs:
           "$HOME\.local\bin" >> $env:GITHUB_PATH
       - name: "README: uv sync --locked --all-extras"
         run: uv sync --locked --all-extras
-      - name: "README: doctor, before setup"
+      - name: "README: setup --check, before setup"
         continue-on-error: true
-        run: uv run fmb replicate doctor
+        run: uv run fmb setup --check
       - name: "README: setup --iso"
-        run: uv run fmb replicate setup --iso ~/Downloads/${{ env.ISO }}
-      - name: "README: doctor, after setup"
-        continue-on-error: true
-        run: uv run fmb replicate doctor
+        run: uv run fmb setup --iso ~/Downloads/${{ env.ISO }}
+      - name: "README: generate ${{ matrix.image }}"
+        run: uv run fmb generate ${{ matrix.image }}
       - name: "README: run ${{ matrix.image }}"
-        run: uv run fmb replicate run ${{ matrix.image }}
+        run: uv run fmb run ${{ matrix.image }}
       - name: Summary
         if: always()
         run: |
           $cache = if ($env:FMB_CACHE) { $env:FMB_CACHE } else { "$HOME\.cache\fmb" }
           "CACHE=$cache" >> $env:GITHUB_ENV
           '```' >> $env:GITHUB_STEP_SUMMARY
-          Get-Content replication\summary.json, "$cache\qemu-bases\fmb-VAGRANTSLASH-windows-11-x64\0\guest.json" -ErrorAction SilentlyContinue >> $env:GITHUB_STEP_SUMMARY
+          Get-Content results\*\*\report.md, "$cache\qemu-bases\fmb-VAGRANTSLASH-windows-11-x64\0\guest.json" -ErrorAction SilentlyContinue >> $env:GITHUB_STEP_SUMMARY
           '```' >> $env:GITHUB_STEP_SUMMARY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: user-path-windows-${{ steps.image.outputs.name }}
           path: |
-            replication/summary.json
-            replication/*/*.log
-            replication/*/generation/**/*.png
-            replication/*/generation/**/ground_truth.json
-            replication/*/run/gates/*.json
-            replication/*/run/run-manifest.json
-            replication/*/run/analysis/evidence_index.json
+            results/*/*/report.md
+            results/*/*/summary.json
+            results/*/*/pipeline.log
+            results/*/*/receipts/
+            results/*/*/run/gates/*.json
+            results/*/*/run/run-manifest.json
+            results/*/*/run/analysis/execution/**/tool-logs/
+            generated/*/*.log
+            generated/*/image.json
+            generated/*/generation/**/*.png
             ${{ env.CACHE }}/qemu-bases/**/guest.json
             ${{ env.CACHE }}/base-build/*.log
             ${{ env.CACHE }}/base-build/shots/

@@ -141,7 +141,7 @@ def checks() -> list[tuple[str, bool, str]]:
                               check=False).stdout if which("dotnet") else ""
     wanted = f"Microsoft.NETCore.App {PINS['dotnet_runtime']['version']}"
     check(rows, f".NET runtime {PINS['dotnet_runtime']['version']}", wanted in runtimes,
-          "run: fmb replicate setup (installs it under the cache)")
+          "run: fmb setup (installs it under the cache)")
     if MACOS:
         vmrun = Path("/Applications/VMware Fusion.app/Contents/Public/vmrun")
         check(rows, "VMware Fusion (vmrun)", vmrun.exists() and vmrun, "install VMware Fusion 13")
@@ -172,11 +172,11 @@ def checks() -> list[tuple[str, bool, str]]:
         check(rows, f"WSL distribution {distro}", distro in listed.decode("utf-16-le", "replace"),
               f"wsl --install -d {distro} --no-launch; wsl --set-version {distro} 1")
         check(rows, "long paths (collection writes paths over 260 characters)", long_paths(), LONG_PATHS)
-    check(rows, "Ansible with WinRM", which("ansible-playbook"), "run: fmb replicate setup")
+    check(rows, "Ansible with WinRM", which("ansible-playbook"), "run: fmb setup")
     base = windows_base()
     built = base and f"build {base['build']}, " + {True: "from the pinned ISO", None: "ISO not recorded",
                                                     False: f"from an unpinned ISO (SHA-256 {base['iso_sha256']})"}[base["iso_pinned"]]
     iso = PINS["windows_iso"]
     check(rows, "Windows base image", built,
-          f"download {iso['file']} from {iso['download']}, then run: fmb replicate setup --iso <that file> (~50 min)")
+          f"download {iso['file']} from {iso['download']}, then run: fmb setup --iso <that file> (~30 min)")
     return rows

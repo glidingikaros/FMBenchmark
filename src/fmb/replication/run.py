@@ -13,6 +13,8 @@ from fmb.replication import host
 from fmb.replication.setup import log, windows_parsers
 
 RETRYABLE = re.compile(r'"outcome": "error", "phase": "(qemu_boot|vagrant_boot|ansible_provisioning)"')
+GENERATED = Path("generated")
+RESULTS = Path("results")
 
 
 def step(name: str, *, log_path: Path | None = None, **arguments) -> int:
@@ -38,15 +40,15 @@ def vm_work_root() -> Path | None:
     return root
 
 
-def dependency_lock(output: Path) -> Path:
-    lock = output / "lock.json"
+def dependency_lock(root: Path) -> Path:
+    lock = root / "lock.json"
     if lock.is_file():
         return lock
     build = None
     if host.provider() == "qemu":
         facts = host.base_guest_facts()
         if facts is None:
-            raise SystemExit("no Windows base yet: run `fmb replicate setup` first")
+            raise SystemExit("no Windows base yet: run `fmb setup` first")
         build = facts["build"]
     if step("lock", path=lock, provider=host.provider(), windows_build=build) != 0:
         raise SystemExit("writing the dependency lock failed")
@@ -77,12 +79,12 @@ def completed(root: Path) -> Path | None:
                  if (manifest.parent / "full_scale.vmdk").is_file()), None)
 
 
-def generate(image: str, lock: Path, folder: Path, attempts: int, image_file: Path | None = None) -> Path:
+def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
     recipe = folder / "recipe"
     if not recipe.exists():
-        if step("freeze", image=image, provider=host.provider(), lock=lock, recipe=recipe,
-                **({"image_file": image_file} if image_file else {})) != 0:
-            raise SystemExit(f"{image}: freezing the recipe failed")
+        if step("freeze", image=image.name, provider=host.provider(), lock=lock, recipe=recipe,
+                **({} if image.paper else {"image_file": image.path})) != 0:
+            raise SystemExit(f"{image.name}: freezing the recipe failed")
     await_base_clock(recipe)
     for attempt in range(1, attempts + 1):
         if (done := completed(folder / "generation")) is not None:
@@ -94,20 +96,20 @@ def generate(image: str, lock: Path, folder: Path, attempts: int, image_file: Pa
             return done
         if not RETRYABLE.search(log_path.read_text(encoding="utf-8", errors="replace")):
             break
-        log(f"{image}: attempt {attempt} failed while booting or provisioning; retrying with the same recipe")
-    raise SystemExit(f"{image}: generation failed, see {folder}")
+        log(f"{image.name}: attempt {attempt} failed while booting or provisioning; retrying with the same recipe")
+    raise SystemExit(f"{image.name}: generation failed, see {folder}")
 
 
-def analyse(image: str, generation: Path, folder: Path, llm: dict | None = None) -> dict:
-    config = {"case_label": image, "generation": str(generation),
+def analyse(name: str, generation: Path, recipe: Path, folder: Path, llm: dict | None = None) -> dict:
+    config = {"case_label": name, "generation": str(generation),
               "conditions": llm["conditions"] if llm else ["luna-high"],
               **({"dispatch": llm["dispatch"]} if llm else {}),
               "collect": {"windows_parsers": str(windows_parsers()), "host_toolchain_root": str(host.toolchain_root()),
                           **({"vm_work_root": str(host.cache() / "vm-work")} if host.MACOS else {})},
               "output": str(folder / "run")}
     (folder / "pipeline.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
-    step("analyse", config=folder / "pipeline.json", recipe=folder / "recipe", log_path=folder / "pipeline.log")
-    return summary(image, folder / "run" / "gates" / "G5.json")
+    step("analyse", config=folder / "pipeline.json", recipe=recipe, log_path=folder / "pipeline.log")
+    return summary(name, folder / "run" / "gates" / "G5.json")
 
 
 def summary(image: str, gate: Path) -> dict:
@@ -124,12 +126,6 @@ def summary(image: str, gate: Path) -> dict:
                         for name, c in conditions.items()}} if conditions else {})}
 
 
-def write_summary(output: Path, results: list[dict]) -> None:
-    base = host.windows_base()
-    rows = [row | {"windows_base": base} for row in results] if base else results
-    (output / "summary.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
-
-
 def implementation(paper: list[str]) -> dict:
     from fmb.core import paper_integrity
 
@@ -143,42 +139,66 @@ def implementation(paper: list[str]) -> dict:
     return {"implementation": "modified" if changed else "released", "changed_files": changed}
 
 
-def images(names: list[str], output: Path, attempts: int, llm: dict | None = None) -> int:
+def generate_images(paths: list[Path], attempts: int, root: Path = GENERATED) -> int:
     from fmb.replication import image_files
 
-    output = output.resolve()
-    own = {name: image_files.load(Path(name)) for name in names if name.endswith(".json")}
-    labels = [own[name].name if name in own else name for name in names]
-    if len(set(labels)) != len(labels):
-        raise SystemExit("two images have the same name: " + ", ".join(labels))
-    provenance = implementation([name for name in names if name not in own])
-    for image in own.values():
+    images = [image_files.load(path) for path in paths]
+    names = [image.name for image in images]
+    if len(set(names)) != len(names):
+        raise SystemExit("two images have the same name: " + ", ".join(names))
+    implementation([image.name for image in images if image.paper])
+    for image in images:
         log(image_files.check(image))
-    output.mkdir(parents=True, exist_ok=True)
+    root = root.resolve()
+    root.mkdir(parents=True, exist_ok=True)
     base = host.windows_base()
     if base and base["iso_pinned"] is False:
         log(f"the Windows base is build {base['build']} from an ISO that is not the pinned one "
-            f"(SHA-256 {base['iso_sha256']}); summary.json records it with every image")
-    results = []
-    try:
-        lock = dependency_lock(output)
-    except SystemExit as error:
-        results = [{"image": label, "admission": "not reached", "error": str(error)} for label in labels]
-        write_summary(output, results)
-        raise
-    for name, label in zip(names, labels):
-        folder = output / label
+            f"(SHA-256 {base['iso_sha256']}); every result records it")
+    lock = dependency_lock(root)
+    failed = []
+    for image in images:
+        folder = root / image.name
+        if (done := completed(folder / "generation")) is not None:
+            log(f"{image.name}: already generated ({done}); delete {folder} to generate it again")
+            continue
+        definition = image.path.read_bytes()
+        if (folder / "image.json").is_file() and (folder / "image.json").read_bytes() != definition:
+            raise SystemExit(f"{image.path} changed since {folder} was started; delete {folder} to start again")
         folder.mkdir(exist_ok=True)
-        image_file = own[name].path if name in own else None
+        (folder / "image.json").write_bytes(definition)
         try:
-            row = analyse(label, generate(label, lock, folder, attempts, image_file), folder, llm)
+            done = generate_image(image, lock, folder, attempts)
+            log(f"{image.name}: generated {done / 'full_scale.vmdk'}; analyse it with: fmb run {image.name}")
         except SystemExit as error:
-            row = {"image": label, "admission": "not reached", "error": str(error)}
-        results.append(({"image_file": str(image_file), **provenance} if image_file else {}) | row)
-        write_summary(output, results)
-    for row in results:
-        log(f"{row['image']}: admission {row['admission']}"
-            + (f", S3 {row['exact']}/{row['questions']} exact, F1 {row['f1']}" if "exact" in row else f" ({row.get('error', '')})")
-            + "".join(f"; S3' {name} {llm['exact'][0]}-{llm['exact'][1]}/{row['questions']} exact over {llm['passes']} passes"
-                      for name, llm in row.get("llm", {}).items()))
-    return 0 if all(row["admission"] == "passed" for row in results) else 1
+            log(str(error))
+            failed.append(image.name)
+    return 1 if failed else 0
+
+
+def generated(root: Path = GENERATED) -> list[str]:
+    return sorted(folder.name for folder in root.glob("*") if completed(folder / "generation") is not None)
+
+
+def run_images(names: list[str], llm: dict | None, root: Path = GENERATED, results: Path = RESULTS) -> int:
+    from fmb.replication import report
+
+    folders = {name: (root / name).resolve() for name in names}
+    missing = [name for name, folder in folders.items() if completed(folder / "generation") is None]
+    if missing:
+        raise SystemExit(f"not generated yet: {', '.join(missing)}; run: fmb generate {' '.join(missing)}")
+    paper = [name for name, folder in folders.items() if "population_contract" not in json.loads(
+        (folder / "recipe" / "recipe.json").read_text(encoding="utf-8"))["config"]]
+    provenance = implementation(paper)
+    rows = []
+    for name, folder in folders.items():
+        generation = completed(folder / "generation")
+        output = (results / name / datetime.now().strftime("%Y%m%d-%H%M%S")).resolve()
+        output.mkdir(parents=True)
+        row = analyse(name, generation, folder / "recipe", output, llm)
+        row |= {"paper_image": name in paper, **({} if name in paper else provenance),
+                "windows_base": host.windows_base(), "generation": str(generation)}
+        report.complete(output, row, folder, generation)
+        rows.append(row)
+        print("\n".join(report.headline(row, output)), flush=True)
+    return 0 if all(row["admission"] == "passed" for row in rows) else 1

@@ -95,7 +95,8 @@ def test_a_population_the_native_profile_cannot_build_is_refused(tmp_path, edit,
 
 
 @pytest.mark.parametrize("name,seed,message", [
-    ("I1.json", 1, "are the paper's"),
+    ("I1.json", 1, "differs from the paper's I1"),
+    ("template.json", 1, "not template"),
     ("my-image.json", 1, "the file name is the image's name"),
     ("mine.json", -1, "seed"),
     ("mine.json", True, "seed"),
@@ -185,48 +186,61 @@ def test_changed_code_is_recorded_by_hash_only_where_permitted(monkeypatch, tmp_
     assert resealed["files"]["package/rules.py"] == sha256_file(roots["package"] / "rules.py")
 
 
+def test_the_paper_images_and_the_template_are_files_in_images():
+    for name in ("I1", "I2", "I3"):
+        image = image_files.load(ROOT / "images" / f"{name}.json")
+        assert image.paper and json.loads((ROOT / "images" / f"{name}.json").read_text()) == image_files.paper_definition(name)
+    template = json.loads((ROOT / "images/template.json").read_text())
+    assert {key: value for key, value in template.items() if key != "seed"}["scenarios"] == \
+        image_files.paper_definition("I3")["scenarios"]
+
+
 def test_paper_images_refuse_changed_code_and_your_own_record_it(monkeypatch, tmp_path):
     monkeypatch.setattr(paper_integrity, "modified_files", lambda roots=None: ["package/analysis/shared_rules.py"])
     with pytest.raises(SystemExit, match="released code only"):
-        run.images(["I1", str(EXAMPLE)], tmp_path / "replication", 1)
-    assert not (tmp_path / "replication").exists()
+        run.generate_images([ROOT / "images/I1.json", EXAMPLE], 1, tmp_path / "generated")
+    assert not (tmp_path / "generated").exists()
     assert run.implementation([]) == {"implementation": "modified",
                                       "changed_files": ["package/analysis/shared_rules.py"]}
 
 
-def test_run_checks_image_files_before_anything_starts(tmp_path):
+def test_generate_checks_image_files_before_anything_starts(tmp_path, monkeypatch):
     broken = example()
     more_drives(broken)
     with pytest.raises(ValueError, match="three virtual USB drives"):
-        run.images([str(write_image(tmp_path / "mine.json", broken))], tmp_path / "replication", 1)
+        run.generate_images([write_image(tmp_path / "mine.json", broken)], 1, tmp_path / "generated")
     with pytest.raises(SystemExit, match="same name"):
-        run.images([str(EXAMPLE), str(write_image(tmp_path / "decoys.json", example()))], tmp_path / "out", 1)
-    with pytest.raises(SystemExit, match="name I1, I2, I3 or an image file ending in .json"):
-        main(["replicate", "run", "I4"])
-    assert not (tmp_path / "replication").exists() and not (tmp_path / "out").exists()
+        run.generate_images([EXAMPLE, write_image(tmp_path / "decoys.json", example())], 1, tmp_path / "generated")
+    monkeypatch.chdir(tmp_path)
+    assert main(["generate", "I4"]) != 0
+    assert not (tmp_path / "generated").exists()
 
 
-def test_new_list_and_run_name_images_and_llm_conditions(tmp_path, monkeypatch, capsys):
+def test_generate_and_run_take_names_stages_and_llm_conditions(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    assert main(["new", "small", "--from", "I1", "--seed", "5"]) == 0
-    assert image_files.load(tmp_path / "images/small.json").seed == 5
-    assert main(["new", "small"]) != 0
-    assert main(["list"]) == 0
-    listed = capsys.readouterr().out
-    assert all(name in listed for name in ("I1", "I3", "small", "sonnet5-high", "$2.000 in / $10.000 out"))
-    calls = []
-    monkeypatch.setattr(run, "images", lambda names, output, attempts, llm=None: calls.append((names, llm)) or 0)
-    assert main(["run", "small", "I2", "--llm", "sonnet5-high", "--cap-usd", "20"]) == 0
-    assert main(["run", "I1"]) == 0
-    assert calls == [([str(Path("images/small.json")), "I2"], {
+    (tmp_path / "images").mkdir()
+    write_image(tmp_path / "images/small.json", example(), 5)
+    (tmp_path / "images/I1.json").write_text((ROOT / "images/I1.json").read_text())
+    generated, analysed = [], []
+    monkeypatch.setattr(run, "generate_images", lambda paths, attempts: generated.append(paths) or 0)
+    monkeypatch.setattr(run, "run_images", lambda names, llm: analysed.append((names, llm)) or 0)
+    assert main(["generate", "small", "I1"]) == 0
+    assert generated == [[Path("images/small.json"), Path("images/I1.json")]]
+    assert main(["run", "small", "--compare", "S3", "--llm", "sonnet5-high", "--cap-usd", "20"]) == 0
+    assert main(["run", "small"]) == 0
+    assert analysed == [(["small"], {
         "conditions": ["sonnet5-high"],
         "dispatch": {"execute": True, "cap_usd": "20.0", "rates": {"sonnet5-high": {"input": "2.000", "output": "10.000"}}}}),
-        (["I1"], None)]
-    assert main(["run", "missing"]) != 0
-    with pytest.raises(SystemExit, match="name the images"):
-        main(["run"])
+        (["small"], None)]
+    with pytest.raises(SystemExit, match="needs --llm"):
+        main(["run", "small", "--compare", "S3"])
+    with pytest.raises(SystemExit):
+        main(["run", "small", "--compare", "S1"])
+    for command in ("generate", "run"):
+        with pytest.raises(SystemExit, match=f"name the images to {command}"):
+            main([command])
+    assert [name for name, _ in image_files.available()] == ["I1", "small"]
 
 
 @pytest.mark.parametrize("conditions,cap,prices,message", [
@@ -247,10 +261,11 @@ def test_llm_conditions_reach_the_analysis_and_the_summary(tmp_path, monkeypatch
     monkeypatch.setattr(run, "step", lambda name, **arguments: steps.append((name, arguments)) or 0)
     monkeypatch.setattr(run.host, "toolchain_root", lambda: tmp_path / "toolchain")
     llm = {"conditions": ["sonnet5-high"], "dispatch": {"execute": True, "cap_usd": "20", "rates": {}}}
-    assert run.analyse("small", tmp_path / "generation", tmp_path, llm)["admission"] == "not reached"
+    assert run.analyse("small", tmp_path / "generation", tmp_path / "recipe", tmp_path, llm)["admission"] == "not reached"
     config = json.loads((tmp_path / "pipeline.json").read_text())
     assert config["conditions"] == ["sonnet5-high"] and config["dispatch"] == llm["dispatch"]
-    run.analyse("small", tmp_path / "generation", tmp_path)
+    assert steps[0][1]["recipe"] == tmp_path / "recipe"
+    run.analyse("small", tmp_path / "generation", tmp_path / "recipe", tmp_path)
     config = json.loads((tmp_path / "pipeline.json").read_text())
     assert config["conditions"] == ["luna-high"] and "dispatch" not in config
     gate = tmp_path / "G5.json"

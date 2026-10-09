@@ -38,12 +38,20 @@ definition runs on QEMU with a Windows 11 x64 base built from Microsoft's ISO
 (`tools/base-image/windows11-x64`). The question definitions, the protocol and the data contracts of every
 interface are in `src/fmb/contracts`.
 
-## Replicating the paper
+## Using it
 
-`fmb replicate` generates I1, I2 and I3 on your machine, collects their evidence and runs S1 to S4 with
-the deterministic engine. An image replicates when strict admission passes, which requires S3 to answer
-all nine questions exactly. The LLM conditions are frozen but not dispatched, so no provider account is
-needed.
+```bash
+uv sync --locked --all-extras
+uv run fmb setup --check     # what this machine still needs
+uv run fmb setup             # on Linux: uv run fmb setup --iso ~/Downloads/Windows11_Client_x64_en-us_26300_9457.iso
+uv run fmb generate I1       # a disk image with its ground truth
+uv run fmb run I1            # the pipeline, S1 to S4, scored against that ground truth
+```
+
+Replicating the paper is `fmb generate I1 I2 I3` and `fmb run I1 I2 I3`. An image replicates when its
+strict admission passes, which requires S3 to answer all nine questions exactly.
+
+### Hosts
 
 | Host | Guest engine | Windows guest |
 |---|---|---|
@@ -53,89 +61,74 @@ needed.
 Windows hosts are not supported yet: the base builds and the images generate under the Windows Hypervisor
 Platform, but collecting their evidence still fails on a fresh machine.
 
-### Requirements
+You need [uv](https://docs.astral.sh/uv/), a clone of this repository, internet access during setup, and
+about 40 GB of free disk per image in flight plus about 10 GB for the Windows base.
 
-- [uv](https://docs.astral.sh/uv/) and a clone of this repository;
-- about 40 GB of free disk per image in flight, plus about 10 GB for the Windows base;
-- internet access during setup.
-
-On Linux, also Microsoft's Windows 11 ISO, which you download yourself (its links last a
-day): on [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11)
-choose *Windows 11 (multi-edition ISO for x64 devices)*, then *English (United States)*. The file is
-`Windows11_Client_x64_en-us_26300_9457.iso`, and setup checks its SHA-256. Microsoft offers only its
-current build; for a newer one, add `--unpinned-iso` to setup, and every result records the build and the
-ISO's SHA-256.
-
-**Linux** (Debian or Ubuntu)
-
-```bash
-sudo apt-get update && sudo apt-get install qemu-system-x86 qemu-utils ovmf
-```
-
+**Linux** (Debian or Ubuntu): `sudo apt-get update && sudo apt-get install qemu-system-x86 qemu-utils ovmf`.
 On Fedora, `sudo dnf install qemu-system-x86-core qemu-img edk2-ovmf`; on Arch,
 `sudo pacman -S qemu-system-x86 qemu-img edk2-ovmf`; on openSUSE,
 `sudo zypper install qemu-x86 qemu-tools qemu-ovmf-x86_64`. Your user needs read-write access to
-`/dev/kvm`: if it lacks it, run `sudo usermod -aG kvm $USER` and log in again.
+`/dev/kvm`: if it lacks it, run `sudo usermod -aG kvm $USER` and log in again. Download Microsoft's Windows
+11 ISO yourself (its links last a day): on
+[microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11) choose
+*Windows 11 (multi-edition ISO for x64 devices)*, then *English (United States)*. The file is
+`Windows11_Client_x64_en-us_26300_9457.iso`, and setup checks its SHA-256. Microsoft offers only its
+current build; for a newer one, add `--unpinned-iso`, and every result records the build and the ISO's
+SHA-256.
 
 **macOS**: VMware Fusion 13, Vagrant with the `vagrant-vmware-desktop` plugin, Ansible
 (`brew install ansible`), and the paper's box, built with
 `tools/base-image/windows11-arm64/build-vmware-box.sh`.
 
-### Run
+### `fmb setup`
 
-```bash
-uv sync --locked --all-extras
-uv run fmb replicate doctor
-uv run fmb replicate setup --iso ~/Downloads/Windows11_Client_x64_en-us_26300_9457.iso
-uv run fmb replicate run I1 I2 I3
-```
+`fmb setup --check` checks this machine and prints the command that fixes anything missing. `fmb setup`
+installs the pinned .NET runtime, Ansible and collection tools under `~/.cache/fmb` (or `FMB_CACHE`); on
+Linux it also builds the Windows base from the ISO, once, in about 30 minutes.
 
-- `doctor` checks the host and prints the command that fixes anything missing.
-- `setup` installs the pinned .NET runtime, Ansible and collection tools under `~/.cache/fmb` (or
-  `FMB_CACHE`). On Linux it also builds the Windows base from the ISO, once, in about 30 minutes. On macOS
-  it takes no `--iso`.
-- `run` writes each image to `replication/<image>/` and `replication/summary.json`, which lists per image
-  the admission result, the number of exact questions and F1. An image takes about an hour. On Linux, the
-  first image after a base build waits about 70 minutes before generating, until the guest's clock is past
-  the base build's last events.
+### `fmb generate`
 
-Generation retries a boot or provisioning failure with the same frozen recipe, up to `--attempts` times
-(default 3). Images are never bit-identical: each frozen recipe draws a fresh random assignment. What
-replicates is the protocol and the result.
+`images/` holds one JSON file per image: `I1.json`, `I2.json` and `I3.json` are the paper's images,
+`template.json` is the starting point for your own, and `decoys.json` is an example (I3 with twice as many
+untouched objects around the same manipulations). `fmb generate NAME` builds `images/NAME.json` into
+`generated/NAME/`: the disk image, its ground truth and the receipts of every generation task. Without a
+name it lists `images/` and asks. An image takes about an hour; on Linux, the first image after a base build
+waits about 70 minutes, until the guest's clock is past the base build's last events. A boot or
+provisioning failure is retried with the same frozen recipe, up to `--attempts` times (default 3).
 
-## Your own images
+To make your own image, copy `images/template.json` to `images/<name>.json` and edit:
 
-Set the host up with `fmb replicate doctor` and `fmb replicate setup` first, then:
-
-```bash
-uv run fmb list                                         # images and LLM conditions
-uv run fmb new myimage --from I3                        # writes images/myimage.json
-uv run fmb run myimage --llm sonnet5-high --cap-usd 20  # generate, collect, analyse and score
-```
-
-`fmb run` with no image lists the choices and asks. It writes `runs/<image>/` and `runs/summary.json`.
-
-**Images.** One file defines an image: a paper image's population plus a `seed`, saved as
-`images/<name>.json`. `images/decoys.json` is I3 with twice as many untouched objects around the same
-manipulations. In the file:
-
-- `seed` picks the objects' names and folders and the virtual hardware;
-- `scenarios` sets how many objects each anti-forensic technique creates (`configured_count`). Its guest
+- `seed`, which picks the objects' names and folders and the virtual hardware;
+- `scenarios`: how many objects each anti-forensic technique creates (`configured_count`). Its guest
   script fixes how many of them it manipulates, so `manipulation_count` keeps the paper's value;
-- `native_pilot_parameters.case_classes` picks each question's supplementary cases and controls, at most
-  as many of each as I3 has.
+- `native_pilot_parameters.case_classes`: each question's supplementary cases and controls, at most as
+  many of each as I3 has.
 
-`run` checks each file before it starts and says what does not fit. All fourteen scenarios stay; the USB,
-NTFS-allocation and event-log scenarios also keep their number of objects. Which objects are manipulated is
-drawn when the run freezes its recipe, so two runs of one file are the same population, not the same disk.
+`fmb generate` checks the file before it starts and says what does not fit: all fourteen scenarios stay,
+and the USB, NTFS-allocation and event-log scenarios keep their number of objects. The paper's image files
+must match the released definitions. Which objects are manipulated is drawn when the recipe is frozen, so
+two images from one file share a population, not a disk.
 
-**Both assessments.** Every run assesses the evidence cards with the deterministic rules (S3) and freezes
-the same cards as requests for the LLM (S3'). `--llm CONDITION` also sends them, three passes as in the
-paper, and the summary scores S3 and S3' against ground truth. The conditions are the paper's eight;
-`fmb list` shows each model and its recorded price. They need `OPENAI_API_KEY` or `OPENROUTER_API_KEY`.
-`--cap-usd` is the most the LLM requests of one image may cost: the run sends nothing that could exceed
-it. A condition without a recorded price also needs `--price CONDITION=INPUT,OUTPUT`, in US dollars per
-million tokens. As in the paper, the LLM is asked only about images that pass admission.
+### `fmb run`
+
+`fmb run NAME` runs S1 to S4 on `generated/NAME/` and scores the result against its ground truth. Without
+a name it lists the generated images and asks, then asks at which stage of Figure 1 to compare an LLM.
+Only S3 can be compared for now: `--compare S3 --llm CONDITION` sends the same evidence cards to that
+model (S3'), three passes as in the paper. The conditions are the paper's eight, listed by
+`fmb run --help`; they need `OPENAI_API_KEY` or `OPENROUTER_API_KEY`. `--cap-usd` is the most the LLM
+requests of one image may cost, and the run sends nothing that could exceed it; a condition without a
+recorded price also needs `--price CONDITION=INPUT,OUTPUT`, in US dollars per million tokens. As in the
+paper, the LLM is asked only about images that pass admission. Without `--llm` nothing is sent.
+
+The terminal shows a headline per image: admission, S3's exact questions and F1, and each LLM condition's
+range over its passes and its cost. Everything else is in `results/NAME/<time>/`:
+
+- `report.md`: the headline, the image, the paper's results table, every question for S3 and each pass of
+  S3', the assessors' settings, and every receipt with its SHA-256;
+- `receipts/`: the image definition, the generation recipe, `ground_truth.json`, `finding_reference.json`
+  and the receipts of every generation task;
+- `run/`: the data interfaces G1 to G5, `run-manifest.json` and the sealed stage outputs;
+- `summary.json`: the headline in JSON.
 
 ### Changing the code
 
@@ -148,9 +141,9 @@ New techniques, questions or rules are code changes:
 | A question | A question pack in `src/fmb/contracts/questions/`, `QIDS` in `src/fmb/core/case_contract.py`, and its rule; collection, preparation and evaluation assume the nine-question roster, so let the tests guide you |
 | An S3 engine or a stage implementation | `ENGINES` in `src/fmb/assessment/stage.py`, or `IMPLEMENTATIONS` in `src/fmb/pipeline/implementations.py` |
 
-The paper's images run with the released code only: `fmb run` and `fmb replicate run` stop before
-generating one if any file differs. Your own images also run with changed code; `summary.json` lists the
-changed files, and each image keeps a copy of the code it ran.
+The paper's images run with the released code only: `fmb generate` and `fmb run` stop if any file differs.
+Your own images also run with changed code; `summary.json` and `report.md` list the changed files, and each
+run keeps a copy of the code it ran.
 
 ## Licence
 

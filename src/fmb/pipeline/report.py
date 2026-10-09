@@ -65,8 +65,8 @@ def _rows(g5: dict) -> list[dict]:
     return rows
 
 
-def _markdown(images: list[dict]) -> str:
-    lines = ["# Results", "",
+def _markdown(images: list[dict], title: str | None = "# Results") -> str:
+    lines = ([title, ""] if title else []) + [
              "Exact: questions exact in every pass. FN and FP: findings summed over the passes. Per question: the "
              "passes in which it is not exact. Cost per pass: the selected calls' exposure, USD.", ""]
     for image in images:
@@ -78,7 +78,8 @@ def _markdown(images: list[dict]) -> str:
             if image.get("s4_validation"):
                 lines += ["S4 candidate agreement with the fixed evaluator: "
                           + image["s4_validation"]["status"] + ". The table uses the fixed evaluator.", ""]
-        lines += [f"## {image['case_label']}: {image['findings']} findings per pass ({image['positive']} positive)", "",
+        lines += [f"{'##' if title else '###'} {image['case_label']}: {image['findings']} findings per pass "
+                  f"({image['positive']} positive)", "",
                   f"Admission {image['admission']}"
                   + (f" ({image['admission_policy']})." if image["admission_policy"] else ".")
                   + ("" if image["admission"] == "passed" else
@@ -96,32 +97,41 @@ def _markdown(images: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _entry(run: Path) -> tuple[dict, dict]:
+    g5, entry = read_g5(run)
+    rows = [{**row, "admission": g5["admission"]["status"]} for row in _rows(g5)]
+    rules = g5["comparison"]["rules"]
+    counts = rules["finding_counts"]
+    return g5, {"run": str(run), "case_label": g5["case_label"], "g5_sha256": entry["sha256"],
+            **({"experiment": g5["experiment"]} if "experiment" in g5 else {}),
+            **({"s4_validation": g5["stage_validation"]["S4"],
+                "candidate_evaluation": g5["candidate_evaluation"]} if "candidate_evaluation" in g5 else {}),
+            "admission": g5["admission"]["status"], "admission_policy": g5["admission"].get("policy"),
+            "findings": rules["findings"],
+            "positive": counts.get("tp", 0) + counts.get("fn", 0), "rows": rows,
+            "evaluation_evidence": {name: {key: score[key] for key in
+                ("provenance", "selection", "lineage", "metric_policy") if key in score}
+                for name, score in g5["scores"].items()}}
+
+
+def run_table(run: Path) -> str:
+    return _markdown([_entry(run)[1]], title=None)
+
+
 def write_report(*, runs: list[Path], output: Path) -> dict:
     output = Path(output)
     if output.exists():
         raise FileExistsError("report destination already exists")
     images, table, figure = [], [], []
     for run in runs:
-        g5, entry = read_g5(run)
+        g5, image = _entry(run)
         for condition, score in g5["scores"].items():
             passes = len(score.get("passes") or [1, 2, 3])
             figure.append([_image(g5["case_label"]), condition,
                            _decimal(Decimal(score["selected_exposure_usd"]) / passes, 3),
                            _f1_percent(score["f1"]), g5["admission"]["status"]])
-        rows = [{**row, "admission": g5["admission"]["status"]} for row in _rows(g5)]
-        rules = g5["comparison"]["rules"]
-        counts = rules["finding_counts"]
-        images.append({"run": str(run), "case_label": g5["case_label"], "g5_sha256": entry["sha256"],
-                       **({"experiment": g5["experiment"]} if "experiment" in g5 else {}),
-                       **({"s4_validation": g5["stage_validation"]["S4"],
-                           "candidate_evaluation": g5["candidate_evaluation"]} if "candidate_evaluation" in g5 else {}),
-                       "admission": g5["admission"]["status"], "admission_policy": g5["admission"].get("policy"),
-                       "findings": rules["findings"],
-                       "positive": counts.get("tp", 0) + counts.get("fn", 0), "rows": rows,
-                       "evaluation_evidence": {name: {key: score[key] for key in
-                           ("provenance", "selection", "lineage", "metric_policy") if key in score}
-                           for name, score in g5["scores"].items()}})
-        table.extend(rows)
+        images.append(image)
+        table.extend(image["rows"])
     labels = [image["case_label"] for image in images]
     if len(set(labels)) != len(labels):
         raise ValueError("two runs report the same case: " + ", ".join(sorted(labels)))

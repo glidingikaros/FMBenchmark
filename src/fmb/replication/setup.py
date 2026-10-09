@@ -19,7 +19,7 @@ AGENT = {"User-Agent": "Mozilla/5.0"}
 
 
 def log(message: str) -> None:
-    print(f"[fmb replicate] {message}", flush=True)
+    print(f"[fmb] {message}", flush=True)
 
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -123,7 +123,7 @@ def base(iso: Path | None = None, *, unpinned_iso: bool = False) -> dict:
     pin = host.PINS["windows_iso"]
     if iso is None:
         raise SystemExit(f"the Windows base is built from Microsoft's ISO: download {pin['choose']} from "
-                         f"{pin['download']} ({pin['file']}), then run: fmb replicate setup --iso <that file>")
+                         f"{pin['download']} ({pin['file']}), then run: fmb setup --iso <that file>")
     iso = Path(iso).expanduser().resolve()
     if not iso.is_file():
         raise SystemExit(f"no ISO at {iso}")
