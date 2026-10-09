@@ -83,7 +83,7 @@ To make a new image:
 
 | Generation setting | Function |
 |---|---|
-| `clock_bias_minutes` | The guest clock starts at UTC minus this value, −840 to 840. `"auto"` uses the Pacific time of the guest at generation time. The paper uses 480. |
+| `clock_bias_minutes` | The guest's hardware clock starts at UTC minus this value, −840 to 840. Windows reads that clock as Pacific time, so the guest boots behind the true time by this value minus Pacific's offset from UTC (420 minutes in summer, 480 in winter); the generator then moves the clock forward. It never moves the clock back, so a value below that offset is refused. `"auto"` boots 2 minutes behind. The paper uses 480. |
 | `activity_count` | The number of user actions before the manipulations, 1 to 500. The paper uses 12. |
 | `activity_seed`, `hardware_seed` | The seeds of the user actions and of the virtual hardware. The default is `seed`. |
 

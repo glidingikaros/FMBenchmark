@@ -194,6 +194,18 @@ def test_frozen_bootstrap_only_corrects_forward_and_verifies_native_bias():
     assert not any("Set-Date" in call for call in wrong.calls)
 
 
+def test_an_own_boot_clock_bias_keeps_the_pacific_guest_and_corrects_forward_only():
+    connection = SimulatedConnection(offset=-120)
+    receipt = connection.apply(expected_bias=422)
+    assert connection.offset == pytest.approx(0)
+    assert receipt["boot_clock"] == {"expected_rtc_bias_minutes": 422,
+        "observed_rtc_bias_minutes": 480, "clock_adjustment_ticks": 1_200_000_000, "forward_only": True}
+    ahead = SimulatedConnection(offset=3480)
+    with pytest.raises(ValueError, match="backward_or_unproven"):
+        ahead.apply(expected_bias=422)
+    assert not any("Set-Date" in call for call in ahead.calls)
+
+
 def test_already_accurate_clock_is_not_stepped_backwards():
     connection = SimulatedConnection(offset=.5)
     receipt = connection.apply(expected_bias=480)
@@ -225,6 +237,22 @@ def test_pipeline_rechecks_forward_only_bootstrap_receipt_and_adjustment():
             checkpoints=[("manipulation_start", 61, 61), ("manipulation_end", 301, 301), ("pre_export", 901, 901)])
         instance.recipe_bundle["recipe"]["config"]["vmware_boot_clock_bias_minutes"] = 480
         if ticks == 250_000_000:
+            assert instance.capture_clock_receipt(output)["policy_met"] is True
+        else:
+            with pytest.raises(ValueError, match="forward-only"):
+                instance.capture_clock_receipt(output)
+
+
+def test_pipeline_accepts_an_own_boot_clock_bias_only_on_the_pacific_guest():
+    pipeline = load("pipeline")
+    for observed in (480, 422):
+        connection = SimulatedConnection(offset=-120)
+        receipt = connection.apply(expected_bias=422)
+        receipt["boot_clock"]["observed_rtc_bias_minutes"] = observed
+        instance, output = clock_run(pipeline, "host_sync_then_service_stopped", receipt=receipt,
+            checkpoints=[("manipulation_start", 61, 61), ("manipulation_end", 301, 301), ("pre_export", 901, 901)])
+        instance.recipe_bundle["recipe"]["config"]["vmware_boot_clock_bias_minutes"] = 422
+        if observed == 480:
             assert instance.capture_clock_receipt(output)["policy_met"] is True
         else:
             with pytest.raises(ValueError, match="forward-only"):

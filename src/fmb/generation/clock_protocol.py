@@ -9,6 +9,7 @@ PROTOCOL = "winrm_bracketed_relative.v1"
 TOLERANCE_SECONDS = 2.0
 HOST_WALL_TOLERANCE_SECONDS = 0.05
 QUANTIZATION_SECONDS = 0.000001
+GUEST_STANDARD_BIAS_MINUTES = 480
 
 SAMPLE_SCRIPT = """$ErrorActionPreference = 'Stop'
 $s = Get-Service -Name w32time -ErrorAction SilentlyContinue
@@ -117,7 +118,7 @@ def clock_action(execute, *, policy, stage=None, wall_clock=None, monotonic_cloc
             observed_bias = int(result["stdout"].strip())
         except (KeyError, TypeError, ValueError, AttributeError) as error:
             raise ValueError("clock_bootstrap_bias_unavailable") from error
-        if result.get("rc") != 0 or observed_bias != expected_rtc_bias_minutes:
+        if result.get("rc") != 0 or observed_bias != GUEST_STANDARD_BIAS_MINUTES:
             raise ValueError("clock_bootstrap_bias_mismatch")
         boot_clock = {"expected_rtc_bias_minutes": expected_rtc_bias_minutes,
                       "observed_rtc_bias_minutes": observed_bias,

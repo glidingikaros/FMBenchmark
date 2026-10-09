@@ -1480,7 +1480,7 @@ class GenerationPipeline:
                     or type(boot.get("expected_rtc_bias_minutes")) is not int
                     or type(boot.get("observed_rtc_bias_minutes")) is not int
                     or boot["expected_rtc_bias_minutes"] != expected_bias
-                    or boot["observed_rtc_bias_minutes"] != expected_bias
+                    or boot["observed_rtc_bias_minutes"] != protocol.GUEST_STANDARD_BIAS_MINUTES
                     or boot.get("forward_only") is not True
                     or type(boot.get("clock_adjustment_ticks")) is not int
                     or boot["clock_adjustment_ticks"] != expected_ticks or expected_ticks < 0

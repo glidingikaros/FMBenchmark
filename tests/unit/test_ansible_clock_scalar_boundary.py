@@ -48,7 +48,7 @@ for name, scalar, valid in [
     def execute(script):
         calls.append(script)
         if "StandardBias" in script:
-            stdout = str(int(loaded))
+            stdout = "480"
         else:
             stdout = json.dumps({"guest_utc": "2026-09-12T12:00:00+00:00",
                                  "w32time_status": "Stopped"})

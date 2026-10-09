@@ -84,6 +84,10 @@ def image_config(seed, contract, provider='vmware_desktop', windows_box=None, se
     settings = dict(settings or {})
     if settings.get("clock_bias_minutes") == "auto":
         settings["clock_bias_minutes"] = auto_clock_bias(now)
+    pacific = auto_clock_bias(now) - AUTO_CLOCK_LAG_MINUTES
+    if type(settings.get("clock_bias_minutes")) is int and settings["clock_bias_minutes"] < pacific:
+        raise ValueError(f"clock_bias_minutes is at least {pacific} now (Pacific's offset from UTC), "
+                         "or the guest clock starts ahead of the true time")
     names = {"clock_bias_minutes": "vmware_boot_clock_bias_minutes"}
     config.update({names.get(key, key): value for key, value in settings.items()})
     return config

@@ -295,6 +295,10 @@ def test_an_image_may_set_its_clock_bias_activity_and_seeds(tmp_path):
     assert (config["vmware_boot_clock_bias_minutes"], config["activity_count"]) == (422, 40)
     assert recipe.declared_seeds(config) == (7, 8) and recipe.resolved_contract(config) == image.contract
     assert recipe.declared_seeds(recipe.paper_config("I1")) == (2026091811, 2026091811)
+    late = {"clock_bias_minutes": 450}
+    assert recipe.image_config(image.seed, image.contract, settings=late, now=summer)["vmware_boot_clock_bias_minutes"] == 450
+    with pytest.raises(ValueError, match="at least 480 now"):
+        recipe.image_config(image.seed, image.contract, settings=late, now=winter)
     for bad, message in (({"clock_bias_minutes": 900}, "-840 to 840"), ({"activity_count": 0}, "1 to 500"),
                          ({"noise": 1}, "generation takes only"), ({"hardware_seed": -1}, "hardware_seed")):
         with pytest.raises(ValueError, match=message):

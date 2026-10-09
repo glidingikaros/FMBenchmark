@@ -340,7 +340,7 @@ def test_an_image_of_your_own_freezes_its_own_seeds_and_settings(host, tmp_path)
 
     image = image_files.load(SOURCE.parents[2] / "tests/fixtures/images/decoys.json")
     config = recipe.image_config(image.seed, image.contract, settings={"activity_count": 20, "activity_seed": 5,
-                                                                       "hardware_seed": 6, "clock_bias_minutes": 0})
+                                                                       "hardware_seed": 6, "clock_bias_minutes": 600})
     contract = recipe.resolved_contract(config)
     public = build_public_manifest(experiment="full_scale", seed=image.seed, contract=contract)
     assignment = select_private_assignment(public, entropy=b"a" * 32)
@@ -351,7 +351,7 @@ def test_an_image_of_your_own_freezes_its_own_seeds_and_settings(host, tmp_path)
     loaded = recipe.load_recipe(directory, source_root=directory / "source" / "generation", verify_dependencies=False)
     assert len(loaded["private"]["activity_plan"]) == 20
     assert loaded["private"]["hardware"] == recipe.resolved_hardware(6)
-    assert loaded["recipe"]["config"]["vmware_boot_clock_bias_minutes"] == 0
+    assert loaded["recipe"]["config"]["vmware_boot_clock_bias_minutes"] == 600
     instance = pipeline.GenerationPipeline(
         'vmware_desktop', 'baseline', 'vmdk', False, False, experiment='full_scale', case='positive',
         population_seed=image.seed, windows_box='fmb/windows-11-arm64', vmware_bridge=None, recipe=directory,
