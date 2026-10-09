@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from fmb.core.limits import MAX_POPULATION_SUBJECTS
 from fmb.index.adapters.file_content import (
     build_file_observations,
     collected_bmp_paths,
@@ -38,6 +39,8 @@ from fmb.index.support.windows_identity import ntfs_reference_from_row
 MAX_MFT_SIZE_OBSERVATIONS = 5000
 
 MAX_MFTECMD_ADS_OBSERVATIONS = 5000
+
+MAX_REFERENCE_ADS_STREAMS = MAX_POPULATION_SUBJECTS
 
 MAX_MFTECMD_ADS_HOSTS = 250000
 
@@ -379,7 +382,7 @@ def mftecmd_ads_reference_parser_run(
             named_stream_count_by_reference.get(reference, 0) + 1
         )
         named_stream_count += 1
-        if named_stream_count > MAX_MFTECMD_ADS_OBSERVATIONS:
+        if named_stream_count > MAX_REFERENCE_ADS_STREAMS:
             stream_population_overflow = True
             continue
         staged_streams.append(

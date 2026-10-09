@@ -25,6 +25,7 @@ from fmb.analysis.evidence_projection import (
     _FORMAT_ENTRY_FIELDS,
 )
 from fmb.analysis.questions import BROAD_QUESTIONS, BroadQuestion, broad_question
+from fmb.core.limits import MAX_POPULATION_SUBJECTS
 from fmb.core.sealed_records import canonical_json
 
 EVIDENCE_BUNDLE_VERSION = "candidate_roster_shared_evidence.v1"
@@ -477,7 +478,7 @@ def validate_evidence_payload(value: dict[str, Any]) -> None:
     if value["response_schema"] != expected_schema:
         raise ValueError("shared response schema must not encode expected answers")
     cards = value["candidate_roster"]
-    if not isinstance(cards, list) or not 1 <= len(cards) <= 5000:
+    if not isinstance(cards, list) or not 1 <= len(cards) <= MAX_POPULATION_SUBJECTS:
         raise ValueError("shared evidence needs a bounded nonempty candidate roster")
     ids = [c.get("subject_id") for c in cards]
     if any(

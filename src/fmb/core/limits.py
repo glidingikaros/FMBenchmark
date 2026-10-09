@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+MAX_POPULATION_SUBJECTS = 50_000
+MAX_SCENARIO_SUBJECTS = 10_000
 MAX_USB_MEDIUM_BYTES = 4 * 1024**3
 
 

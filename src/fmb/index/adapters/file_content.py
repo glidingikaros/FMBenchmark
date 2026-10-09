@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from fmb.core.limits import MAX_POPULATION_SUBJECTS
 from fmb.index.scanners.mft import DEFAULT_MFT_RECORD_SIZE, parse_mft_record
 
 
@@ -88,9 +89,9 @@ def _content_subject_limit(max_subjects: int | None) -> int:
     if (
         isinstance(subject_limit, bool)
         or not isinstance(subject_limit, int)
-        or not 1 <= subject_limit <= 500
+        or not 1 <= subject_limit <= MAX_POPULATION_SUBJECTS
     ):
-        raise ValueError("materialized content subject bound must be from 1 to 500")
+        raise ValueError(f"materialized content subject bound must be from 1 to {MAX_POPULATION_SUBJECTS}")
     return subject_limit
 
 
@@ -111,7 +112,7 @@ def _bounded_bmp_sources(
 
     subject_limit = _content_subject_limit(max_subjects)
 
-    physical_paths = collected_bmp_paths(root, max_subjects=500)
+    physical_paths = collected_bmp_paths(root, max_subjects=MAX_POPULATION_SUBJECTS)
     if not physical_paths:
         return []
 
