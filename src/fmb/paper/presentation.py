@@ -34,7 +34,7 @@ def build(
     from fmb.core.sealed_records import verify_seal
     from fmb.analysis.native_preparation import encode_log_case
 
-    if not re.fullmatch(r"I[0-9]{1,2}(-[A-Za-z0-9]{1,12})?", image):
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,31}(-[A-Za-z0-9]{1,12})?", image):
         raise ValueError("invalid image label")
     if question_scope not in QUESTION_SCOPE:
         raise ValueError("question_scope must be hidden or shown")
