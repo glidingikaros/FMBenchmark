@@ -489,6 +489,8 @@ def _timestamp_decision(value: AnalysisInput, subject: CandidateSubject) -> rule
             or f.get("binding_basis") != "current_mft_record"
         ):
             continue
+        if _write_time_restoration(f, current):
+            continue
         if _partial_timestamp_backdating(f):
             return rules.Decision("supported", "committed_native_partial_timestamp_backdating",
                 tuple(r.observation_id for r in (*current, update)),
@@ -529,6 +531,36 @@ def _timestamp_decision(value: AnalysisInput, subject: CandidateSubject) -> rule
     return rules._timestamp(
         value, subject, minimum_backdating_ticks=1, late_minimum_ticks=1
     )
+
+
+RESTORATION_MARGIN_TICKS = 10_000_000
+COPY_WINDOW_TICKS = 600_000_000
+
+
+def _write_time_restoration(fields: dict, current: list) -> bool:
+    from fmb.index.support.windows_artifacts import parse_csv_timestamp
+
+    covered = set(str(fields.get("covered_fields", "")).split("|"))
+    if "modified" not in covered:
+        return False
+    moves = {}
+    for field in ("created", "modified", "record_changed"):
+        if field in covered:
+            old, new = (parse_csv_timestamp(fields.get(k + "_si_" + field)) for k in ("old", "new"))
+            if old is None or new is None or old.basis != new.basis:
+                return False
+            moves[field] = new.ticks_100ns - old.ticks_100ns
+    if moves["modified"] >= 0 or any(moves.get(field, 0) < 0 for field in ("created", "record_changed")):
+        return False
+    written, restored = (parse_csv_timestamp(fields.get(k + "_si_modified")) for k in ("old", "new"))
+    for row in current:
+        created, named = (parse_csv_timestamp(row.fields.get(k)) for k in ("si_created", "fn_created"))
+        if (created is None or named is None or not created.basis == named.basis == restored.basis
+                or created.ticks_100ns != named.ticks_100ns
+                or not created.ticks_100ns <= written.ticks_100ns <= created.ticks_100ns + COPY_WINDOW_TICKS
+                or restored.ticks_100ns > created.ticks_100ns - RESTORATION_MARGIN_TICKS):
+            return False
+    return bool(current)
 
 
 def _partial_timestamp_backdating(fields: dict) -> bool:
