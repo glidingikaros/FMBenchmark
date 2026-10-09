@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from fmb.core.paper_protocol import paper_protocol
+from fmb.core.paper_protocol import MAX_PASSES, SAMPLING, checked_conditions, paper_protocol
 from fmb.core.sealed_records import read_json
 
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
@@ -145,27 +145,42 @@ def available() -> list[tuple[str, str]]:
     return rows
 
 
-def available_conditions() -> list[tuple[str, str]]:
+def read_conditions(path: Path) -> dict:
+    path = Path(path).expanduser()
+    if not path.is_file():
+        raise ValueError(f"--conditions {path}: no such file")
+    try:
+        return checked_conditions(read_json(path))
+    except ValueError as error:
+        raise ValueError(f"--conditions {path}: {error}") from error
+
+
+def available_conditions(own: dict | None = None) -> list[tuple[str, str]]:
     rows = []
-    for name, condition in paper_protocol()["conditions"].items():
+    for name, condition in {**paper_protocol()["conditions"], **(own or {})}.items():
         settings = condition["settings"]
         price = settings.get("price_usd_per_million")
-        rows.append((name, f"{settings['model']} via {settings['provider']}, reasoning {settings['reasoning_effort']}, "
-                           + (f"${price['input']} in / ${price['output']} out per million tokens" if price
-                              else "no recorded price")))
+        sampling = "".join(f"{key} {settings[key]}, " for key in SAMPLING if key in settings)
+        rows.append((name, ("yours: " if name in (own or {}) else "")
+                     + f"{settings['model']} via {settings['provider']}, reasoning {settings['reasoning_effort']}, "
+                     + sampling + (f"${price['input']} in / ${price['output']} out per million tokens" if price
+                                   else "no recorded price")))
     return rows
 
 
-def llm_dispatch(conditions: list[str], cap_usd: float | None, prices: list[str], environ: dict) -> dict | None:
+def llm_dispatch(conditions: list[str], cap_usd: float | None, prices: list[str], environ: dict,
+                 own: dict | None = None, passes: int | None = None) -> dict | None:
     from decimal import Decimal, InvalidOperation
 
     if not conditions:
-        if cap_usd is not None or prices:
-            raise ValueError("--cap-usd and --price go with --llm")
+        if cap_usd is not None or prices or own is not None or passes is not None:
+            raise ValueError("--cap-usd, --price, --conditions and --passes go with --llm")
         return None
     if cap_usd is None or cap_usd <= 0:
         raise ValueError("--llm needs --cap-usd: the most the LLM requests of one image may cost, in US dollars")
-    declared, given = paper_protocol()["conditions"], {}
+    if passes is not None and (type(passes) is not int or not 1 <= passes <= MAX_PASSES):
+        raise ValueError(f"--passes is how many times each LLM request is sent, from 1 to {MAX_PASSES}")
+    declared, given = {**paper_protocol()["conditions"], **(own or {})}, {}
     for item in prices:
         name, _, pair = item.partition("=")
         try:
@@ -175,7 +190,8 @@ def llm_dispatch(conditions: list[str], cap_usd: float | None, prices: list[str]
     rates = {}
     for name in dict.fromkeys(conditions):
         if name not in declared:
-            raise ValueError(f"no LLM condition {name}; the conditions are " + ", ".join(declared))
+            raise ValueError(f"no LLM condition {name}; the conditions are " + ", ".join(declared)
+                             + ("" if own else "; declare your own in a JSON file given with --conditions FILE"))
         settings = declared[name]["settings"]
         price = given.get(name) or settings.get("price_usd_per_million")
         if price is None:
@@ -185,4 +201,6 @@ def llm_dispatch(conditions: list[str], cap_usd: float | None, prices: list[str]
         if not environ.get(key, "").strip():
             raise ValueError(f"{name} calls {settings['provider']}: set {key}")
         rates[name] = {"input": str(price["input"]), "output": str(price["output"])}
-    return {"conditions": list(rates), "dispatch": {"execute": True, "cap_usd": str(cap_usd), "rates": rates}}
+    used = {name: own[name] for name in rates if name in (own or {})}
+    return {"conditions": list(rates), "dispatch": {"execute": True, "cap_usd": str(cap_usd), "rates": rates},
+            **({"user_conditions": used} if used else {}), **({"passes": passes} if passes is not None else {})}

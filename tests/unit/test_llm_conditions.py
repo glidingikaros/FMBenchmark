@@ -362,3 +362,104 @@ def test_the_runner_checks_user_conditions_before_it_starts(tmp_path, change, me
     with pytest.raises(ValueError, match=message):
         run_pipeline(config)
     assert not (tmp_path / "run").exists()
+
+
+def test_fmb_run_takes_a_conditions_file_and_passes_and_lists_them_in_its_help(tmp_path, monkeypatch, capsys):
+    from fmb.cli.app import main
+    from fmb.replication import run
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    (tmp_path / "conditions").mkdir()
+    (tmp_path / "conditions/mine.json").write_text(json.dumps(OWN))
+    analysed = []
+    monkeypatch.setattr(run, "run_images", lambda names, llm: analysed.append((names, llm)) or 0)
+    assert main(["run", "small", "--conditions", "conditions/mine.json", "--llm", "mine-t0", "--cap-usd", "5",
+                 "--passes", "2"]) == 0
+    assert main(["run", "small", "--llm", "sonnet5-high", "--cap-usd", "5"]) == 0
+    assert analysed == [
+        (["small"], {"conditions": ["mine-t0"], "dispatch": {"execute": True, "cap_usd": "5.0", "rates": {
+            "mine-t0": {"input": "0.5", "output": "1.5"}}}, "user_conditions": OWN, "passes": 2}),
+        (["small"], {"conditions": ["sonnet5-high"], "dispatch": {"execute": True, "cap_usd": "5.0", "rates": {
+            "sonnet5-high": {"input": "2.000", "output": "10.000"}}}})]
+    for argv, listed in ((["run", "--conditions", "conditions/mine.json", "--help"],
+                          "mistralsmall2603-high; yours: mine-t0"),
+                         (["run", "--help"],
+                          "mistralsmall2603-high; or one of yours, declared in a --conditions FILE")):
+        with pytest.raises(SystemExit):
+            main(argv)
+        help_text = " ".join(capsys.readouterr().out.split())
+        assert listed in help_text and "--passes N" in help_text
+
+
+@pytest.mark.parametrize("conditions, own, prices, passes, message", [
+    (["mine-t0"], None, [], None, "declare your own in a JSON file given with --conditions FILE"),
+    ([], OWN, [], None, "--conditions and --passes go with --llm"),
+    ([], None, [], 2, "--conditions and --passes go with --llm"),
+    (["mine-t0"], OWN, [], 11, "--passes is how many times each LLM request is sent, from 1 to 10"),
+    (["mine-t0"], {"mine-t0": {"settings": {key: value for key, value in OWN["mine-t0"]["settings"].items()
+                                            if key != "price_usd_per_million"}}}, [], None,
+     "mine-t0 has no recorded price; add --price mine-t0=INPUT,OUTPUT"),
+    (["mine-openai"], {"mine-openai": {"settings": {"provider": "openai", "model": "m", "reasoning_effort": "low",
+                                                    "max_output_tokens": 10, "timeout_seconds": 10}}},
+     ["mine-openai=1,2"], None, "mine-openai calls openai: set OPENAI_API_KEY"),
+])
+def test_a_user_condition_keeps_the_price_cap_and_key_checks(conditions, own, prices, passes, message):
+    from fmb.replication import image_files
+
+    with pytest.raises(ValueError, match=message):
+        image_files.llm_dispatch(conditions, 5, prices, {"OPENROUTER_API_KEY": "test"}, own=own, passes=passes)
+
+
+def test_a_priced_user_condition_and_passes_reach_the_pipeline_config(tmp_path, monkeypatch):
+    from fmb.pipeline.runner import _validated
+    from fmb.replication import image_files, run
+
+    unpriced = {"mine-t0": {"settings": {key: value for key, value in OWN["mine-t0"]["settings"].items()
+                                         if key != "price_usd_per_million"}, "upstream_provider": "Example"}}
+    llm = image_files.llm_dispatch(["mine-t0", "luna-high"], 5, ["mine-t0=1,2", "luna-high=1.25,10"],
+                                   {"OPENROUTER_API_KEY": "test", "OPENAI_API_KEY": "test"}, own=unpriced, passes=2)
+    assert llm["dispatch"]["rates"]["mine-t0"] == {"input": "1", "output": "2"}
+    monkeypatch.setattr(run, "step", lambda name, **arguments: 0)
+    monkeypatch.setattr(run.host, "toolchain_root", lambda: tmp_path / "toolchain")
+    run.analyse("small", tmp_path / "generation", tmp_path / "recipe", tmp_path, llm)
+    config = json.loads((tmp_path / "pipeline.json").read_text())
+    assert config["conditions"] == ["mine-t0", "luna-high"]
+    assert config["user_conditions"] == unpriced and config["passes"] == 2
+    assert _validated(config)["user_conditions"] == unpriced
+
+
+def test_a_conditions_file_is_read_strictly(tmp_path):
+    from fmb.replication import image_files
+
+    path = tmp_path / "mine.json"
+    with pytest.raises(ValueError, match="no such file"):
+        image_files.read_conditions(path)
+    path.write_text('{"mine-t0": {}, "mine-t0": {}}')
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
+        image_files.read_conditions(path)
+    path.write_text(json.dumps({"luna-high": OWN["mine-t0"]}))
+    with pytest.raises(ValueError, match="mine.json: luna-high: one of the paper's conditions"):
+        image_files.read_conditions(path)
+    path.write_text(json.dumps(OWN))
+    assert image_files.read_conditions(path) == OWN
+    assert dict(image_files.available_conditions(OWN))["mine-t0"] == (
+        "yours: example/model-1 via openrouter, reasoning low, temperature 0, top_p 0.9, seed 7, "
+        "$0.5 in / $1.5 out per million tokens")
+
+
+def test_the_report_names_a_user_condition_and_its_sampling(tmp_path, monkeypatch):
+    import fmb.pipeline.report
+    from fmb.replication import report, run
+    from test_run_report import finished_run
+
+    monkeypatch.setattr(fmb.pipeline.report, "run_table", lambda run: "THE TABLE")
+    output, generated, generation = finished_run(tmp_path)
+    for path in (output / "run/gates/G5.json", output / "run/run-manifest.json"):
+        path.write_text(path.read_text().replace("sonnet5-high", "mine-t0"))
+    (output / "pipeline.json").write_text(json.dumps({"dispatch": {"cap_usd": "20"}, "user_conditions": OWN}))
+    row = run.summary("small", output / "run/gates/G5.json") | {"paper_image": False, "generation": str(generation)}
+    report.complete(output, row, generated, generation)
+    assert ("- S3' `mine-t0` (your condition): example/model-1 via openrouter (example/fp8), reasoning low, "
+            "temperature 0, top_p 0.9, seed 7, at most 4096 output tokens, 1 passes, $1.23 of a $20 cap.") in (
+        output / "report.md").read_text()

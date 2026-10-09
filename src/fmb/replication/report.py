@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fmb.core.case_contract import QIDS
 from fmb.core.hashing import sha256_file
-from fmb.core.paper_protocol import paper_protocol
+from fmb.core.paper_protocol import SAMPLING, paper_protocol
 
 GATES = {"G1": "Evidence image", "G2": "Artefact profile", "G3": "Evidence cards", "G4": "Analysis results",
          "G5": "Evaluation report"}
@@ -128,15 +128,18 @@ def markdown(output: Path, row: dict, manifest: dict | None, generated: Path) ->
                      f"source manifest {manifest['code']['source_manifest_sha256']}.")
         if row.get("changed_files"):
             lines.append("  Changed files: " + ", ".join(f"`{name}`" for name in row["changed_files"]) + ".")
-    conditions = paper_protocol()["conditions"]
     pipeline = json.loads((output / "pipeline.json").read_text(encoding="utf-8"))
+    own = pipeline.get("user_conditions") or {}
+    conditions = {**paper_protocol()["conditions"], **own}
     cap = (pipeline.get("dispatch") or {}).get("cap_usd")
     for condition, llm in row.get("llm", {}).items():
         settings = conditions[condition]["settings"]
-        lines.append(f"- S3' `{condition}`: {settings['model']} via {settings['provider']}"
+        lines.append(f"- S3' `{condition}`" + (" (your condition)" if condition in own else "")
+                     + f": {settings['model']} via {settings['provider']}"
                      + (f" ({settings['route']})" if settings.get("route") else "")
-                     + f", reasoning {settings['reasoning_effort']}, at most {settings['max_output_tokens']} output "
-                     f"tokens, {llm['passes']} passes"
+                     + f", reasoning {settings['reasoning_effort']}"
+                     + "".join(f", {key} {settings[key]}" for key in SAMPLING if key in settings)
+                     + f", at most {settings['max_output_tokens']} output tokens, {llm['passes']} passes"
                      + (f", ${llm['cost_usd']} of a ${cap} cap" if llm.get("cost_usd") is not None else "") + ".")
     if not row.get("llm"):
         lines.append("- S3': not sent. The LLM requests are frozen under `run/conditions/`.")

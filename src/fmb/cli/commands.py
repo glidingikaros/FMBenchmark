@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 import json
 import os
 import sys
@@ -10,7 +11,7 @@ STAGES = (("S1", "Resolve profile", False), ("S2", "Collect and prepare", False)
           ("S3", "Deterministic assessment, compared with an LLM (S3')", True), ("S4", "Compare and evaluate", False))
 
 
-def add_parsers(commands) -> None:
+def add_parsers(commands, argv: Sequence[str] = ()) -> None:
     setup = commands.add_parser("setup", allow_abbrev=False,
                                 help="Set this machine up: the pinned tools and, on Linux, the Windows base; then "
                                      "check it.")
@@ -32,17 +33,41 @@ def add_parsers(commands) -> None:
     run.add_argument("images", nargs="*", help="generated images, by name")
     run.add_argument("--compare", action="append", default=[], choices=["S3"],
                      help="the stage at which to compare an LLM with the pipeline; only S3 for now")
+    own = declared_in(argv)
     run.add_argument("--llm", action="append", default=[], metavar="CONDITION",
-                     help="the LLM condition to compare (repeat for more): " + ", ".join(conditions()))
+                     help="the LLM condition to compare (repeat for more): " + ", ".join(conditions())
+                          + ("; yours: " + ", ".join(own) if own
+                             else "; or one of yours, declared in a --conditions FILE"))
+    run.add_argument("--conditions", type=Path, metavar="FILE",
+                     help="a JSON file of your own LLM conditions, such as conditions/mine.json: each name maps to "
+                          "settings like the paper's (provider, model, reasoning_effort, max_output_tokens, "
+                          "timeout_seconds; optionally route, temperature, top_p, seed, price_usd_per_million)")
+    run.add_argument("--passes", type=int, metavar="N",
+                     help="how many times each LLM request is sent, 1 to 10 (default 3, as in the paper)")
     run.add_argument("--cap-usd", type=float, help="the most the LLM requests of one image may cost, in US dollars")
     run.add_argument("--price", action="append", default=[], metavar="CONDITION=INPUT,OUTPUT",
                      help="US dollars per million input and output tokens, for a condition without a recorded price")
 
 
-def conditions() -> list[str]:
+def declared_in(argv: Sequence[str]) -> dict:
+    from fmb.replication import image_files
+
+    found = None
+    for index, item in enumerate(argv):
+        if item == "--conditions" and index + 1 < len(argv):
+            found = argv[index + 1]
+        elif item.startswith("--conditions="):
+            found = item.partition("=")[2]
+    try:
+        return image_files.read_conditions(Path(found)) if found else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def conditions(own: dict | None = None) -> list[str]:
     from fmb.core.paper_protocol import paper_protocol
 
-    return list(paper_protocol()["conditions"])
+    return [*paper_protocol()["conditions"], *(own or {})]
 
 
 def run_command(args: argparse.Namespace) -> int:
@@ -71,14 +96,15 @@ def generate_command(args: argparse.Namespace) -> int:
 def pipeline_command(args: argparse.Namespace) -> int:
     from fmb.replication import image_files, run
 
+    own = image_files.read_conditions(args.conditions) if args.conditions else None
     names, compare, chosen, cap = args.images, args.compare, args.llm, args.cap_usd
     if not names:
-        names, compare, chosen, cap = choose(compare, chosen, cap)
+        names, compare, chosen, cap = choose(compare, chosen, cap, own)
     if chosen and not compare:
         compare = ["S3"]
     if compare and not chosen:
-        raise SystemExit("--compare S3 needs --llm CONDITION, the LLM to compare: " + ", ".join(conditions()))
-    llm = image_files.llm_dispatch(chosen, cap, args.price, dict(os.environ))
+        raise SystemExit("--compare S3 needs --llm CONDITION, the LLM to compare: " + ", ".join(conditions(own)))
+    llm = image_files.llm_dispatch(chosen, cap, args.price, dict(os.environ), own=own, passes=args.passes)
     return run.run_images(names, llm)
 
 
@@ -105,7 +131,8 @@ def pick_images() -> list[str]:
                 "Generate which, by number or name [1]: ", ["1"])
 
 
-def choose(compare: list[str], chosen: list[str], cap: float | None) -> tuple[list[str], list[str], list[str], float | None]:
+def choose(compare: list[str], chosen: list[str], cap: float | None,
+           own: dict | None = None) -> tuple[list[str], list[str], list[str], float | None]:
     from fmb.replication import image_files, run
 
     generated = run.generated()
@@ -126,7 +153,7 @@ def choose(compare: list[str], chosen: list[str], cap: float | None) -> tuple[li
                 raise SystemExit(f"{item}: only S3 can be compared with an LLM for now")
             compare.append(stage[0])
     if compare and not chosen:
-        chosen = pick("LLM conditions for S3'", image_files.available_conditions(),
+        chosen = pick("LLM conditions for S3'", image_files.available_conditions(own),
                       "Compare which, by number or name: ", [])
     if chosen and cap is None:
         cap = float(input("The most the LLM requests of one image may cost, in US dollars: "))
