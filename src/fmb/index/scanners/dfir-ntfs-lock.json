@@ -1,0 +1,99 @@
+{
+  "schema_version": "fmb_logfile_tool_lock.v1",
+  "purpose": "Phase C $LogFile witness. dfir_ntfs is GPL-3 and stays outside the fmb package: it is invoked as a subprocess in this locked environment through the GPL-3 driver tools/dfir_ntfs/fmb_logfile_records.py; fmb consumes only the JSON the driver writes.",
+  "generated_at": "2026-09-12T11:59:02+00:00",
+  "tool": "dfir_ntfs",
+  "version": "1.1.20",
+  "source": "https://github.com/msuhanov/dfir_ntfs",
+  "vcs": "git",
+  "commit_id": "ec3ae0884048ade106c91a68dab7c9fb3af393bf",
+  "license": "GPL-3.0",
+  "environment_root_default": "~/.cache/fmb/dfir-ntfs/venv",
+  "environment_root_env": "FMB_DFIR_NTFS_ENV",
+  "python_version": "3.13.5",
+  "package_relative_dir": "lib/python3.13/site-packages/dfir_ntfs",
+  "package_tree_hash_recipe": "sorted_relative_path_tab_sha256_lines.v1",
+  "package_tree_sha256": "86c64188c4b5e4851e824b3d5b38adb09ba4dd855f644a8712629fdb9ae2327a",
+  "package_files": [
+    {
+      "path": "Attributes.py",
+      "sha256": "77d15846a07a89917a60481b072d2639b4a9d8112df0a5e8140c889bc1d5f3e0",
+      "size_bytes": 37639
+    },
+    {
+      "path": "BootSector.py",
+      "sha256": "48df68d87daf9b8f3d2d7820017cc99c585446cc7aac2e4d12bf2fa881b99342",
+      "size_bytes": 4481
+    },
+    {
+      "path": "LogFile.py",
+      "sha256": "e3bb9d488c5fed46c28fc44c486a45df100808b0d09cce9d3ab78b9bdf347b5e",
+      "size_bytes": 69447
+    },
+    {
+      "path": "MFT.py",
+      "sha256": "8efd401eaafc2af3b84c303bddec39e904974ca84cd6bd59d805e6d8e466310f",
+      "size_bytes": 67027
+    },
+    {
+      "path": "MoveTable.py",
+      "sha256": "0018798236cb8992d6fc491dfe785b0415c72f26c502e32d6523cd464f59de7c",
+      "size_bytes": 12207
+    },
+    {
+      "path": "PartitionTable.py",
+      "sha256": "71ae376c4f9769443cdf6cbe8bbdc5828db5ab1b54b1df24e509e6efe95e6072",
+      "size_bytes": 12934
+    },
+    {
+      "path": "ShadowCopy.py",
+      "sha256": "75a1ddb6710ac201d11866823aedafb5d42ab1195534da9a608bb9cb4be33385",
+      "size_bytes": 64288
+    },
+    {
+      "path": "USN.py",
+      "sha256": "8b9bc14a84a708d4652a62332d1e8dc6bc178d4605696bb7b6abd9858fa0a662",
+      "size_bytes": 14442
+    },
+    {
+      "path": "WSL.py",
+      "sha256": "fe396b5c962ffe35b3f317edce66eb2fc6ebabecf89ef780f7768f0ea84d4656",
+      "size_bytes": 4289
+    },
+    {
+      "path": "__init__.py",
+      "sha256": "dc30da1c46ae5310867542a4c2cb5e2e126891a993ebec96ee0f6008f04ed9fc",
+      "size_bytes": 232
+    },
+    {
+      "path": "addons/FAT.py",
+      "sha256": "317e8d068fa89c9fed5509a7cf66d72641c938cd73eb03fe6cae498b516332e0",
+      "size_bytes": 60831
+    },
+    {
+      "path": "addons/__init__.py",
+      "sha256": "eab27961b6bd4659f23f26501a36c8a90c19ff66c685a4ab40fc4e697dc29124",
+      "size_bytes": 124
+    },
+    {
+      "path": "addons/exFAT.py",
+      "sha256": "4f247101c67b6adb9abcd8c7f35f0e8f88357f22ac18d120c9be272d722e8fda",
+      "size_bytes": 43615
+    }
+  ],
+  "console_script": "bin/ntfs_parser",
+  "console_script_sha256": "e16db6f0cbe8d90a54a4524131c73236f8d7a3068a371a0c4edafdfcd8245cd5",
+  "driver": {
+    "path": "tools/dfir_ntfs/fmb_logfile_records.py",
+    "installed_name": "fmb-logfile-records",
+    "sha256": "1d4a32df7dd6e15d14ebb8060df5aa6019e75550602bb8482b90a8681f52a18b",
+    "size_bytes": 16916,
+    "license": "GPL-3.0-or-later",
+    "records_schema_version": "fmb_logfile_records.v2",
+    "note": "the resolved driver must hash to this value (checkout copy, installed copy or an explicit override alike); installed distributions install the companion into the parser environment with --install-driver"
+  },
+  "boundary": "subprocess only; no GPL-3 code imported into the fmb package; the fmb adapter consumes structured JSON emitted by the driver run in this environment",
+  "console_script_hash_recipe": "bound_venv_shebang_sha256.v1",
+  "console_script_portable_sha256": "c8cfb0b184685aff9d51028c59ba20d60eb0a0682a5d42fc3cd4f32a70c2ebba",
+  "portability_revision": "2026-09-12: only a shebang bound to the verified environment may relocate; original raw hash retained as provenance."
+}

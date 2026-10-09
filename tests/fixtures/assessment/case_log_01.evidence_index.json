@@ -1,0 +1,216 @@
+{
+  "candidate_populations": [
+    {
+      "coverage_status": "complete",
+      "population_id": "population:case_log_01",
+      "question_id": "Q-LOG-01",
+      "subject_type": "event_log",
+      "subjects": [
+        {
+          "identity": {
+            "object_id": "event-log:9219561c2881142d71054169"
+          },
+          "observation_ids": [
+            "observation:case_log_01:001:001"
+          ],
+          "subject_ref": "Security"
+        }
+      ],
+      "technique_id": "security_log_clear_event"
+    }
+  ],
+  "collector_runs": [
+    {
+      "artifact_count": 1,
+      "artifacts": [
+        {
+          "artifact_families": [
+            "windows.event_log.record_sequence",
+            "windows.event_log.security"
+          ],
+          "artifact_family": "windows.event_log.record_sequence",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.event_log.record_sequence",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            },
+            {
+              "artifact_family": "windows.event_log.security",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:fb73f06a20de6cc6467e0fcd",
+          "path": "benchmark/case_log_01/windows_evtx_security-raw.json",
+          "relative_path": "benchmark/case_log_01/windows_evtx_security-raw.json",
+          "sha256": "fb73f06a20de6cc6467e0fcd0be911bf7de58c2cfd61cc76e6e78221319fb9fb",
+          "size_bytes": 0
+        }
+      ],
+      "collector": "kape",
+      "input_kind": "external_tool_output",
+      "output_root": "benchmark/case_log_01",
+      "provenance": {
+        "adapter": "fmb.tool_output_adapter",
+        "adapter_scope": "inventory_existing_tool_output_no_collection_execution"
+      },
+      "status": "consumed"
+    }
+  ],
+  "external_inputs_allowed": false,
+  "parser_runs": [
+    {
+      "coverage_families": [
+        "windows.event_log.record_sequence",
+        "windows.event_log.security"
+      ],
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "windows.event_log.record_sequence",
+          "windows.event_log.security"
+        ],
+        "artifact_family": "windows.event_log.record_sequence",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "windows.event_log.record_sequence",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          },
+          {
+            "artifact_family": "windows.event_log.security",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:9e0eb61a96937e42119b2dfb",
+        "artifact_record_id": "source:9e0eb61a96937e42",
+        "path": "benchmark/case_log_01/windows_evtx_security-normalized.json",
+        "record_count": 2,
+        "relative_path": "benchmark/case_log_01/windows_evtx_security-normalized.json",
+        "sha256": "9e0eb61a96937e42119b2dfb5d7e68b7a7fc8d32db5d815f0174989ad2cbf0c0",
+        "size_bytes": 0
+      },
+      "observation_count": 2,
+      "observation_families": [
+        "windows.event_log.record_sequence",
+        "windows.event_log.security"
+      ],
+      "observations": [
+        {
+          "artifact_family": "windows.event_log.security",
+          "fields": {
+            "channel": "Security",
+            "event_id": "1102",
+            "event_record_id": "43370",
+            "provider": "Microsoft-Windows-Eventlog",
+            "source_file": "C:\\FMB-Appliance\\bundle\\kape-output\\targets\\F\\Windows\\System32\\winevt\\logs\\Security.evtx",
+            "time_created": "2026-08-08 17:00:19.5481800"
+          },
+          "observation_id": "observation:case_log_01:001:001",
+          "observation_type": "event_id_1102",
+          "source_record_ref": "source:fb73f06a20de6cc6:1",
+          "subject_ref": "Security"
+        },
+        {
+          "artifact_family": "windows.event_log.record_sequence",
+          "fields": {
+            "first_event_record_id": 43370,
+            "last_event_record_id": 43435,
+            "record_count": 66
+          },
+          "observation_id": "observation:case_log_01:001:003",
+          "observation_type": "event_record_id_gap",
+          "source_record_ref": "source:fb73f06a20de6cc6:2",
+          "subject_ref": "Security"
+        }
+      ],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "windows_evtx_security",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "windows.event_log.record_sequence",
+            "windows.event_log.security"
+          ],
+          "artifact_family": "windows.event_log.record_sequence",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.event_log.record_sequence",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            },
+            {
+              "artifact_family": "windows.event_log.security",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:fb73f06a20de6cc6467e0fcd",
+          "artifact_record_id": "source:fb73f06a20de6cc6",
+          "path": "benchmark/case_log_01/windows_evtx_security-raw.json",
+          "relative_path": "benchmark/case_log_01/windows_evtx_security-raw.json",
+          "sha256": "fb73f06a20de6cc6467e0fcd0be911bf7de58c2cfd61cc76e6e78221319fb9fb",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    }
+  ],
+  "question": {
+    "question_id": "Q-LOG-01",
+    "question_text": "Is there a valid Windows Security Event ID 1102 indicating that the audit log was cleared?"
+  },
+  "rule_runs": [],
+  "run_id": "benchmark-evidence:case_log_01",
+  "schema_version": "evidence_index.v1",
+  "tool_alignment": {
+    "collection_tools_supported": [
+      "kape",
+      "uac"
+    ],
+    "collection_tools_used": [
+      "kape"
+    ],
+    "custom_forensic_heuristics_allowed": false,
+    "normalization_role": "map_tool_outputs_to_project_contracts_only",
+    "parser_tools_supported": [
+      "fmb_bounded_parser"
+    ],
+    "parser_tools_used": [
+      "fmb_bounded_parser"
+    ],
+    "rule_engines_supported": [
+      "yara",
+      "sigma"
+    ],
+    "rule_engines_used": [],
+    "synthetic_fixture_role": "ground_truth_for_final_evaluation_only_not_analysis_input"
+  }
+}

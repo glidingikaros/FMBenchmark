@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "shared_finding_reference.schema.json",
+  "title": "Shared Finding Reference",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "source_reference_payload_sha256",
+    "cells"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "shared_finding_reference.v1"
+    },
+    "source_reference_payload_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "cells": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "question_id",
+          "evidence_bundle_sha256",
+          "roster_sha256",
+          "supported_subject_ids"
+        ],
+        "properties": {
+          "question_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence_bundle_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "roster_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "supported_subject_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^subject:"
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "maxItems": 9
+    }
+  },
+  "additionalProperties": false
+}

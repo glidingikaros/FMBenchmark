@@ -1,0 +1,38 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.9.9"
+          python-version: "3.13.5"
+          enable-cache: false
+      - name: Install
+        run: uv sync --locked --extra dev --extra generation --extra factual --extra collection
+      - name: CLI
+        run: uv run --no-sync fmb replicate --help
+      - name: Test suite
+        run: uv run --no-sync python -m pytest -m "not external" -n 4 -q -p no:cacheprovider

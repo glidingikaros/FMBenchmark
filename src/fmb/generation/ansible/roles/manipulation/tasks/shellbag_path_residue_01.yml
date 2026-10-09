@@ -1,0 +1,122 @@
+---
+- name: Visit every bounded directory through native Explorer, then remove the private subset
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    $ErrorActionPreference = 'Stop'
+    $failureStage = 'decode_input'
+    $completedPublicVisits = 0
+    try {
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $failureStage = 'validate_input'
+    $case = [string]$scenarioInput.case
+    if ($case -notin @('positive', 'benign')) { throw "Unsupported generation case" }
+    $populationPaths = @($scenarioInput.population_paths)
+    $paths = @($scenarioInput.operation_refs)
+    $expectedPopulationCount = [int]$scenarioInput.expected_population_count
+    $expectedOperationCount = [int]$scenarioInput.expected_operation_count
+    $operationRefsSha256 = Get-OperationRefsSha256 $paths
+    if ($expectedPopulationCount -lt 1 -or
+        $populationPaths.Count -ne $expectedPopulationCount -or
+        $expectedOperationCount -ne $(if ($case -eq 'positive') { 1 } else { 0 }) -or
+        $paths.Count -ne $expectedOperationCount) {
+      throw "Native Shellbag population cardinality is invalid"
+    }
+    $failureStage = 'load_native_helper'
+    $LocalNativeShellbagPayloadBase64 = [string]$scenarioInput.native_helper_payload
+    $LocalNativeShellbagExpectedSha256 = [string]$scenarioInput.native_helper_sha256
+    {{ lookup('file', role_path + '/files/native_shellbag_loader.ps1') | indent(4) }}
+    $failureStage = 'validate_visit_budgets'
+    Set-LocalNativeShellbagVisitBudgets -Budgets $scenarioInput.visit_budgets
+
+    $failureStage = 'visit_native_directories'
+    $nativeReceipts = @(
+      foreach ($directory in $populationPaths) {
+        $nativeReceipt = New-LocalNativeShellbagReceipt -Target ([string]$directory)
+        $completedPublicVisits += 1
+        $nativeReceipt
+      }
+    )
+    $failureStage = 'remove_directories'
+    foreach ($directory in $paths) {
+      Invoke-PaperOperation ("Remove-Item -LiteralPath " + (ConvertTo-OperationLiteral ([string]$directory)) + " -Recurse -Force")
+    }
+    $failureStage = 'verify_directory_state'
+    $absentCount = @($populationPaths | Where-Object {
+      -not (Test-Path -LiteralPath ([string]$_) -PathType Container)
+    }).Count
+    $verified = $nativeReceipts.Count -eq $populationPaths.Count -and $absentCount -eq $paths.Count
+    if (-not $verified) { throw "Native Shellbag postcondition failed" }
+    [ordered]@{
+      ok = $true
+      receipt = [ordered]@{
+        scenario_id = 'shellbag_path_residue_01'
+        case = $case
+        operation_count = $paths.Count
+        operation_refs_sha256 = $operationRefsSha256
+        postcondition_verified = $verified
+        population_count = $populationPaths.Count
+        native_receipts = $nativeReceipts
+        absent_count = $absentCount
+        visit_budgets = Get-LocalNativeShellbagVisitBudgets
+      }
+    } | ConvertTo-Json -Compress -Depth 7
+    } catch {
+      $exception = $_.Exception
+      while ($exception.InnerException) { $exception = $exception.InnerException }
+      $nativeFailureCode = 'not_available'
+      if ($failureStage -eq 'visit_native_directories' -and
+          (Get-Command Get-LocalNativeShellbagFailureCode -CommandType Function -ErrorAction SilentlyContinue)) {
+        $nativeFailureCode = Get-LocalNativeShellbagFailureCode -Message ([string]$exception.Message)
+      }
+      $dispatchDiagnostic = $null
+      if (Get-Command Get-LocalNativeShellbagDispatchDiagnostic -CommandType Function -ErrorAction SilentlyContinue) {
+        $dispatchDiagnostic = Get-LocalNativeShellbagDispatchDiagnostic
+      }
+      $snapshotDiagnostic = $null
+      if (Get-Command Get-LocalNativeBagMruSnapshotDiagnostic -CommandType Function -ErrorAction SilentlyContinue) {
+        $snapshotDiagnostic = Get-LocalNativeBagMruSnapshotDiagnostic
+      }
+      [ordered]@{
+        ok = $false
+        failure_stage = $failureStage
+        error_type = $exception.GetType().FullName
+        native_failure_code = $nativeFailureCode
+        completed_public_visits = [Int32]$completedPublicVisits
+        dispatch_diagnostic = $dispatchDiagnostic
+        snapshot_diagnostic = $snapshotDiagnostic
+      } | ConvertTo-Json -Compress -Depth 4
+    }
+  args:
+    stdin: >-
+      {{ generation_inputs.scenario_inputs.shellbag_path_residue_01 |
+         combine({
+           'native_helper_payload': lookup('file', role_path + '/files/native_shellbag.ps1.gz.b64', rstrip=True),
+           'native_helper_sha256': lookup('file', role_path + '/files/native_shellbag.ps1', rstrip=False) | hash('sha256')
+         }) | to_json }}
+  register: shellbag_receipt
+  no_log: true
+
+- name: Require the native Shellbag operation to complete
+  ansible.builtin.assert:
+    that:
+      - (shellbag_receipt.stdout | trim | from_json).ok | bool
+    fail_msg: >-
+      Native Shellbag generation failed during
+      {{ (shellbag_receipt.stdout | trim | from_json).failure_stage | default('unknown') }}
+      (exception class:
+      {{ (shellbag_receipt.stdout | trim | from_json).error_type | default('unknown') }};
+      native code:
+      {{ (shellbag_receipt.stdout | trim | from_json).native_failure_code | default('not_available') }};
+      completed public visits:
+      {{ (shellbag_receipt.stdout | trim | from_json).completed_public_visits | default(0) }};
+      dispatch diagnostic:
+      {{ (shellbag_receipt.stdout | trim | from_json).dispatch_diagnostic | default(none) | to_json }};
+      snapshot diagnostic:
+      {{ (shellbag_receipt.stdout | trim | from_json).snapshot_diagnostic | default(none) | to_json }})
+
+- name: Emit host-captured native Shellbag receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - "{{ (shellbag_receipt.stdout | trim | from_json).receipt | to_json }}"
+      - "GROUND_TRUTH_END"

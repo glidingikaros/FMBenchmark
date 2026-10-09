@@ -1,0 +1,234 @@
+---
+- name: Apply the two timestamp operations and verify them
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    $ErrorActionPreference = 'Stop'
+    $fmbFailurePhase = 'decode_input'
+    try {
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $fmbFailurePhase = 'validate_input'
+    $case = [string]$scenarioInput.case
+    if ($case -notin @('positive', 'benign')) {
+      throw "Unsupported generation case"
+    }
+    $fmbFailurePhase = 'decode_references'
+    $populationPaths = @($scenarioInput.population_paths)
+    $paths = @($scenarioInput.operation_refs)
+    $expectedPopulationCount = [int]$scenarioInput.expected_population_count
+    $expectedOperationCount = [int]$scenarioInput.expected_operation_count
+    $fmbFailurePhase = 'hash_references'
+    $operationRefsSha256 = Get-OperationRefsSha256 $paths
+    $timestamps = @($scenarioInput.timestamps)
+    $instances = [System.Collections.Generic.List[object]]::new()
+    if ($case -eq 'positive') {
+      $fmbFailurePhase = 'validate_cardinality'
+      if ($expectedPopulationCount -lt 2 -or
+          $populationPaths.Count -ne $expectedPopulationCount -or
+          $expectedOperationCount -ne 2 -or
+          $paths.Count -ne $expectedOperationCount -or $timestamps.Count -ne 2) {
+        throw "Timestamp operation cardinality is invalid"
+      }
+      $fmbFailurePhase = 'load_native_binding'
+      Add-Type -TypeDefinition @'
+      using System;
+      using System.ComponentModel;
+      using System.Runtime.InteropServices;
+      using Microsoft.Win32.SafeHandles;
+
+      public static class LocalFileTimes
+      {
+          private const uint FileWriteAttributes = 0x00000100;
+          private const uint FileShareRead = 0x00000001;
+          private const uint FileShareWrite = 0x00000002;
+          private const uint FileShareDelete = 0x00000004;
+          private const uint OpenExisting = 3;
+
+          [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+          private static extern SafeFileHandle CreateFile(
+              string fileName,
+              uint desiredAccess,
+              uint shareMode,
+              IntPtr securityAttributes,
+              uint creationDisposition,
+              uint flagsAndAttributes,
+              IntPtr templateFile
+          );
+
+      [DllImport("kernel32.dll", SetLastError = true)]
+      [return: MarshalAs(UnmanagedType.Bool)]
+      private static extern bool SetFileTime(
+              SafeFileHandle file,
+              ref long creationTime,
+              ref long lastAccessTime,
+              ref long lastWriteTime
+          );
+
+          [DllImport("kernel32.dll", EntryPoint = "SetFileTime", SetLastError = true)]
+          [return: MarshalAs(UnmanagedType.Bool)]
+          private static extern bool SuppressLastAccessUpdate(
+              SafeFileHandle file,
+              IntPtr creationTime,
+              ref long lastAccessTime,
+              IntPtr lastWriteTime
+          );
+
+          public static void SetAllUtc(string path, DateTime timestampUtc)
+          {
+              using (SafeFileHandle file = CreateFile(
+                  path,
+                  FileWriteAttributes,
+                  FileShareRead | FileShareWrite | FileShareDelete,
+                  IntPtr.Zero,
+                  OpenExisting,
+                  0,
+                  IntPtr.Zero
+              ))
+              {
+                  if (file.IsInvalid)
+                  {
+                      throw new Win32Exception(Marshal.GetLastWin32Error());
+                  }
+                  long preserveLastAccess = -1;
+                  if (!SuppressLastAccessUpdate(
+                      file,
+                      IntPtr.Zero,
+                      ref preserveLastAccess,
+                      IntPtr.Zero
+                  ))
+                  {
+                      throw new Win32Exception(Marshal.GetLastWin32Error());
+                  }
+                  long creationTime = timestampUtc.ToFileTimeUtc();
+                  long lastAccessTime = creationTime;
+                  long lastWriteTime = creationTime;
+                  if (!SetFileTime(
+                      file,
+                      ref creationTime,
+                      ref lastAccessTime,
+                      ref lastWriteTime
+                  ))
+                  {
+                      throw new Win32Exception(Marshal.GetLastWin32Error());
+                  }
+              }
+          }
+      }
+    '@
+      $fmbFailurePhase = 'apply_timestamp'
+      for ($index = 0; $index -lt $paths.Count; $index += 1) {
+        $path = [string]$paths[$index]
+        $file = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        $actualCreation = $file.CreationTimeUtc.ToString('o')
+        $actualModified = $file.LastWriteTimeUtc.ToString('o')
+        $stompText = [string]$timestamps[$index]
+        $stompStyles = if ($stompText.EndsWith('Z') -or $stompText -match '[+-]\d\d:\d\d$') {
+          [Globalization.DateTimeStyles]::AdjustToUniversal -bor
+            [Globalization.DateTimeStyles]::AssumeUniversal
+        } else {
+          [Globalization.DateTimeStyles]::AssumeLocal
+        }
+        $stompDate = [DateTime]::Parse(
+          $stompText,
+          [Globalization.CultureInfo]::InvariantCulture,
+          $stompStyles
+        )
+        $stompUtc = $stompDate.ToUniversalTime()
+        $fmbFailurePhase = 'verify_backdating_precondition'
+        if (($file.CreationTimeUtc.Ticks - $stompUtc.Ticks) -lt (60L * [TimeSpan]::TicksPerSecond) -or
+            ($file.LastWriteTimeUtc.Ticks - $stompUtc.Ticks) -lt (60L * [TimeSpan]::TicksPerSecond)) {
+          throw "Timestamp operation must backdate both native fields by at least 60 seconds"
+        }
+         [LocalFileTimes]::SetAllUtc($path, $stompUtc) 
+        $observed = Get-Item -LiteralPath $path -Force
+        $fmbFailurePhase = 'verify_creation_time'
+        if ($observed.CreationTimeUtc.Ticks -ne $stompUtc.Ticks) {
+          throw "Timestamp creation-time postcondition failed"
+        }
+        $fmbFailurePhase = 'verify_write_time'
+        if ($observed.LastWriteTimeUtc.Ticks -ne $stompUtc.Ticks) {
+          throw "Timestamp write-time postcondition failed"
+        }
+        $fmbFailurePhase = 'verify_access_time'
+        if ($observed.LastAccessTimeUtc.Ticks -ne $stompUtc.Ticks) {
+          throw "Timestamp access-time postcondition failed"
+        }
+        $fmbFailurePhase = 'build_receipt'
+        $instances.Add([ordered]@{
+          original_creation_utc = $actualCreation
+          original_modified_utc = $actualModified
+          assigned_timestamp = $stompDate.ToString('o')
+        })
+      }
+    }
+    else {
+      $fmbFailurePhase = 'validate_benign_population'
+      if ($expectedPopulationCount -lt 1 -or
+          $populationPaths.Count -ne $expectedPopulationCount -or
+          $expectedOperationCount -ne 0 -or $paths.Count -ne $expectedOperationCount) {
+        throw "Benign timestamp population cardinality is invalid"
+      }
+      $missingPaths = @(
+        $populationPaths | Where-Object {
+          -not (Test-Path -LiteralPath ([string]$_) -PathType Leaf)
+        }
+      )
+      if ($missingPaths.Count -ne 0) {
+        throw "Benign timestamp population postcondition failed"
+      }
+    }
+    [ordered]@{
+      ok = $true
+      receipt = [ordered]@{
+        scenario_id = 'timestomp_01'
+        case = $case
+        operation_count = $paths.Count
+        operation_refs_sha256 = $operationRefsSha256
+        postcondition_verified = $true
+        instances = @($instances)
+      }
+    } | ConvertTo-Json -Compress -Depth 5
+    } catch {
+      $caseClass = if ($case -in @('positive', 'benign')) {
+        $case
+      } elseif ([string]::IsNullOrEmpty($case)) {
+        'missing'
+      } else {
+        'unsupported'
+      }
+      [ordered]@{
+        ok = $false
+        failure_phase = $fmbFailurePhase
+        case_class = $caseClass
+      } | ConvertTo-Json -Compress
+    }
+  args:
+    stdin: "{{ generation_inputs.scenario_inputs.timestomp_01 | to_json }}"
+  register: timestomp_receipt
+  no_log: true
+
+- name: Require the timestamp operation to complete
+  ansible.builtin.assert:
+    that:
+      - (timestomp_receipt.stdout | trim | from_json).ok | bool
+    fail_msg: >-
+      Timestamp generation failed during
+      {{
+        (timestomp_receipt.stdout | trim | from_json).failure_phase
+        | default('unknown')
+      }}
+      (case class:
+      {{
+        (timestomp_receipt.stdout | trim | from_json).case_class
+        | default('unknown')
+      }})
+
+- name: Emit host-captured timestamp receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - >-
+        {{
+          (timestomp_receipt.stdout | trim | from_json).receipt
+          | to_json
+        }}
+      - "GROUND_TRUTH_END"

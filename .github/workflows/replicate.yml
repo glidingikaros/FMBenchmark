@@ -1,0 +1,211 @@
+name: Replicate
+
+on:
+  workflow_dispatch:
+    inputs:
+      iso_url:
+        description: "A link to Windows11_Client_x64_en-us_26300_9457.iso from microsoft.com/software-download/windows11 (valid 24 hours; kept out of the logs)"
+        type: string
+        required: true
+      hosts:
+        type: choice
+        options: [both, linux, windows]
+        default: both
+      images:
+        description: "The images, as a JSON list"
+        type: string
+        default: '["I1", "I2", "I3"]'
+
+permissions:
+  contents: read
+
+env:
+  ISO: Windows11_Client_x64_en-us_26300_9457.iso
+
+jobs:
+  linux:
+    if: inputs.hosts != 'windows'
+    name: linux ${{ matrix.image }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(inputs.images) }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: "runner: disk (fmb's cache, FMB_CACHE, and the run's replication/ folder on the scratch disk)"
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache /usr/share/dotnet /usr/local/share/boost
+          sudo mkdir -p /mnt/fmb/replication && sudo chown -R "$USER" /mnt/fmb
+          ln -s /mnt/fmb/replication replication
+          echo "FMB_CACHE=/mnt/fmb/cache" >> "$GITHUB_ENV"
+          df -h / /mnt
+          lscpu | grep -E 'Model name|Hypervisor'
+      - name: Microsoft's ISO, saved in ~/Downloads as a browser saves it
+        run: |
+          url=$(jq -r .inputs.iso_url "$GITHUB_EVENT_PATH")
+          echo "::add-mask::$url"
+          mkdir -p ~/Downloads
+          curl -fsSL --retry 5 --retry-all-errors -o ~/Downloads/"$ISO" "$url"
+          ls -l ~/Downloads
+      - name: "README, Linux: QEMU and OVMF (runner: -y answers apt's question)"
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils ovmf
+      - name: "README, Linux: /dev/kvm (runner: later steps start through sg kvm, as a new login would)"
+        run: |
+          ls -l /dev/kvm && id
+          sudo usermod -aG kvm "$USER"
+      - name: uv, installed as docs.astral.sh/uv says
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: "README: uv sync --locked --all-extras"
+        run: uv sync --locked --all-extras
+      - name: "README: doctor, before setup"
+        continue-on-error: true
+        run: sg kvm -c "uv run fmb replicate doctor"
+      - name: "README: setup --iso"
+        run: sg kvm -c "uv run fmb replicate setup --iso ~/Downloads/$ISO"
+      - name: "README: doctor, after setup"
+        continue-on-error: true
+        run: sg kvm -c "uv run fmb replicate doctor"
+      - name: "README: run ${{ matrix.image }}"
+        run: sg kvm -c "uv run fmb replicate run ${{ matrix.image }}"
+      - name: Summary
+        if: always()
+        run: |
+          base=/mnt/fmb/cache/qemu-bases/fmb-VAGRANTSLASH-windows-11-x64/0/guest.json
+          { echo '```'; cat /mnt/fmb/replication/summary.json "$base"; echo '```'; } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: user-path-linux-${{ matrix.image }}
+          path: |
+            /mnt/fmb/replication/summary.json
+            /mnt/fmb/replication/*/*.log
+            /mnt/fmb/replication/*/generation/**/*.png
+            /mnt/fmb/replication/*/generation/**/ground_truth.json
+            /mnt/fmb/replication/*/run/gates/*.json
+            /mnt/fmb/replication/*/run/run-manifest.json
+            /mnt/fmb/replication/*/run/analysis/evidence_index.json
+            /mnt/fmb/cache/qemu-bases/**/guest.json
+            /mnt/fmb/cache/base-build/*.log
+            /mnt/fmb/cache/base-build/shots/
+          retention-days: 7
+          if-no-files-found: warn
+          include-hidden-files: true
+
+  windows:
+    if: inputs.hosts != 'linux'
+    name: windows ${{ matrix.image }}
+    runs-on: windows-2025
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(inputs.images) }}
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: "runner: a stock Windows 11 has long paths off (this image turns them on); disk"
+        run: |
+          Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem | Select-Object LongPathsEnabled
+          Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem -Name LongPathsEnabled -Value 0
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB'; e={[int]($_.Free / 1GB)}}
+          if ((Get-PSDrive C).Free / 1GB -lt 70) {
+            "FMB_CACHE=$env:RUNNER_TEMP\fmb-cache" >> $env:GITHUB_ENV
+            "runner: C: is small; FMB_CACHE=$env:RUNNER_TEMP\fmb-cache"
+          }
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Git's line-ending settings the checkout ran with
+        run: git config --show-origin --get-all core.autocrlf; git ls-files --eol src/fmb/replication/run.py
+      - name: Microsoft's ISO, saved in Downloads as a browser saves it
+        run: |
+          $url = (Get-Content -Raw $env:GITHUB_EVENT_PATH | ConvertFrom-Json).inputs.iso_url
+          Write-Output "::add-mask::$url"
+          New-Item -ItemType Directory -Force "$HOME\Downloads" | Out-Null
+          curl.exe -fsSL --retry 5 --retry-all-errors -o "$HOME\Downloads\$env:ISO" $url
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem "$HOME\Downloads" | Format-Table Name, Length
+      - name: "README, Windows: the administrator PowerShell block (runner: no reboot; prompts answered)"
+        id: admin
+        timeout-minutes: 25
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $gaps = @()
+          Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -NoRestart | Format-List RestartNeeded
+          if (-not $?) { $gaps += "Enable-WindowsOptionalFeature HypervisorPlatform failed" }
+          New-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force | Out-Null
+          if (-not $?) { $gaps += "New-ItemProperty LongPathsEnabled failed" }
+          if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install SoftwareFreedomConservancy.QEMU --accept-source-agreements --accept-package-agreements --disable-interactivity
+          } else { $gaps += "no winget on the runner" }
+          if (-not (Test-Path 'C:\Program Files\qemu\qemu-system-x86_64.exe')) {
+            $gaps += "winget gave no QEMU: installed from Chocolatey instead"
+            choco install qemu -y --no-progress | Select-Object -Last 3
+          }
+          wsl --install -d Ubuntu-24.04 --no-launch
+          wsl --set-version Ubuntu-24.04 1
+          wsl -d Ubuntu-24.04 --exec uname -a
+          if ($LASTEXITCODE) { $gaps += "wsl --install gave no working Ubuntu-24.04"; "wsl=missing" >> $env:GITHUB_OUTPUT }
+          else { "wsl=ok" >> $env:GITHUB_OUTPUT }
+          wsl --list --verbose
+          foreach ($gap in $gaps) { "::warning::runner gap: $gap"; "- runner gap: $gap" >> $env:GITHUB_STEP_SUMMARY }
+          exit 0
+      - name: "runner: WSL through setup-wsl, as the documented commands did not give a working distribution"
+        if: steps.admin.outputs.wsl != 'ok'
+        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: 1
+          use-cache: false
+      - name: uv, installed as docs.astral.sh/uv says
+        run: |
+          powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+          "$HOME\.local\bin" >> $env:GITHUB_PATH
+      - name: "README: uv sync --locked --all-extras"
+        run: uv sync --locked --all-extras
+      - name: "README: doctor, before setup"
+        continue-on-error: true
+        run: uv run fmb replicate doctor
+      - name: "README: setup --iso"
+        run: uv run fmb replicate setup --iso ~/Downloads/${{ env.ISO }}
+      - name: "README: doctor, after setup"
+        continue-on-error: true
+        run: uv run fmb replicate doctor
+      - name: "README: run ${{ matrix.image }}"
+        run: uv run fmb replicate run ${{ matrix.image }}
+      - name: Summary
+        if: always()
+        run: |
+          $cache = if ($env:FMB_CACHE) { $env:FMB_CACHE } else { "$HOME\.cache\fmb" }
+          "CACHE=$cache" >> $env:GITHUB_ENV
+          '```' >> $env:GITHUB_STEP_SUMMARY
+          Get-Content replication\summary.json, "$cache\qemu-bases\fmb-VAGRANTSLASH-windows-11-x64\0\guest.json" -ErrorAction SilentlyContinue >> $env:GITHUB_STEP_SUMMARY
+          '```' >> $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: user-path-windows-${{ matrix.image }}
+          path: |
+            replication/summary.json
+            replication/*/*.log
+            replication/*/generation/**/*.png
+            replication/*/generation/**/ground_truth.json
+            replication/*/run/gates/*.json
+            replication/*/run/run-manifest.json
+            replication/*/run/analysis/evidence_index.json
+            ${{ env.CACHE }}/qemu-bases/**/guest.json
+            ${{ env.CACHE }}/base-build/*.log
+            ${{ env.CACHE }}/base-build/shots/
+          retention-days: 7
+          if-no-files-found: warn
+          include-hidden-files: true

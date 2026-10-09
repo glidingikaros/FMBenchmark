@@ -1,0 +1,1705 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fmb.invalid/schemas/pipeline_gates.schema.json",
+  "title": "Pipeline gates G1-G5 and the run manifest",
+  "description": "Typed interfaces between the stages S1-S4. Stages exchange case data only through these documents; each is validated and hashed when written.",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "case_label": {
+      "type": "string",
+      "pattern": "^I[0-9]{1,2}(-[A-Za-z0-9]{1,12})?$"
+    },
+    "question_id": {
+      "type": "string",
+      "pattern": "^BQ-[A-Z]+-[0-9]{2}$"
+    },
+    "file_ref": {
+      "type": "object",
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256_source": {
+          "enum": [
+            "computed",
+            "generation_manifest"
+          ]
+        },
+        "root": {
+          "enum": [
+            "run",
+            "generation",
+            "analysis"
+          ],
+          "description": "The declared root the path is relative to; the run manifest records where each root is."
+        }
+      },
+      "additionalProperties": false
+    },
+    "media_ref": {
+      "type": "object",
+      "required": [
+        "media_id",
+        "image",
+        "acquisition_record"
+      ],
+      "properties": {
+        "media_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{12}$"
+        },
+        "image": {
+          "$ref": "#/$defs/file_ref"
+        },
+        "acquisition_record": {
+          "$ref": "#/$defs/file_ref"
+        }
+      },
+      "additionalProperties": false
+    },
+    "g1": {
+      "description": "G1, evidence: every input S2 may read from the case, with hashes. In the generated benchmark the scope records are the generator's public, label-free population; in a real case they would come from the examiner.",
+      "type": "object",
+      "required": [
+        "gate",
+        "schema_version",
+        "case_label",
+        "mode",
+        "generation_root",
+        "system_image",
+        "companion_media",
+        "scope_records",
+        "generation_manifest",
+        "readable_paths"
+      ],
+      "properties": {
+        "gate": {
+          "const": "G1"
+        },
+        "schema_version": {
+          "const": "fmb.pipeline.g1.v1"
+        },
+        "case_label": {
+          "$ref": "#/$defs/case_label"
+        },
+        "mode": {
+          "const": "generated_benchmark"
+        },
+        "generation_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "system_image": {
+          "$ref": "#/$defs/file_ref"
+        },
+        "companion_media": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/media_ref"
+          }
+        },
+        "scope_records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file_ref"
+          },
+          "minItems": 1
+        },
+        "generation_manifest": {
+          "$ref": "#/$defs/file_ref"
+        },
+        "readable_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "g2": {
+      "description": "G2, artefact profile: per question the artefact families and components, plus the collection targets and parsers.",
+      "type": "object",
+      "required": [
+        "gate",
+        "schema_version",
+        "question_group_version",
+        "questions",
+        "artifact_families",
+        "parser_outputs",
+        "collection"
+      ],
+      "properties": {
+        "gate": {
+          "const": "G2"
+        },
+        "schema_version": {
+          "const": "fmb.pipeline.g2.v1"
+        },
+        "question_group_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "question_id",
+              "question_text",
+              "technique_ids",
+              "artifact_families",
+              "components"
+            ],
+            "properties": {
+              "question_id": {
+                "$ref": "#/$defs/question_id"
+              },
+              "question_text": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The question text the model receives: the question pack's definition."
+              },
+              "technique_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "artifact_families": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "minItems": 1
+              },
+              "toolset": {
+                "type": "object",
+                "description": "For each of the question's artefact families, its entry in the artefact-family registry: the sources its evidence comes from and the parsers that produce it.",
+                "additionalProperties": {
+                  "type": "object",
+                  "required": [
+                    "sources",
+                    "parsers"
+                  ],
+                  "properties": {
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "parsers": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "parser",
+                          "module",
+                          "output"
+                        ]
+                      }
+                    },
+                    "inputs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "artifact_families": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "parser_outputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "collection": {
+          "type": "object",
+          "required": [
+            "targets",
+            "modules",
+            "kape_definitions"
+          ],
+          "properties": {
+            "targets": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "modules": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "kape_definitions": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": false
+        },
+        "question_definitions": {
+          "type": "object",
+          "description": "Each question's declared definition: identifier, title, question text and, where it has one, scope statement.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "question_id",
+              "title",
+              "question_text"
+            ],
+            "properties": {
+              "question_id": {
+                "$ref": "#/$defs/question_id"
+              },
+              "title": {
+                "type": "string"
+              },
+              "question_text": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "g3_request": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "case_sha256",
+        "sent_sha256",
+        "sent_bytes",
+        "findings"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "case_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sent_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sent_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "findings": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "g3": {
+      "description": "G3, evidence cards: the sealed card bundle of every question, as cases and as the sent view.",
+      "type": "object",
+      "required": [
+        "gate",
+        "schema_version",
+        "case_label",
+        "level",
+        "build_seal",
+        "view_options_sha256",
+        "questions",
+        "requests_per_pass",
+        "findings",
+        "truth_sources_used",
+        "g2_sha256",
+        "view_options",
+        "profile_coverage",
+        "views"
+      ],
+      "properties": {
+        "gate": {
+          "const": "G3"
+        },
+        "schema_version": {
+          "const": "fmb.pipeline.g3.v1"
+        },
+        "case_label": {
+          "$ref": "#/$defs/case_label"
+        },
+        "level": {
+          "type": "string",
+          "minLength": 1
+        },
+        "build_seal": {
+          "$ref": "#/$defs/file_ref"
+        },
+        "preparation_seal": {
+          "$ref": "#/$defs/file_ref"
+        },
+        "view_options_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "questions": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/question_id"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "cards",
+              "findings",
+              "requests"
+            ],
+            "properties": {
+              "cards": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "findings": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "requests": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/g3_request"
+                },
+                "minItems": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "requests_per_pass": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "findings": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "truth_sources_used": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "g2_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "view_options": {
+          "$ref": "#/$defs/file_ref"
+        },
+        "stream_heads": {
+          "$ref": "#/$defs/file_ref"
+        },
+        "profile_coverage": {
+          "description": "For each question of G2, each required artefact family and the parser runs of the collection that covered it.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/question_id"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": [
+                "covered",
+                "runs"
+              ],
+              "properties": {
+                "covered": {
+                  "type": "boolean"
+                },
+                "runs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "parser",
+                      "module",
+                      "status",
+                      "coverage"
+                    ],
+                    "properties": {
+                      "parser": {
+                        "type": "string"
+                      },
+                      "module": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "coverage": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "declared": {
+                        "type": "boolean",
+                        "description": "Whether G2's toolset names this run's parser and source module for the family."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "collection": {
+          "type": "object",
+          "description": "How the collection the cards were cut from is bound to G1's image: by the image hash the collection's records carry, wherever the collection now lies.",
+          "required": [
+            "mode",
+            "image",
+            "image_sha256",
+            "image_hash_records",
+            "evidence_index_sha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "enum": [
+                "collected",
+                "reused"
+              ]
+            },
+            "image": {
+              "type": "string",
+              "minLength": 1
+            },
+            "image_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "image_hash_records": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "evidence_index_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "scope_record_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "reference_binding": {
+          "$ref": "#/$defs/file_ref",
+          "description": "S2's binding table (reference_binding schema): all that S4 reads of S2's output besides the cards."
+        },
+        "sources": {
+          "type": "object",
+          "description": "For every record source the sent cards cite, the collected file it names.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "path",
+              "read_by"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "size_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "root": {
+                "enum": [
+                  "run",
+                  "generation",
+                  "analysis"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifact_family": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "read_by": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "parser"
+                  ],
+                  "properties": {
+                    "parser": {
+                      "type": "string"
+                    },
+                    "module": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "sha256_prefix": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              "image_region": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "sha256",
+                  "size_bytes"
+                ]
+              },
+              {
+                "required": [
+                  "sha256_prefix",
+                  "image_region"
+                ]
+              }
+            ],
+            "description": "A collected file (full SHA-256 and size), or a region of G1's image read directly (only the hash prefix the reference carries)."
+          }
+        },
+        "views": {
+          "type": "object",
+          "required": [
+            "sent",
+            "decoded"
+          ],
+          "properties": {
+            "sent": {
+              "type": "object",
+              "required": [
+                "read_by",
+                "description"
+              ],
+              "properties": {
+                "read_by": {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "S3",
+                      "S3'"
+                    ]
+                  }
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "differences_from_sent": {
+                  "type": "object",
+                  "propertyNames": {
+                    "$ref": "#/$defs/question_id"
+                  },
+                  "additionalProperties": {
+                    "type": "object",
+                    "required": [
+                      "added",
+                      "dropped"
+                    ],
+                    "properties": {
+                      "added": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "dropped": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "decoded": {
+              "type": "object",
+              "required": [
+                "read_by",
+                "description"
+              ],
+              "properties": {
+                "read_by": {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "S3",
+                      "S3'"
+                    ]
+                  }
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "differences_from_sent": {
+                  "type": "object",
+                  "propertyNames": {
+                    "$ref": "#/$defs/question_id"
+                  },
+                  "additionalProperties": {
+                    "type": "object",
+                    "required": [
+                      "added",
+                      "dropped"
+                    ],
+                    "properties": {
+                      "added": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "dropped": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "question_scope": {
+          "enum": [
+            "hidden",
+            "shown"
+          ],
+          "description": "Whether the sent cards show each question's scope statement, as the view options declare."
+        },
+        "content_sha256": {
+          "$ref": "#/$defs/sha256",
+          "description": "Location-free fingerprint of the build: request contents and presentation."
+        }
+      },
+      "additionalProperties": false
+    },
+    "g4_result": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "question_id",
+        "pass",
+        "state",
+        "supported_findings",
+        "insufficient_findings"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question_id": {
+          "$ref": "#/$defs/question_id"
+        },
+        "pass": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "supported_findings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "insufficient_findings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "g4": {
+      "description": "G4, analysis results of one assessor, kept separate per engine.",
+      "type": "object",
+      "required": [
+        "gate",
+        "schema_version",
+        "case_label",
+        "assessor",
+        "status",
+        "g3_sha256",
+        "results"
+      ],
+      "properties": {
+        "gate": {
+          "const": "G4"
+        },
+        "schema_version": {
+          "const": "fmb.pipeline.g4.v1"
+        },
+        "case_label": {
+          "$ref": "#/$defs/case_label"
+        },
+        "assessor": {
+          "type": "object",
+          "required": [
+            "kind",
+            "id",
+            "view"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "rules",
+                "llm"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "condition_run": {
+              "type": "string"
+            },
+            "condition_seal": {
+              "$ref": "#/$defs/file_ref"
+            },
+            "prediction_seal": {
+              "$ref": "#/$defs/file_ref"
+            },
+            "settings": {
+              "type": "object"
+            },
+            "view": {
+              "enum": [
+                "sent",
+                "decoded"
+              ]
+            },
+            "engine": {
+              "type": "object",
+              "properties": {
+                "module": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "assessment": {
+              "$ref": "#/$defs/file_ref"
+            },
+            "assessment_seal": {
+              "$ref": "#/$defs/file_ref",
+              "description": "S3's seal, which covers its decisions as well as its result record."
+            }
+          },
+          "additionalProperties": false
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "frozen",
+            "executed"
+          ]
+        },
+        "g3_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "requests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "request_id",
+              "request_sha256"
+            ],
+            "properties": {
+              "request_id": {
+                "type": "string"
+              },
+              "request_sha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/g4_result"
+          }
+        },
+        "dispatch": {
+          "type": "object",
+          "description": "How S3' calls were sent: retry policy, cap, rates, pass limit."
+        },
+        "build_content_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    },
+    "g5": {
+      "description": "G5, evaluation report: admission of the case and, after execution, the scores; only S4 reads the reference.",
+      "type": "object",
+      "required": [
+        "gate",
+        "schema_version",
+        "case_label",
+        "admission",
+        "scores"
+      ],
+      "properties": {
+        "gate": {
+          "const": "G5"
+        },
+        "schema_version": {
+          "const": "fmb.pipeline.g5.v1"
+        },
+        "case_label": {
+          "$ref": "#/$defs/case_label"
+        },
+        "admission": {
+          "type": "object",
+          "required": [
+            "status",
+            "certificates"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "certificates": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/file_ref"
+              }
+            },
+            "policy": {
+              "enum": [
+                "strict",
+                "report-only"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "scores": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "inputs": {
+          "type": "object",
+          "description": "The G3 and G4 documents S4 evaluated, by hash.",
+          "additionalProperties": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "question_id",
+              "request_id",
+              "finding_id",
+              "subject",
+              "component",
+              "reference",
+              "rules",
+              "llm"
+            ]
+          }
+        },
+        "comparison": {
+          "type": "object",
+          "required": [
+            "rules",
+            "conditions"
+          ]
+        },
+        "stage_validation": {
+          "type": "object",
+          "description": "Each stage's checks, gathered so that validation can target the errors of each stage.",
+          "required": [
+            "S1",
+            "S2",
+            "S3",
+            "S3'"
+          ]
+        },
+        "candidate_evaluation": {
+          "type": "object",
+          "required": [
+            "implementation",
+            "comparison"
+          ],
+          "properties": {
+            "implementation": {
+              "type": "string"
+            },
+            "comparison": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": false
+        },
+        "experiment": {
+          "type": "object",
+          "required": [
+            "label",
+            "stages",
+            "s3_assessor"
+          ],
+          "properties": {
+            "label": {
+              "const": "mock_stage_experiment"
+            },
+            "stages": {
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 1,
+              "items": {
+                "enum": [
+                  "S1",
+                  "S2",
+                  "S3",
+                  "S4"
+                ]
+              }
+            },
+            "s3_assessor": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "run_manifest": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "config",
+        "config_sha256",
+        "code",
+        "stages",
+        "gates"
+      ],
+      "properties": {
+        "schema_version": {
+          "enum": [
+            "fmb.pipeline.run.v1",
+            "fmb.pipeline.run.v2"
+          ]
+        },
+        "config": {
+          "type": "object"
+        },
+        "config_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "code": {
+          "type": "object",
+          "required": [
+            "source_manifest_sha256"
+          ],
+          "properties": {
+            "source_manifest_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "stage",
+              "reads",
+              "writes",
+              "started_utc",
+              "finished_utc"
+            ],
+            "properties": {
+              "stage": {
+                "enum": [
+                  "S1",
+                  "S2",
+                  "S3",
+                  "S3'",
+                  "S4",
+                  "check"
+                ]
+              },
+              "reads": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "writes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "started_utc": {
+                "type": "string"
+              },
+              "finished_utc": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "object"
+              },
+              "opened": {
+                "type": "object",
+                "description": "How many files the step read under each declared root.",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "reads_record": {
+                "type": "object",
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "$ref": "#/$defs/sha256"
+                  }
+                }
+              },
+              "step": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "completed",
+                  "failed"
+                ]
+              },
+              "inputs": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/file_ref"
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/file_ref"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "gates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "path",
+              "sha256",
+              "schema"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "schema": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "implementations": {
+          "type": "object",
+          "description": "Which implementation ran each stage.",
+          "properties": {
+            "S1": {
+              "type": "object"
+            },
+            "S2": {
+              "type": "object"
+            },
+            "S3": {
+              "type": "object"
+            },
+            "S3'": {
+              "type": "object"
+            },
+            "S4": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": false
+        },
+        "roots": {
+          "type": "object",
+          "description": "Where the declared roots are on this host.",
+          "properties": {
+            "run": {
+              "type": "string"
+            },
+            "generation": {
+              "type": "string"
+            },
+            "analysis": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "admission_policy": {
+          "enum": [
+            "strict",
+            "report-only"
+          ]
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "failed"
+          ]
+        },
+        "failure": {
+          "type": "object",
+          "required": [
+            "step",
+            "type",
+            "message"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "step": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        },
+        "mock_calls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file_ref"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schema_version": {
+                "const": "fmb.pipeline.run.v2"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "status",
+              "roots",
+              "admission_policy"
+            ],
+            "properties": {
+              "stages": {
+                "items": {
+                  "required": [
+                    "step",
+                    "status",
+                    "inputs",
+                    "outputs"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "question_pack": {
+      "type": "object",
+      "description": "One forensic question: what S1 declares for it, and the hooks the other stages use, by name.",
+      "required": [
+        "schema_version",
+        "question_id",
+        "order",
+        "group",
+        "definition",
+        "components",
+        "presentation",
+        "assessment",
+        "reference",
+        "generation"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fmb.question_pack.v1"
+        },
+        "question_id": {
+          "$ref": "#/$defs/question_id"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group": {
+          "type": "object",
+          "description": "The question group the rule engine registers. Its description is the engine's own; models receive only the definition's question text.",
+          "required": [
+            "group_id",
+            "title",
+            "description"
+          ],
+          "properties": {
+            "group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "definition": {
+          "type": "object",
+          "required": [
+            "title",
+            "question_text"
+          ],
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "question_text": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scope": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "technique_id",
+              "component_question_id",
+              "subject_type",
+              "required_artifact_families",
+              "optional_artifact_families",
+              "alternative_required_artifact_families",
+              "projected_artifact_families"
+            ],
+            "properties": {
+              "technique_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "component_question_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "subject_type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "required_artifact_families": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "optional_artifact_families": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "alternative_required_artifact_families": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "projected_artifact_families": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "presentation": {
+          "type": "object",
+          "required": [
+            "request_per_card",
+            "listing_lookup",
+            "transforms"
+          ],
+          "properties": {
+            "request_per_card": {
+              "type": "boolean"
+            },
+            "listing_lookup": {
+              "type": "boolean"
+            },
+            "transforms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "assessment": {
+          "type": "object",
+          "required": [
+            "engine",
+            "components"
+          ],
+          "properties": {
+            "engine": {
+              "type": "string",
+              "minLength": 1
+            },
+            "components": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "reference": {
+          "type": "object",
+          "required": [
+            "supplemental_supported",
+            "supplemental_negative"
+          ],
+          "properties": {
+            "supplemental_supported": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "supplemental_negative": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "generation": {
+          "type": "object",
+          "required": [
+            "scenarios"
+          ],
+          "properties": {
+            "scenarios": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "reference_binding": {
+      "type": "object",
+      "description": "S2's public binding table: the declared population's candidates mapped to card subjects, and each card's identity, observed paths and components. S4 binds the generation reference to it; G3 declares it.",
+      "required": [
+        "schema_version",
+        "native_volume_serial_number",
+        "population",
+        "candidate_subjects",
+        "base_rosters",
+        "questions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "fmb.reference_binding.v1"
+        },
+        "native_volume_serial_number": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "population": {
+          "type": "object",
+          "required": [
+            "manifest_sha256",
+            "experiment",
+            "scenarios"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "manifest_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "experiment": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scenarios": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "required": [
+                  "technique_id",
+                  "candidate_ids"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "technique_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "candidate_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "candidate_subjects": {
+          "type": "object",
+          "description": "Per scenario, each candidate's card subject.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "base_rosters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "question_id",
+              "evidence_bundle_sha256",
+              "volume_aliases",
+              "cards"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "question_id": {
+                "$ref": "#/$defs/question_id"
+              },
+              "evidence_bundle_sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "volume_aliases": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "cards": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "subject_id",
+                    "components",
+                    "identity",
+                    "observed_paths"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "subject_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "components": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "identity": {
+                      "type": "object"
+                    },
+                    "observed_paths": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

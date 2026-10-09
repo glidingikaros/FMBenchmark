@@ -1,0 +1,91 @@
+---
+- name: Materialize the declared bounded neutral population
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    $members = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $seen = [System.Collections.Generic.HashSet[string]]::new(
+      [System.StringComparer]::OrdinalIgnoreCase
+    )
+    $verifiedCount = 0
+
+    foreach ($member in @($members)) {
+      $path = [string]$member.path
+      $kind = [string]$member.object_kind
+      if (-not $seen.Add($path)) {
+        throw "Duplicate population path"
+      }
+      $parent = Split-Path -Parent $path
+      New-Item -Path $parent -ItemType Directory -Force | Out-Null
+
+      switch ($kind) {
+        'directory' {
+          New-Item -Path $path -ItemType Directory -Force | Out-Null
+        }
+        'executable' {
+          Copy-Item -LiteralPath "$env:SystemRoot\System32\whoami.exe" `
+            -Destination $path -Force
+        }
+        'script' {
+          Set-Content -LiteralPath $path -Value "@echo off`r`nwhoami" `
+            -Encoding Ascii -Force
+        }
+        'bitmap' {
+          [byte[]]$bmp = New-Object byte[] 58
+          $bmp[0] = [byte][char]'B'
+          $bmp[1] = [byte][char]'M'
+          [BitConverter]::GetBytes([uint32]58).CopyTo($bmp, 2)
+          [BitConverter]::GetBytes([uint32]54).CopyTo($bmp, 10)
+          [BitConverter]::GetBytes([uint32]40).CopyTo($bmp, 14)
+          [BitConverter]::GetBytes([int32]1).CopyTo($bmp, 18)
+          [BitConverter]::GetBytes([int32]1).CopyTo($bmp, 22)
+          [BitConverter]::GetBytes([uint16]1).CopyTo($bmp, 26)
+          [BitConverter]::GetBytes([uint16]24).CopyTo($bmp, 28)
+          [BitConverter]::GetBytes([uint32]4).CopyTo($bmp, 34)
+          [System.IO.File]::WriteAllBytes($path, $bmp)
+        }
+        default {
+          Set-Content -LiteralPath $path -Value "Neutral generated record." `
+            -Encoding Utf8 -Force
+        }
+      }
+
+      $observed = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+      $typeMatches = if ($kind -eq 'directory') {
+        $observed.PSIsContainer
+      } else {
+        -not $observed.PSIsContainer
+      }
+      if (-not $typeMatches) {
+        throw "Population object type postcondition failed"
+      }
+      if ($kind -eq 'bitmap') {
+        [byte[]]$bytes = [System.IO.File]::ReadAllBytes($path)
+        if (
+          $bytes.Length -ne 58 -or
+          [BitConverter]::ToUInt32($bytes, 2) -ne 58
+        ) {
+          throw "Bitmap population postcondition failed"
+        }
+      }
+      $verifiedCount += 1
+    }
+
+    if ($verifiedCount -ne @($members).Count) {
+      throw "Population count postcondition failed"
+    }
+    [ordered]@{
+      materialized_count = $verifiedCount
+      postcondition_verified = $true
+    } | ConvertTo-Json -Compress
+  args:
+    stdin: >-
+      {{ generation_inputs.population_members | to_json }}
+  register: fmb_population_materialization
+  no_log: true
+
+- name: Verify the bounded neutral population
+  ansible.builtin.assert:
+    that:
+      - (fmb_population_materialization.stdout | trim | from_json).postcondition_verified | bool
+      - (fmb_population_materialization.stdout | trim | from_json).materialized_count == (generation_inputs.population_members | length)
+    fail_msg: "Neutral population materialization did not satisfy its postconditions"

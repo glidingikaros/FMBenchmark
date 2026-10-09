@@ -1,0 +1,194 @@
+{
+  "schema_version": "bounded_population.v1",
+  "experiments": {
+    "timestomp": [
+      "timestomp_01"
+    ],
+    "full_scale": [
+      "timestomp_01",
+      "ads_injection_01",
+      "prefetch_wipe_01",
+      "security_log_clear_event_01",
+      "usn_journal_01",
+      "shimcache_path_residue_01",
+      "typed_path_residue_01",
+      "shellbag_path_residue_01",
+      "ntfs_allocation_01",
+      "bitmap_trailing_data_01",
+      "directory_cleaning_i30_01",
+      "usbstor_setupapi_discrepancy_01",
+      "usb_volume_activity_gap_01",
+      "event_record_sequence_gap_01"
+    ]
+  },
+  "scenarios": {
+    "timestomp_01": {
+      "configured_count": 6,
+      "manipulation_count": 2,
+      "assignment_pool_count": 2,
+      "restore_stratum_end_indexes": [
+        1,
+        2,
+        4,
+        5,
+        6
+      ],
+      "object_kind": "file",
+      "name_prefix": "f",
+      "name_extension": ".txt",
+      "parent_cycle": [
+        "C:\\Users\\vagrant\\Desktop",
+        "C:\\Users\\vagrant\\Documents"
+      ]
+    },
+    "ads_injection_01": {
+      "configured_count": 7,
+      "manipulation_count": 2,
+      "object_kind": "file",
+      "name_prefix": "f",
+      "name_extension": ".txt",
+      "parent_cycle": [
+        "C:\\Users\\vagrant\\Desktop"
+      ]
+    },
+    "prefetch_wipe_01": {
+      "configured_count": 4,
+      "manipulation_count": 1,
+      "object_kind": "executable",
+      "name_prefix": "x",
+      "name_extension": ".exe",
+      "parent_cycle": [
+        "C:\\Users\\vagrant\\AppData\\Local\\Temp"
+      ]
+    },
+    "security_log_clear_event_01": {
+      "configured_count": 1,
+      "manipulation_count": 1,
+      "object_kind": "event_log",
+      "native_name": "Security"
+    },
+    "usn_journal_01": {
+      "configured_count": 6,
+      "manipulation_count": 1,
+      "object_kind": "file",
+      "name_prefix": "f",
+      "name_extension": ".txt",
+      "parent_cycle": [
+        "C:\\Users\\vagrant\\Desktop"
+      ]
+    },
+    "shimcache_path_residue_01": {
+      "configured_count": 3,
+      "manipulation_count": 1,
+      "object_kind": "executable",
+      "name_prefix": "x",
+      "name_extension": ".exe",
+      "parent_cycle": [
+        "C:\\Users\\vagrant\\Desktop"
+      ]
+    },
+    "typed_path_residue_01": {
+      "configured_count": 5,
+      "manipulation_count": 2,
+      "object_kind": "directory",
+      "name_prefix": "d",
+      "name_extension": "",
+      "parent_cycle": [
+        "C:\\Users\\vagrant\\Desktop"
+      ]
+    },
+    "shellbag_path_residue_01": {
+      "configured_count": 5,
+      "manipulation_count": 1,
+      "object_kind": "directory",
+      "name_prefix": "d",
+      "name_extension": "",
+      "parent_cycle": [
+        "C:\\Records\\Folders"
+      ]
+    },
+    "ntfs_allocation_01": {
+      "configured_count": 4,
+      "manipulation_count": 1,
+      "assignment_pool_count": 2,
+      "storage_modes": [
+        "ordinary",
+        "ordinary",
+        "resident",
+        "preallocation_request_then_close"
+      ],
+      "object_kind": "file",
+      "name_prefix": "f",
+      "name_extension": ".bin",
+      "parent_cycle": [
+        "C:\\Users\\vagrant\\Documents"
+      ]
+    },
+    "bitmap_trailing_data_01": {
+      "configured_count": 6,
+      "manipulation_count": 2,
+      "object_kind": "bitmap",
+      "name_prefix": "f",
+      "name_extension": ".bmp",
+      "parent_cycle": [
+        "C:\\Users\\vagrant\\Documents",
+        "C:\\Users\\vagrant\\Desktop"
+      ]
+    },
+    "directory_cleaning_i30_01": {
+      "configured_count": 2,
+      "manipulation_count": 1,
+      "assignment_pool_count": 1,
+      "directory_child_counts": [
+        80,
+        4
+      ],
+      "object_kind": "directory",
+      "name_prefix": "d",
+      "name_extension": "",
+      "parent_cycle": [
+        "C:\\Users\\vagrant\\Documents"
+      ]
+    },
+    "usbstor_setupapi_discrepancy_01": {
+      "configured_count": 3,
+      "manipulation_count": 1,
+      "object_kind": "native_usb_device",
+      "media_layout": "pilot_min.v1"
+    },
+    "usb_volume_activity_gap_01": {
+      "configured_count": 3,
+      "manipulation_count": 1,
+      "object_kind": "native_usb_device",
+      "media_layout": "pilot_min.v1"
+    },
+    "event_record_sequence_gap_01": {
+      "configured_count": 1,
+      "manipulation_count": 1,
+      "object_kind": "event_log",
+      "native_name": "Security"
+    }
+  },
+  "contract_revision": "stefan_content_formats.v2",
+  "stream_name_policy": "role_independent.v1",
+  "finding_reference_contract": "broad_native_findings.v1",
+  "native_pilot_profile": "pilot_min.v1",
+  "native_pilot_parameters": {
+    "schema_version": "native_pilot_parameters.v1",
+    "image_label": "I1",
+    "case_classes": {
+      "BQ-TIME-01": [
+        "same_year"
+      ]
+    },
+    "directory_child_count": 24,
+    "timestamp_deltas": {
+      "forward": {
+        "modified_filetime": 1200000100
+      },
+      "access_only": {
+        "access_filetime": -864000000001
+      }
+    }
+  }
+}
