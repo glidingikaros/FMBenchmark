@@ -136,7 +136,7 @@ def _fake_stages(monkeypatch, generation: Path, *, undeclared_read: Path | None 
     def check_presentation(*, prepared, built, engine_name):
         return {"status": "passed", "engine": engine_name}
 
-    def freeze_condition(*, built, condition, output, generation=None):
+    def freeze_condition(*, built, condition, output, generation=None, passes=None):
         assert generation is not None
         output.mkdir(parents=True)
         write_json(output / "protocol.json", {"condition_id": condition, "settings": {"model": "m"}})

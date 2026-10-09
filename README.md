@@ -111,15 +111,55 @@ same disk. `fmb run` asks only the questions of the image.
 | Option | Function |
 |---|---|
 | `--compare S3` | Compares an LLM (S3′) with S3. |
-| `--llm CONDITION` | Selects an LLM condition. The conditions are the eight conditions of the paper (`fmb run --help`). |
+| `--llm CONDITION` | Selects an LLM condition: one of the eight conditions of the paper, or one of yours (`fmb run --help`). |
+| `--conditions FILE` | Declares your own LLM conditions (see [Your conditions](#your-conditions)). |
+| `--passes N` | Sets the number of passes of S3′, from 1 to 10. The default is 3, as in the paper. |
 | `--cap-usd N` | Sets the maximum cost of the LLM requests for one image, in USD. Necessary with `--llm`. |
 | `--price CONDITION=INPUT,OUTPUT` | Sets the price (USD for each million tokens) of a condition without a recorded price. |
 
 - The conditions need `OPENAI_API_KEY` or `OPENROUTER_API_KEY`.
-- S3′ uses three passes, as in the paper.
+- S3′ uses three passes, as in the paper, unless `--passes` sets another number.
 - FMBenchmark does not send a request that can make the cost more than the cap.
 - FMBenchmark sends LLM requests only for an image that passes admission.
 - Without `--llm`, FMBenchmark sends no request.
+
+### Your conditions
+
+A conditions file, for example `conditions/mine.json`, is a JSON object. Each key is the name of one of
+your conditions. The names of the paper's conditions are not available. Each value has the structure of a
+condition in `src/fmb/contracts/paper/protocol.json`:
+
+```json
+{
+  "mistralsmall-t0": {
+    "settings": {
+      "provider": "openrouter",
+      "model": "mistralai/mistral-small-2603",
+      "route": "mistral/zdr",
+      "reasoning_effort": "high",
+      "max_output_tokens": 16384,
+      "timeout_seconds": 600,
+      "temperature": 0,
+      "seed": 7,
+      "price_usd_per_million": {"input": "0.150", "output": "0.600"}
+    }
+  }
+}
+```
+
+- `provider`, `model`, `reasoning_effort`, `max_output_tokens` and `timeout_seconds` are necessary.
+  `provider` is `openai` or `openrouter`. An `openrouter` condition also needs `route`: the one provider
+  that OpenRouter can use.
+- `context_window_tokens`, `temperature`, `top_p`, `seed` and `price_usd_per_million` are optional. The
+  paper's conditions do not set `temperature`, `top_p` or `seed`. The requests send each setting, and
+  OpenRouter refuses a route that does not take all of them.
+- `upstream_provider`, next to `settings`, is the provider name that OpenRouter reports for the route,
+  if that name is not the route (for example `DeepInfra` for `deepinfra/fp4`).
+- Without `price_usd_per_million`, give the price with `--price`.
+- Each result records the settings of the condition, in `run/conditions/NAME/protocol.json`, in the G4
+  gate and in `run/run-manifest.json`.
+
+For example: `uv run fmb run I1 --conditions conditions/mine.json --llm mistralsmall-t0 --cap-usd 5 --passes 2`.
 
 ## Results
 

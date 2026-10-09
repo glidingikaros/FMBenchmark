@@ -4,7 +4,9 @@ from fmb.core import paper_contract
 from fmb.core.case_contract import validate_response
 from fmb.core.case_contract import QIDS
 from fmb.core.hashing import sha256_bytes, sha256_file
-from fmb.core.paper_protocol import validate_condition, validate_request_settings
+from fmb.core.paper_protocol import (
+    checked_passes, declare_conditions, run_declaration, validate_condition, validate_request_settings,
+)
 from fmb.core.paper_results import IDENTITY_FIELDS
 from fmb.core.sealed_records import canonical_json, contained_path, parse_json, read_json, verify_seal
 from fmb.interpretation.paper_payload import wire
@@ -112,6 +114,11 @@ def verify_prepared_condition(root: Path, *, built: Path | None = None):
     root = Path(root).resolve(strict=True)
     verify_seal(root)
     protocol = read_json(root / "protocol.json")
+    with declare_conditions(run_declaration(protocol)):
+        return _verified_condition(root, protocol, built)
+
+
+def _verified_condition(root: Path, protocol: dict, built: Path | None):
     validate_condition(protocol.get("settings"), condition=protocol.get("condition_id"))
     if (
         protocol.get("schema_version") != "paper_condition.v1"
@@ -154,10 +161,11 @@ def verify_prepared_condition(root: Path, *, built: Path | None = None):
                 raise ValueError("condition deterministic result differs from paper build")
     schedule = read_json(root / "schedule.json")["rows"]
     keys = [(r["request_id"], r["pass"]) for r in schedule]
+    passes = checked_passes(protocol.get("passes"))
     if len(keys) != len(set(keys)) or set(keys) != {
-        (rid, p) for rid in expected for p in (1, 2, 3)
+        (rid, p) for rid in expected for p in range(1, passes + 1)
     }:
-        raise ValueError("incomplete three-pass schedule")
+        raise ValueError(f"incomplete {passes}-pass schedule")
     by_id = {r["request_id"]: r for r in rows}
     if [r["call"] for r in schedule] != list(range(1, len(schedule) + 1)):
         raise ValueError("schedule call numbering changed")

@@ -115,6 +115,7 @@ def analyse(name: str, generation: Path, recipe: Path, folder: Path, llm: dict |
               "conditions": llm["conditions"] if llm else ["luna-high"],
               **({"questions": questions} if questions else {}),
               **({"dispatch": llm["dispatch"]} if llm else {}),
+              **{key: llm[key] for key in ("user_conditions", "passes") if key in (llm or {})},
               "collect": {"windows_parsers": str(windows_parsers()), "host_toolchain_root": str(host.toolchain_root()),
                           **({"vm_work_root": str(host.cache() / "vm-work")} if host.MACOS else {})},
               "output": str(folder / "run")}

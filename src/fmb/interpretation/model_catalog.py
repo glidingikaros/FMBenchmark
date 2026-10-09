@@ -1,5 +1,5 @@
 from fmb.core.errors import ConfigurationError
-from fmb.core.paper_protocol import paper_protocol
+from fmb.core.paper_protocol import paper_protocol, user_conditions
 
 
 def endpoint(provider, model, route, *, effort=None):
@@ -20,8 +20,20 @@ def endpoint(provider, model, route, *, effort=None):
     )
 
 
+def declared_endpoints(provider, model, route):
+    return [(row["settings"], row.get("upstream_provider")) for row in user_conditions().values()
+            if (row["settings"]["provider"], row["settings"]["model"], row["settings"].get("route"))
+            == (provider, model, route)]
+
+
 def expected_openrouter_upstream(model, route):
-    return endpoint("openrouter", model, route)[1]
+    try:
+        return endpoint("openrouter", model, route)[1]
+    except ConfigurationError:
+        declared = declared_endpoints("openrouter", model, route)
+        if not declared:
+            raise
+        return next((upstream for _, upstream in declared if upstream is not None), None)
 
 
 def validate_catalog_request(
@@ -37,6 +49,15 @@ def validate_catalog_request(
     top_p,
     seed,
 ):
+    sampling = {"temperature": temperature, "top_p": top_p, "seed": seed}
+    if any(
+        settings["reasoning_effort"] == reasoning_effort
+        and settings["max_output_tokens"] == max_output_tokens
+        and settings.get("structured_output", "json_schema") == structured_output
+        and all(settings.get(key) == value for key, value in sampling.items())
+        for settings, _ in declared_endpoints(provider, model, route)
+    ):
+        return
     settings, _ = endpoint(provider, model, route, effort=reasoning_effort)
     if any(x is not None for x in (temperature, top_p, seed)):
         raise ConfigurationError("paper sampling settings must remain omitted")
