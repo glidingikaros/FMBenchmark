@@ -226,3 +226,10 @@ def test_a_subset_keeps_whole_questions(tmp_path, edit, message):
     path.write_text(json.dumps(value))
     with pytest.raises(ValueError, match=message):
         image_files.load(path)
+
+
+def test_an_image_line_names_its_questions_when_it_asks_only_some():
+    image = image_files.load(SUBSET)
+    assert image_files.check(image).endswith(
+        "questions " + ", ".join(image_files.questions(image.contract)))
+    assert "questions" not in image_files.check(image_files.load(STRESS))

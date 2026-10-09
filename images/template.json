@@ -5,9 +5,6 @@
   },
   "schema_version": "bounded_population.v1",
   "experiments": {
-    "timestomp": [
-      "timestomp_01"
-    ],
     "full_scale": [
       "timestomp_01",
       "ads_injection_01",

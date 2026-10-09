@@ -122,8 +122,10 @@ def population_line(definition: dict) -> str:
 
     scenarios = [definition["scenarios"][scenario] for scenario in definition["experiments"]["full_scale"]]
     supplement = resolve_parameters(definition.get("native_pilot_parameters"))["case_classes"]
+    asked = questions(definition)
     return (f"seed {definition['seed']}, {sum(item['configured_count'] for item in scenarios)} objects, "
-            f"{sum(item['manipulation_count'] for item in scenarios)} manipulated, {len_cases(supplement)}")
+            f"{sum(item['manipulation_count'] for item in scenarios)} manipulated, {len_cases(supplement)}"
+            + ("" if len(asked) == len(load_packs()) else f", questions {', '.join(asked)}"))
 
 
 def len_cases(supplement: dict) -> str:
