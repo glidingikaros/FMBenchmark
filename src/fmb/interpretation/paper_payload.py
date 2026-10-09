@@ -49,7 +49,7 @@ def request_kwargs(case_text: str, schema: dict, settings: dict) -> dict:
         "model": settings["model"],
         "prompt": case_text,
         "system_prompt": SYSTEM_PROMPT,
-        "temperature": None,
+        "temperature": settings.get("temperature"),
         "response_schema": schema,
         "json_mode": True,
         "structured_output": settings.get("structured_output", "json_schema"),
@@ -62,4 +62,5 @@ def request_kwargs(case_text: str, schema: dict, settings: dict) -> dict:
     }
     if settings.get("route"):
         kwargs["route"] = settings["route"]
+    kwargs.update({key: settings[key] for key in ("top_p", "seed") if key in settings})
     return kwargs

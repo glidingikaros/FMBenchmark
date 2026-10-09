@@ -1,3 +1,4 @@
+from copy import deepcopy
 import hashlib
 import json
 
@@ -8,18 +9,27 @@ from fmb.assessment.rules import assess
 from fmb.core import paper_integrity as integrity
 from fmb.core import sealed_records
 from fmb.core.case_contract import prepare_case, target_catalog
+from fmb.core.errors import ConfigurationError
 from fmb.core.hashing import sha256_file
 from fmb.core.paper_artifacts import verify_prepared_condition
-from fmb.core.paper_protocol import paper_protocol
+from fmb.core.paper_protocol import SAMPLING, checked_conditions, declare_conditions, paper_protocol
 from fmb.core.sealed_records import canonical_json, read_json, seal_directory, write_json
 from fmb.evaluation import admission
 from fmb.evaluation.scoring import score_run
+from fmb.interpretation.paper_payload import wire
 from fmb.interpretation.provider import LLMResponse
 from fmb.paper import workflow
 from fmb.pipeline import stages
 from paper_fixtures import log_bundle
+from test_stage_substitution import pipeline_inputs as pipeline_inputs
 
 FIXED_UTC = "2026-09-18T00:00:00+00:00"
+OWN = {"mine-t0": {"settings": {"provider": "openrouter", "model": "example/model-1", "route": "example/fp8",
+                                "reasoning_effort": "low", "max_output_tokens": 4096, "timeout_seconds": 120,
+                                "temperature": 0, "top_p": 0.9, "seed": 7,
+                                "price_usd_per_million": {"input": "0.5", "output": "1.5"}},
+                   "upstream_provider": "Example"}}
+OWN_SAMPLING = {"temperature": 0, "top_p": 0.9, "seed": 7}
 CASES = {"log-a": [100, 103], "log-b": [200, 201, 205], "log-c": [7, 9], "log-d": [1, 2, 3, 10]}
 PAPER_FREEZES = {
     "luna-high": "63f2203fcfe7100e8d767824ae7d67b9e587620a274df4078c07f0d1cbcd4dc3",
@@ -110,6 +120,13 @@ def digest(value):
     return hashlib.sha256(canonical_json(value).encode()).hexdigest()
 
 
+def reseal(out, protocol):
+    write_json(out / "protocol.json", protocol)
+    seal = read_json(out / "preparation-seal.json")
+    seal["files"]["protocol.json"] = sha256_file(out / "protocol.json")
+    write_json(out / "preparation-seal.json", seal)
+
+
 def test_the_paper_conditions_freeze_the_same_bytes_as_before(tmp_path, fixed):
     _, built, generation = build(tmp_path, CASES)
     frozen = {}
@@ -160,11 +177,7 @@ def test_passes_rotate_the_schedule_and_stay_within_one_to_ten(tmp_path, fixed):
     for passes in (0, 11, True, "2"):
         with pytest.raises(ValueError, match="passes must be a whole number from 1 to 10"):
             freeze(built, generation, tmp_path / f"bad-{passes}", "luna-high", passes=passes)
-    protocol = read_json(out / "protocol.json")
-    write_json(out / "protocol.json", {**protocol, "passes": 3})
-    seal = read_json(out / "preparation-seal.json")
-    seal["files"]["protocol.json"] = sha256_file(out / "protocol.json")
-    write_json(out / "preparation-seal.json", seal)
+    reseal(out, {**read_json(out / "protocol.json"), "passes": 3})
     with pytest.raises(ValueError, match="incomplete 3-pass schedule"):
         verify_prepared_condition(out)
 
@@ -175,6 +188,173 @@ def test_passes_rotate_the_schedule_and_stay_within_one_to_ten(tmp_path, fixed):
         "luna-high": {"input": "1", "output": "1"}}}}, "may not exceed the 2 frozen passes"),
 ])
 def test_the_runner_checks_passes_before_it_starts(tmp_path, change, message):
+    from fmb.pipeline.runner import run_pipeline
+
+    config = {"case_label": "I1-01", "generation": str(tmp_path), "analysis": str(tmp_path),
+              "conditions": ["luna-high"], "output": str(tmp_path / "run")} | change
+    with pytest.raises(ValueError, match=message):
+        run_pipeline(config)
+    assert not (tmp_path / "run").exists()
+
+
+def openrouter_reply(payload):
+    case = json.loads(payload["messages"][1]["content"])
+    text = json.dumps({"supported_findings": gap_findings(case), "insufficient_findings": [],
+                       "reasons": {fid: "r" for fid in target_catalog(case)}})
+    selected = {"provider": "Example", "model": payload["model"], "selected": True}
+    return {"id": "gen-1", "model": payload["model"], "provider": "Example",
+            "choices": [{"message": {"content": text}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+            "openrouter_metadata": {"requested": payload["model"], "strategy": "direct", "attempt": 1, "pipeline": [],
+                                    "endpoints": {"available": [selected]}}}
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda c: c.update({"luna-high": c.pop("mine-t0")}), "one of the paper's conditions or another of yours"),
+    (lambda c: c.update({"Luna-High": c.pop("mine-t0")}), "one of the paper's conditions or another of yours"),
+    (lambda c: c.update({"rules": c.pop("mine-t0")}), "a condition name has"),
+    (lambda c: c.update({"my condition": c.pop("mine-t0")}), "a condition name has"),
+    (lambda c: c["mine-t0"].update(completion_policy={}), "a condition has settings"),
+    (lambda c: c["mine-t0"]["settings"].update(base_url="https://example.test"), "settings may name only"),
+    (lambda c: c["mine-t0"]["settings"].pop("timeout_seconds"), "settings need timeout_seconds"),
+    (lambda c: c["mine-t0"]["settings"].update(provider="anthropic"), "provider is openai or openrouter"),
+    (lambda c: c["mine-t0"]["settings"].update(model=" example/model-1"), "model is the provider's name"),
+    (lambda c: c["mine-t0"]["settings"].update(reasoning_effort="extreme"), "reasoning_effort is one of"),
+    (lambda c: c["mine-t0"]["settings"].update(max_output_tokens=True), "max_output_tokens is a whole number"),
+    (lambda c: c["mine-t0"]["settings"].pop("route"), "names its route"),
+    (lambda c: c["mine-t0"]["settings"].update(provider="openai"), "an openai condition has no route"),
+    (lambda c: c["mine-t0"]["settings"].update(temperature=2.5), "temperature is a number from 0 to 2"),
+    (lambda c: c["mine-t0"]["settings"].update(temperature=None), "temperature is a number from 0 to 2"),
+    (lambda c: c["mine-t0"]["settings"].update(top_p=True), "top_p is a number from 0 to 1"),
+    (lambda c: c["mine-t0"]["settings"].update(seed=7.5), "seed is a 64-bit whole number"),
+    (lambda c: c["mine-t0"]["settings"].update(structured_output="json_object"), "structured_output is json_schema"),
+    (lambda c: c["mine-t0"]["settings"].update(price_usd_per_million={"input": "cheap", "output": "1"}),
+     "price_usd_per_million is"),
+    (lambda c: c["mine-t0"].update(upstream_provider=""), "upstream_provider is the provider name"),
+    (lambda c: c["mine-t0"]["settings"].update(model="anthropic/claude-sonnet-5", route="anthropic"),
+     "is served by Anthropic"),
+    (lambda c: c.clear(), "declare conditions as a JSON object"),
+])
+def test_user_conditions_are_validated_strictly(change, message):
+    conditions = deepcopy(OWN)
+    change(conditions)
+    with pytest.raises(ValueError, match=message):
+        checked_conditions(conditions)
+
+
+def test_a_valid_declaration_is_kept_exactly_and_may_not_change_within_a_run():
+    openai = {"mine-openai": {"settings": {"provider": "openai", "model": "gpt-5.6-luna", "reasoning_effort": "medium",
+                                           "max_output_tokens": 2048, "timeout_seconds": 60, "seed": 1}}}
+    assert checked_conditions(OWN) == OWN and checked_conditions(openai) == openai
+    with declare_conditions(OWN), declare_conditions(openai):
+        with pytest.raises(ValueError, match="declared twice with different settings"):
+            with declare_conditions({"mine-t0": {**OWN["mine-t0"], "upstream_provider": "Other"}}):
+                pass
+
+
+def test_a_user_condition_is_frozen_recorded_and_dispatched_with_its_sampling(tmp_path, fixed):
+    prepared, built, generation = build(tmp_path, {"log": [100, 103]})
+    out = tmp_path / "frozen" / "mine-t0"
+    with pytest.raises(ValueError, match="unknown paper condition"):
+        freeze(built, generation, out, "mine-t0")
+    with declare_conditions(OWN):
+        freeze(built, generation, out, "mine-t0")
+    protocol = read_json(out / "protocol.json")
+    assert protocol["settings"] == OWN["mine-t0"]["settings"] and protocol["user_condition"] == OWN["mine-t0"]
+    kwargs = read_json(out / "requests" / "log.kwargs.json")
+    body = read_json(out / "requests" / "log.json")
+    assert {key: kwargs[key] for key in SAMPLING} == {key: body[key] for key in SAMPLING} == OWN_SAMPLING
+    assert body["provider"]["only"] == ["example/fp8"] and body["model"] == "example/model-1"
+    verify_prepared_condition(out)
+    admit(prepared, built, [out])
+    calls = []
+    workflow.execute_condition(out, cap_usd="10", rates={"input": "0.5", "output": "1.5"},
+                               provider=rotating("example/model-1", calls), sleep=lambda _: None)
+    assert len(calls) == 3 and all({key: call[key] for key in SAMPLING} == OWN_SAMPLING for call in calls)
+    started = read_json(out / "run/call-001/attempts/attempt-0001/started.json")["settings"]["sampling"]
+    assert {key: started[key]["sent_value"] for key in SAMPLING} == OWN_SAMPLING
+    assert (out / "run/call-001/attempts/attempt-0001/request-body.json").read_bytes() == (
+        out / "requests" / "log.json").read_bytes()
+    assert score_run(out)["passes"] == [1, 2, 3]
+    g4 = stages.llm_gate(out, "I1-01", "0" * 64, {"run": tmp_path})
+    assert g4["status"] == "executed" and g4["assessor"]["id"] == "mine-t0"
+    assert g4["assessor"]["settings"] == OWN["mine-t0"]["settings"]
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda p: p["user_condition"]["settings"].update(temperature=1), "settings differ from the declared condition"),
+    (lambda p: p.pop("user_condition"), "settings outside the fixed paper condition"),
+    (lambda p: p.update(condition_id="luna-high"), "one of the paper's conditions"),
+])
+def test_a_frozen_user_condition_must_match_its_recorded_declaration(tmp_path, fixed, change, message):
+    _, built, generation = build(tmp_path, {"log": [100, 103]})
+    with declare_conditions(OWN):
+        out = freeze(built, generation, tmp_path / "mine-t0", "mine-t0")
+    protocol = read_json(out / "protocol.json")
+    change(protocol)
+    reseal(out, protocol)
+    with pytest.raises(ValueError, match=message):
+        verify_prepared_condition(out)
+
+
+def test_the_provider_layer_sends_a_user_condition_only_as_declared(tmp_path, fixed, monkeypatch):
+    from fmb.interpretation import provider
+
+    prepared, built, generation = build(tmp_path, {"log": [100, 103]})
+    with declare_conditions(OWN):
+        out = freeze(built, generation, tmp_path / "mine-t0", "mine-t0")
+    kwargs = read_json(out / "requests" / "log.kwargs.json")
+    for declared, request in (({}, kwargs), (OWN, {**kwargs, "temperature": 1})):
+        with declare_conditions(declared), pytest.raises(ConfigurationError, match="outside the paper protocol"):
+            wire(request)
+    admit(prepared, built, [out])
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "offline-test-key")
+    sent = []
+    monkeypatch.setattr(provider, "post_json", lambda url, payload, timeout, *, headers=None: sent.append(
+        payload) or openrouter_reply(payload))
+    workflow.execute_condition(out, cap_usd="1", rates={"input": "0.5", "output": "1.5"}, execute=True,
+                               sleep=lambda _: None)
+    outcomes = read_json(out / "run/completion.json")["outcomes"]
+    assert [outcome["status"] for outcome in outcomes] == ["completed"] * 3 and len(sent) == 3
+    assert all(canonical_json(payload).encode() == (out / "requests/log.json").read_bytes() for payload in sent)
+    assert read_json(out / "run/call-001/provider-response.json")["route"] == "example/fp8"
+    assert score_run(out)["exact_question_passes"] == 3
+
+
+def test_a_user_condition_with_two_passes_runs_through_the_pipeline(tmp_path, pipeline_inputs):
+    from fmb.pipeline.gates import read_gate, verify_run
+    from fmb.pipeline.runner import run_pipeline
+
+    calls = []
+    root = tmp_path / "run"
+    config = {**pipeline_inputs, "output": str(tmp_path / "frozen"), "conditions": ["mine-t0"],
+              "user_conditions": OWN, "passes": 2}
+    assert run_pipeline(config)["admission"] == "passed"
+    assert verify_run(tmp_path / "frozen")["status"] == "verified"
+    dispatch = {"execute": True, "cap_usd": "1", "rates": {"mine-t0": {"input": "0.5", "output": "1.5"}}}
+    result = run_pipeline({**config, "output": str(root), "dispatch": dispatch},
+                          provider=rotating("example/model-1", calls))
+    assert result["admission"] == "passed" and result["dispatched"]
+    assert len(calls) == 2 and all({key: call[key] for key in SAMPLING} == OWN_SAMPLING for call in calls)
+    manifest = read_json(root / "run-manifest.json")
+    assert manifest["config"]["user_conditions"] == OWN and manifest["config"]["passes"] == 2
+    protocol = read_json(root / "conditions/mine-t0/protocol.json")
+    assert protocol["user_condition"] == OWN["mine-t0"] and protocol["passes"] == 2
+    g4 = read_gate(root, manifest["gates"]["G4:mine-t0"])
+    assert g4["assessor"]["settings"] == OWN["mine-t0"]["settings"]
+    assert sorted(row["pass"] for row in g4["results"]) == [1, 2]
+    g5 = read_gate(root, manifest["gates"]["G5"])
+    assert g5["scores"]["mine-t0"]["passes"] == [1, 2]
+    assert sorted(g5["comparison"]["conditions"]["mine-t0"]["passes"]) == ["1", "2"]
+
+
+@pytest.mark.parametrize("change, message", [
+    ({"user_conditions": {"other": OWN["mine-t0"]}}, "declares conditions the run does not freeze: other"),
+    ({"user_conditions": {"luna-high": OWN["mine-t0"]}}, "one of the paper's conditions"),
+    ({"user_conditions": []}, "declare conditions as a JSON object"),
+])
+def test_the_runner_checks_user_conditions_before_it_starts(tmp_path, change, message):
     from fmb.pipeline.runner import run_pipeline
 
     config = {"case_label": "I1-01", "generation": str(tmp_path), "analysis": str(tmp_path),

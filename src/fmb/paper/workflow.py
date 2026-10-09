@@ -6,7 +6,7 @@ from fmb.assessment.llm import execute_schedule
 from fmb.core import paper_integrity as integrity
 from fmb.core.hashing import sha256_file
 from fmb.core.paper_artifacts import preparation_folder, verify_preparation, verify_prepared_condition
-from fmb.core.paper_protocol import paper_protocol
+from fmb.core.paper_protocol import declare_conditions, paper_protocol, run_declaration
 from fmb.core.sealed_records import read_json, write_json, seal_directory, verify_seal
 from fmb.core.truth_guard import truth_blind_reads
 from fmb.evaluation.admission import admit_conditions, read_admission
@@ -148,9 +148,10 @@ def execute_condition(
             raise ValueError("condition lacks exact independent admission")
         development = {"label": "development_not_admitted", "admission_status": admission["status"],
                        "admission_sha256": sha256_file(root / "admission/admission.json")}
-    return execute_schedule(
-        root, protocol=protocol, schedule=schedule, cap_usd=cap_usd, rates=rates,
-        execute=execute, provider=provider, sleep=sleep, pass_limit=pass_limit,
-        question_ids=question_ids, development=development, counter=counter,
-        primary=primary,
-    )
+    with declare_conditions(run_declaration(protocol)):
+        return execute_schedule(
+            root, protocol=protocol, schedule=schedule, cap_usd=cap_usd, rates=rates,
+            execute=execute, provider=provider, sleep=sleep, pass_limit=pass_limit,
+            question_ids=question_ids, development=development, counter=counter,
+            primary=primary,
+        )

@@ -10,7 +10,7 @@ from typing import Any
 
 from fmb.core import paper_integrity as integrity
 from fmb.core.hashing import sha256_bytes, sha256_file
-from fmb.core.paper_protocol import checked_passes, paper_protocol
+from fmb.core.paper_protocol import checked_conditions, checked_passes, declare_conditions, paper_protocol
 from fmb.core.schemas import validate_payload
 from fmb.core.sealed_records import canonical_json, now, read_json
 from fmb.pipeline import stages
@@ -18,7 +18,7 @@ from fmb.pipeline.gates import RUN_MANIFEST, RUN_MANIFEST_SCHEMA, write_gate
 from fmb.pipeline.implementations import MockCalls, implementation_name, selected
 
 CONFIG_KEYS = {"case_label", "generation", "analysis", "collect", "conditions", "dispatch", "output",
-               "question_scope", "stages", "admission", "questions", "passes"}
+               "question_scope", "stages", "admission", "questions", "passes", "user_conditions"}
 ADMISSION_POLICIES = {"strict", "report-only"}
 STAGE_KEYS = {"s1": {"profile", "implementation"}, "s2": {"implementation"},
               "s3": {"engine", "implementation"}, "s4": {"implementation"}}
@@ -58,6 +58,10 @@ def _validated(config: dict) -> dict:
     if not isinstance(conditions, list) or not conditions or len(set(conditions)) != len(conditions):
         raise ValueError("conditions must name at least one distinct condition: requests are frozen before admission")
     passes = checked_passes(config["passes"]) if "passes" in config else paper_protocol()["passes"]
+    if "user_conditions" in config:
+        unused = set(checked_conditions(config["user_conditions"])) - set(conditions)
+        if unused:
+            raise ValueError("user_conditions declares conditions the run does not freeze: " + ", ".join(sorted(unused)))
     dispatch = config.get("dispatch")
     if dispatch is not None:
         if set(dispatch) - DISPATCH_KEYS or dispatch.get("execute") is not True:
@@ -305,11 +309,12 @@ def run_pipeline(config: dict, *, provider=None, stage_responder=None) -> dict:
                 "frozen:" + c: run_dir / "conditions" / c / "preparation-seal.json"
                 for c in config["conditions"]}, frozen=config["conditions"]) as step:
             stages.check_build(g3, roots)
-            for condition in config["conditions"]:
-                out = run_dir / "conditions" / condition
-                freeze_condition(built=built, condition=condition, output=out, generation=generation,
-                                 passes=config.get("passes"))
-                runs.append(out)
+            with declare_conditions(config.get("user_conditions") or {}):
+                for condition in config["conditions"]:
+                    out = run_dir / "conditions" / condition
+                    freeze_condition(built=built, condition=condition, output=out, generation=generation,
+                                     passes=config.get("passes"))
+                    runs.append(out)
         frozen = step["outputs"]
 
         with phase("S4:admission", ["G3", "G4:rules"],

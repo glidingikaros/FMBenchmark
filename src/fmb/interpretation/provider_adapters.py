@@ -299,7 +299,8 @@ def provider_request_payload(
         top_p=top_p,
         seed=seed,
     )
-    return adapter.request_payload(request)
+    sampling = {"temperature": temperature, "top_p": top_p, "seed": seed}
+    return {**adapter.request_payload(request), **{key: value for key, value in sampling.items() if value is not None}}
 
 
 def _attested_openrouter_route(

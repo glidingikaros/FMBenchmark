@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from fmb.core import paper_contract
 from fmb.core.hashing import sha256_bytes, sha256_file
-from fmb.core.paper_protocol import checked_passes, condition_settings, paper_protocol
+from fmb.core.paper_protocol import checked_passes, condition_settings, paper_protocol, user_conditions
 from fmb.core.paper_policy import ALTERNATE_POLICY, PAPER_POLICY
 from fmb.core.paper_artifacts import rule_result_bytes
 from fmb.core.sealed_records import read_json, write_json, contained_path, seal_directory
@@ -16,9 +16,10 @@ def write_condition(
     from fmb.core.truth_guard import truth_blind_reads
 
     protocol = paper_protocol()
-    if condition not in protocol["conditions"]:
+    own = condition not in protocol["conditions"]
+    declared = (user_conditions() if own else protocol["conditions"]).get(condition)
+    if declared is None:
         raise ValueError("unknown paper condition")
-    declared = protocol["conditions"][condition]
     passes = checked_passes(protocol["passes"] if passes is None else passes)
     settings = condition_settings(condition, completion=completion, protocol=protocol)
     built = Path(built).resolve(strict=True)
@@ -87,6 +88,7 @@ def write_condition(
             "level": "L0N",
             "options": options,
             "settings": settings,
+            **({"user_condition": declared} if own else {}),
             "passes": passes,
             "built": os.path.relpath(built, output),
             "build_seal_sha256": sha256_file(built / "build-seal.json"),

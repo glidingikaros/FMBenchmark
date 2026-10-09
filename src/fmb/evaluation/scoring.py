@@ -15,6 +15,8 @@ from fmb.core.paper_policy import completion_eligible, resolve_policy, validate_
 from fmb.core.hashing import sha256_file
 from fmb.core.paper_protocol import (
     checked_passes,
+    declare_conditions,
+    run_declaration,
     validate_condition,
     validate_request_settings,
     validate_completion_policy,
@@ -258,7 +260,8 @@ def load_run(root: Path):
         raise ValueError("prediction schedule is not sealed")
     manifest = read_json(root / "manifest.json")
     protocol = read_json(root / "protocol.json")
-    validate_condition(protocol.get("settings"), condition=protocol.get("condition_id"))
+    with declare_conditions(run_declaration(protocol)):
+        validate_condition(protocol.get("settings"), condition=protocol.get("condition_id"))
     if protocol.get("level") != "L0N":
         raise ValueError("only the frozen paper presentation is supported")
     options = condition_options(root, protocol)
