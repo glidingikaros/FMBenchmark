@@ -132,6 +132,9 @@ def check(rows: list, name: str, found, fix: str) -> None:
 def checks() -> list[tuple[str, bool, str]]:
     rows: list[tuple[str, bool, str]] = []
     system = platform.system()
+    if WINDOWS:
+        rows.append(("supported host", False, "Windows hosts are not supported yet (evidence collection fails); "
+                                               "use Linux or macOS"))
     rows.append(("free disk at the cache (40 GiB per image in flight)", free_gib(cache()) >= 40,
                  f"{free_gib(cache()):.0f} GiB free at {cache()}"))
     runtimes = subprocess.run([which("dotnet"), "--list-runtimes"], capture_output=True, text=True,

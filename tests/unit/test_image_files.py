@@ -220,7 +220,7 @@ def test_new_list_and_run_name_images_and_llm_conditions(tmp_path, monkeypatch, 
     monkeypatch.setattr(run, "images", lambda names, output, attempts, llm=None: calls.append((names, llm)) or 0)
     assert main(["run", "small", "I2", "--llm", "sonnet5-high", "--cap-usd", "20"]) == 0
     assert main(["run", "I1"]) == 0
-    assert calls == [(["images/small.json", "I2"], {
+    assert calls == [([str(Path("images/small.json")), "I2"], {
         "conditions": ["sonnet5-high"],
         "dispatch": {"execute": True, "cap_usd": "20.0", "rates": {"sonnet5-high": {"input": "2.000", "output": "10.000"}}}}),
         (["I1"], None)]

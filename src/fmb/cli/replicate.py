@@ -7,7 +7,7 @@ from pathlib import Path
 def add_replicate_parser(subcommands) -> None:
     parser = subcommands.add_parser(
         "replicate", allow_abbrev=False,
-        help="Replicate the I1-I3 experiment on this host (macOS: the paper's VMware path; Linux, Windows: QEMU).",
+        help="Replicate the I1-I3 experiment on this host (macOS: the paper's VMware path; Linux: QEMU).",
     )
     actions = parser.add_subparsers(dest="replicate_action", required=True)
     actions.add_parser("doctor", allow_abbrev=False, help="Check this host and print what is missing.")

@@ -33,8 +33,8 @@ interface G1 to G5 as a JSON file; every stage reads only the interfaces before 
 The generator freezes a recipe for each paper image (I1, I2, I3), boots a Windows guest from a base image,
 plays the scenario's activity and anti-forensic techniques through Ansible
 (`src/fmb/generation/ansible`) and exports the disk image with its ground truth. The paper's guest is
-Windows 11 ARM64 under VMware Fusion (`tools/base-image/windows11-arm64`); on Linux and Windows hosts the
-same guest definition runs on QEMU with a Windows 11 x64 base built from Microsoft's ISO
+Windows 11 ARM64 under VMware Fusion (`tools/base-image/windows11-arm64`); on Linux hosts the same guest
+definition runs on QEMU with a Windows 11 x64 base built from Microsoft's ISO
 (`tools/base-image/windows11-x64`). The question definitions, the protocol and the data contracts of every
 interface are in `src/fmb/contracts`.
 
@@ -49,7 +49,9 @@ needed.
 |---|---|---|
 | macOS on Apple silicon | VMware Fusion through Vagrant, the paper's setup | Windows 11 ARM64, the paper's box |
 | Linux x86-64 | QEMU with KVM | Windows 11 Pro x64, built from Microsoft's ISO |
-| Windows x64 | QEMU with Windows Hypervisor Platform; Ansible in WSL 1 | Windows 11 Pro x64, built from Microsoft's ISO |
+
+Windows hosts are not supported yet: the base builds and the images generate under the Windows Hypervisor
+Platform, but collecting their evidence still fails on a fresh machine.
 
 ### Requirements
 
@@ -57,7 +59,7 @@ needed.
 - about 40 GB of free disk per image in flight, plus about 10 GB for the Windows base;
 - internet access during setup.
 
-On Linux and Windows, also Microsoft's Windows 11 ISO, which you download yourself (its links last a
+On Linux, also Microsoft's Windows 11 ISO, which you download yourself (its links last a
 day): on [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11)
 choose *Windows 11 (multi-edition ISO for x64 devices)*, then *English (United States)*. The file is
 `Windows11_Client_x64_en-us_26300_9457.iso`, and setup checks its SHA-256. Microsoft offers only its
@@ -75,16 +77,6 @@ On Fedora, `sudo dnf install qemu-system-x86-core qemu-img edk2-ovmf`; on Arch,
 `sudo zypper install qemu-x86 qemu-tools qemu-ovmf-x86_64`. Your user needs read-write access to
 `/dev/kvm`: if it lacks it, run `sudo usermod -aG kvm $USER` and log in again.
 
-**Windows** (an administrator PowerShell, then one reboot)
-
-```powershell
-Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform
-New-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force
-winget install SoftwareFreedomConservancy.QEMU
-wsl --install -d Ubuntu-24.04 --no-launch
-wsl --set-version Ubuntu-24.04 1
-```
-
 **macOS**: VMware Fusion 13, Vagrant with the `vagrant-vmware-desktop` plugin, Ansible
 (`brew install ansible`), and the paper's box, built with
 `tools/base-image/windows11-arm64/build-vmware-box.sh`.
@@ -100,12 +92,12 @@ uv run fmb replicate run I1 I2 I3
 
 - `doctor` checks the host and prints the command that fixes anything missing.
 - `setup` installs the pinned .NET runtime, Ansible and collection tools under `~/.cache/fmb` (or
-  `FMB_CACHE`). On Linux and Windows it also builds the Windows base from the ISO, once, in about 30 to
-  50 minutes. On macOS it takes no `--iso`.
+  `FMB_CACHE`). On Linux it also builds the Windows base from the ISO, once, in about 30 minutes. On macOS
+  it takes no `--iso`.
 - `run` writes each image to `replication/<image>/` and `replication/summary.json`, which lists per image
-  the admission result, the number of exact questions and F1. An image takes about an hour. On Linux and
-  Windows, the first image after a base build waits about 70 minutes before generating, until the guest's
-  clock is past the base build's last events.
+  the admission result, the number of exact questions and F1. An image takes about an hour. On Linux, the
+  first image after a base build waits about 70 minutes before generating, until the guest's clock is past
+  the base build's last events.
 
 Generation retries a boot or provisioning failure with the same frozen recipe, up to `--attempts` times
 (default 3). Images are never bit-identical: each frozen recipe draws a fresh random assignment. What

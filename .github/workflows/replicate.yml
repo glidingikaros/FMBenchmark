@@ -8,9 +8,10 @@ on:
         type: string
         required: true
       hosts:
+        description: "Windows hosts are work in progress: generation works, evidence collection does not yet"
         type: choice
-        options: [both, linux, windows]
-        default: both
+        options: [linux, windows, both]
+        default: linux
       images:
         description: "The images, as a JSON list of paper images or image files such as images/decoys.json"
         type: string

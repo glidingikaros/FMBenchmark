@@ -534,7 +534,12 @@ def main() -> int:
                 time.sleep(60)
                 log(wait_ready(vm, work, winrm_port, monitor_port, time.monotonic() + 1800, f"reset{round_number}"))
         power(winrm_port, "/s")
-        vm.wait(timeout=300)
+        try:
+            vm.wait(timeout=900)
+        except subprocess.TimeoutExpired:
+            log("the guest is still running 15 minutes after its shutdown; sending an ACPI power-down")
+            monitor(monitor_port, "system_powerdown")
+            vm.wait(timeout=600)
     finally:
         if vm.poll() is None:
             vm.kill()
