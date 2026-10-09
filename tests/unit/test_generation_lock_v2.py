@@ -317,7 +317,7 @@ def test_check_host_reports_a_missing_base_box_instead_of_raising(host, tmp_path
     assert [row["check"] for row in report["checks"] if not row["ok"]] == ["base box"]
 
 
-@pytest.mark.parametrize("path", ["images/decoys.json", "tests/fixtures/images/stress.json",
+@pytest.mark.parametrize("path", ["tests/fixtures/images/decoys.json", "tests/fixtures/images/stress.json",
                                   "tests/fixtures/images/subset.json"])
 def test_an_image_of_your_own_freezes_and_loads_back(host, tmp_path, path):
     from fmb.replication import image_files
@@ -338,7 +338,7 @@ def test_an_image_of_your_own_freezes_and_loads_back(host, tmp_path, path):
 def test_an_image_of_your_own_freezes_its_own_seeds_and_settings(host, tmp_path):
     from fmb.replication import image_files
 
-    image = image_files.load(SOURCE.parents[2] / "images/decoys.json")
+    image = image_files.load(SOURCE.parents[2] / "tests/fixtures/images/decoys.json")
     config = recipe.image_config(image.seed, image.contract, settings={"activity_count": 20, "activity_seed": 5,
                                                                        "hardware_seed": 6, "clock_bias_minutes": 0})
     contract = recipe.resolved_contract(config)

@@ -16,7 +16,7 @@ def finished_run(tmp_path: Path) -> tuple[Path, Path, Path]:
     for name in ("ground_truth.json", "finding_reference.json", "manifest.json", "factual-challenge-receipt.json"):
         (generation / name).write_text("{}")
     (generated / "recipe/recipe.json").write_text('{"recipe_id": "recipe:1"}')
-    (generated / "image.json").write_text((ROOT / "images/decoys.json").read_text())
+    (generated / "image.json").write_text((ROOT / "tests/fixtures/images/decoys.json").read_text())
     g5 = {"admission": {"status": "passed"}, "findings": [
         {"question_id": "BQ-TIME-01", "reference": "supported"},
         {"question_id": "BQ-TIME-01", "reference": "not_supported"}], "comparison": {

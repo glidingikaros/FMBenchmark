@@ -6,7 +6,7 @@ from typing import Any
 
 from fmb.core.hashing import sha256_bytes, sha256_file
 from fmb.core.schemas import validate_payload
-from fmb.core.sealed_records import canonical_json, parse_json, verify_seal
+from fmb.core.sealed_records import canonical_json, contained_path, parse_json, verify_seal
 
 GATE_SCHEMAS = {
     "G1": "pipeline_g1.schema.json",
@@ -56,6 +56,19 @@ def _file_refs(value: Any, trail: str = ""):
     elif isinstance(value, list):
         for index, item in enumerate(value):
             yield from _file_refs(item, f"{trail}/{index}")
+
+
+def _lineage_outcomes(gate: dict, recorded_run: str | None, run_dir: Path):
+    for condition, score in (gate.get("scores") or {}).items():
+        lineage = score.get("lineage") if isinstance(score, dict) else None
+        for index, row in enumerate((lineage or {}).get("selected", [])):
+            if row.get("outcome") is None:
+                continue
+            root = Path(lineage["runs"][row["source"]]["root"])
+            if recorded_run and root.is_relative_to(recorded_run):
+                root = run_dir / root.relative_to(recorded_run)
+            yield (f"/scores/{condition}/lineage/selected/{index}/outcome",
+                   contained_path(root / "run", row["outcome"]["path"]), row["outcome"]["sha256"])
 
 
 def _verify_lifecycle(manifest: dict, gates: dict, roots: dict) -> None:
@@ -218,7 +231,13 @@ def verify_run(run_dir: Path) -> dict:
             if mock_counts.get(stage, 0) != expected:
                 raise ValueError("missing or extra mock calls for " + stage)
     for name, gate in gates.items():
+        for trail, path, digest in _lineage_outcomes(gate, manifest.get("roots", {}).get("run"), run_dir):
+            if sha256_file(path) != digest:
+                raise ValueError(f"{name}{trail} differs from its gate: {path}")
+            files += 1
         for trail, reference in _file_refs(gate):
+            if trail.startswith("/scores/") and "/lineage/" in trail:
+                continue
             path = resolve(reference, roots)
             if reference.get("sha256_source") == "generation_manifest":
                 if path.stat().st_size != reference.get("size_bytes"):

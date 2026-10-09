@@ -13,7 +13,7 @@ on:
         options: [linux, windows, both]
         default: linux
       images:
-        description: "The images to generate and run, as a JSON list of names of files in images/ (such as I1 or decoys) or of paths ending in .json"
+        description: "The images to generate and run, as a JSON list of names of files in images/ (such as I1) or of paths ending in .json (such as tests/fixtures/images/stress.json)"
         type: string
         default: '["I1", "I2", "I3"]'
 

@@ -109,6 +109,23 @@ def test_a_new_question_without_its_hooks_is_reported_as_such():
     assert any("no question group registered" in p for p in problems)
 
 
+def test_every_scenario_has_its_hooks():
+    from fmb.generation.population import SCENARIO_ANALYSIS
+
+    for scenario_id in SCENARIO_ANALYSIS:
+        assert question_packs.scenario_problems(scenario_id) == [], scenario_id
+
+
+def test_a_new_scenario_without_its_hooks_is_reported_as_such(monkeypatch):
+    from fmb.generation import population
+
+    assert question_packs.scenario_problems("invented_01") == [
+        "generation: no entry in fmb.generation.population.SCENARIO_ANALYSIS"]
+    monkeypatch.setitem(population.SCENARIO_ANALYSIS, "invented_01", ("Q-NEW-01", "invented_technique", "file"))
+    assert [problem.split(":")[0] for problem in question_packs.scenario_problems("invented_01")] == [
+        "generation", "generation", "analysis", "analysis", "question"]
+
+
 def test_each_question_has_one_text_from_s1_to_the_model():
     from fmb.analysis.target_contract import TARGET_QUESTIONS
     from fmb.core.case_contract import SCOPES

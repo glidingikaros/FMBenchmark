@@ -8,6 +8,7 @@ from fmb.core.schemas import validate_payload
 PACK_DIR = Path(__file__).parent / "contracts" / "questions"
 FAMILY_REGISTRY = Path(__file__).parent / "contracts" / "paper" / "artifact_families.json"
 COLLECTION_DECLARATION = Path(__file__).parent / "contracts" / "paper" / "collection.json"
+SCENARIO_TASKS = Path(__file__).parent / "generation" / "ansible" / "roles" / "manipulation" / "tasks"
 SCHEMA = "question_pack.schema.json"
 
 
@@ -163,6 +164,27 @@ def pack_problems(pack: dict) -> list[str]:
     scenarios = sorted(s for s, (_, tid, _) in SCENARIO_ANALYSIS.items() if tid in techniques)
     if sorted(pack["generation"]["scenarios"]) != scenarios:
         problems.append("generation: scenarios differ from the generator's scenario mapping")
+    return problems
+
+
+def scenario_problems(scenario_id: str) -> list[str]:
+    from fmb.analysis.catalog import technique_definition
+    from fmb.core.case_contract import PHENOMENA
+    from fmb.generation.population import _SCENARIO_RECEIPT_FIELDS, SCENARIO_ANALYSIS
+
+    if scenario_id not in SCENARIO_ANALYSIS:
+        return ["generation: no entry in fmb.generation.population.SCENARIO_ANALYSIS"]
+    technique, problems = SCENARIO_ANALYSIS[scenario_id][1], []
+    if scenario_id not in _SCENARIO_RECEIPT_FIELDS:
+        problems.append("generation: no receipt fields in fmb.generation.population._SCENARIO_RECEIPT_FIELDS")
+    if not any((SCENARIO_TASKS / f"{prefix}{scenario_id}.yml").is_file() for prefix in ("", "pilot_")):
+        problems.append(f"generation: no guest task {scenario_id}.yml in the manipulation role")
+    if technique_definition(technique) is None:
+        problems.append(f"analysis: no technique {technique} in fmb.analysis.catalog")
+    if technique not in PHENOMENA:
+        problems.append(f"analysis: no phenomenon for {technique} in fmb.core.case_contract.PHENOMENA")
+    if not any(scenario_id in pack["generation"]["scenarios"] for pack in load_packs()):
+        problems.append("question: no question pack lists the scenario in generation.scenarios")
     return problems
 
 

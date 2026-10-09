@@ -360,6 +360,14 @@ def test_a_user_condition_with_two_passes_runs_through_the_pipeline(tmp_path, pi
     g5 = read_gate(root, manifest["gates"]["G5"])
     assert g5["scores"]["mine-t0"]["passes"] == [1, 2]
     assert sorted(g5["comparison"]["conditions"]["mine-t0"]["passes"]) == ["1", "2"]
+    assert verify_run(root)["status"] == "verified"
+    moved = tmp_path / "moved"
+    root.rename(moved)
+    assert verify_run(moved)["status"] == "verified"
+    outcome = moved / "conditions/mine-t0/run/call-001/outcome.json"
+    outcome.write_text(outcome.read_text() + " ")
+    with pytest.raises(ValueError, match="lineage/selected/0/outcome differs"):
+        verify_run(moved)
 
 
 @pytest.mark.parametrize("change, message", [

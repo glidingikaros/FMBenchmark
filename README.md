@@ -48,7 +48,6 @@ last event of the base build.
 |---|---|
 | `I1.json`, `I2.json`, `I3.json` | The images of the paper. FMBenchmark compares them with the released definitions. |
 | `template.json` | The start point for a new image. |
-| `decoys.json` | An example: I3 with two times the number of unchanged objects. |
 
 To make a new image:
 
@@ -223,9 +222,13 @@ A new technique, case or question is a change to the code:
 
 | Item | Change |
 |---|---|
-| Technique | The Ansible task in `src/fmb/generation/ansible/roles/manipulation/tasks/`, the scenario in `SCENARIO_ANALYSIS` (`src/fmb/generation/population.py`) and in the image file, the definition in `src/fmb/analysis/catalog.py`, and the rule in `src/fmb/analysis/shared_rules.py` |
+| Technique | The Ansible task in `src/fmb/generation/ansible/roles/manipulation/tasks/`, the scenario in `SCENARIO_ANALYSIS` and its receipt fields in `_SCENARIO_RECEIPT_FIELDS` (`src/fmb/generation/population.py`), the scenario in the image file, the definition in `src/fmb/analysis/catalog.py`, the phenomenon in `PHENOMENA` (`src/fmb/core/case_contract.py`), the rule in `src/fmb/analysis/shared_rules.py`, and the scenario in a question pack |
 | Supplementary case | `CASE_CLASSES` in `src/fmb/generation/pilot_profile.py`, the construction in `src/fmb/generation/ansible/roles/manipulation/files/pilot_challenge.ps1`, and the expected answer in `src/fmb/evaluation/factual_reference.py` |
 | Question | A question pack in `src/fmb/contracts/questions/`, `QIDS` in `src/fmb/core/case_contract.py`, and the rule. Collection, preparation and evaluation use the nine questions of the paper: use the tests as a guide |
+
+Two checks name each missing part: `scenario_problems(scenario)` for a technique and `pack_problems(pack)` for a
+question pack, both in `src/fmb/question_packs.py`. `tests/unit/test_extensibility.py` runs them on every
+scenario and question.
 
 The images of the paper run only with the released code. `fmb generate` and `fmb run` stop if a file is
 different. Your images can run with changed code. The results record the changed files and keep a copy of

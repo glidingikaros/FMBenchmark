@@ -13,7 +13,7 @@ from fmb.generation.pipeline import GenerationPipeline
 from fmb.replication import image_files, run
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / "images/decoys.json"
+EXAMPLE = ROOT / "tests/fixtures/images/decoys.json"
 PAPER_I3 = ROOT / "src/fmb/generation/populations.pilot-i3-20260918.json"
 
 
@@ -216,7 +216,7 @@ def test_generate_checks_image_files_before_anything_starts(tmp_path, monkeypatc
     with pytest.raises(SystemExit, match="same name"):
         run.generate_images([EXAMPLE, write_image(tmp_path / "decoys.json", example())], 1, tmp_path / "generated")
     monkeypatch.chdir(tmp_path)
-    assert main(["generate", "I4"]) != 0
+    assert main(["generate", "missing"]) != 0
     assert not (tmp_path / "generated").exists()
 
 
