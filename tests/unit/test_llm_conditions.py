@@ -436,6 +436,10 @@ def test_a_priced_user_condition_and_passes_reach_the_pipeline_config(tmp_path, 
     assert llm["dispatch"]["rates"]["mine-t0"] == {"input": "1", "output": "2"}
     monkeypatch.setattr(run, "step", lambda name, **arguments: 0)
     monkeypatch.setattr(run.host, "toolchain_root", lambda: tmp_path / "toolchain")
+    from fmb.generation import recipe
+
+    (tmp_path / "recipe").mkdir()
+    (tmp_path / "recipe/recipe.json").write_text(json.dumps({"config": recipe.paper_config("I1")}))
     run.analyse("small", tmp_path / "generation", tmp_path / "recipe", tmp_path, llm)
     config = json.loads((tmp_path / "pipeline.json").read_text())
     assert config["conditions"] == ["mine-t0", "luna-high"]
