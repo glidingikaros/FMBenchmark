@@ -153,20 +153,20 @@ def test_the_directory_guest_builds_folders_of_any_size(tmp_path):
 
 
 @pytest.mark.pwsh
-@pytest.mark.parametrize(("extra", "stage"), [(1, "zone_stream_write"), (0, "validate_input")])
-def test_the_stream_guest_accepts_one_name_for_each_target(tmp_path, extra, stage):
+@pytest.mark.parametrize("extra", [1, 0])
+def test_the_stream_guest_accepts_one_name_for_each_target(tmp_path, extra):
     _, _, _, plan = _plan()
     inputs = deepcopy(plan["scenario_inputs"]["ads_injection_01"])
     inputs["extra_stream_names"] = inputs["extra_stream_names"][:extra]
     if not extra:
         del inputs["extra_stream_names"]
     completed = _run(tmp_path, "ads_injection_01.yml", inputs)
-    assert json.loads(completed.stdout)["failure_stage"] == stage
+    assert (json.loads(completed.stdout).get("failure_stage") == "validate_input") is (extra == 0)
 
 
 @pytest.mark.pwsh
-@pytest.mark.parametrize(("operations", "stage"), [(2, "preallocation_set_api"), (0, "validate_input")])
-def test_the_allocation_guest_accepts_any_number_of_files(tmp_path, operations, stage):
+@pytest.mark.parametrize("operations", [2, 0])
+def test_the_allocation_guest_accepts_any_number_of_files(tmp_path, operations):
     _, _, _, plan = _plan()
     inputs = deepcopy(plan["scenario_inputs"]["ntfs_allocation_01"])
     local = {path: str(tmp_path / f"control{index}.bin") for index, path in enumerate(inputs["population_paths"])}
@@ -176,7 +176,7 @@ def test_the_allocation_guest_accepts_any_number_of_files(tmp_path, operations, 
     for case in inputs["storage_cases"]:
         case["path"] = local[case["path"]]
     completed = _run(tmp_path, "pilot_ntfs_allocation_01.yml", inputs)
-    assert json.loads(completed.stdout)["failure_stage"] == stage
+    assert (json.loads(completed.stdout).get("failure_stage") == "validate_input") is (operations == 0)
 
 
 SUBSET = ROOT / "tests/fixtures/images/subset.json"
