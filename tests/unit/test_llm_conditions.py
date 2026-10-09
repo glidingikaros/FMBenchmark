@@ -383,6 +383,7 @@ def test_fmb_run_takes_a_conditions_file_and_passes_and_lists_them_in_its_help(t
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("COLUMNS", "1000")
     (tmp_path / "conditions").mkdir()
     (tmp_path / "conditions/mine.json").write_text(json.dumps(OWN))
     analysed = []
