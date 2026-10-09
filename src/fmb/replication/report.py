@@ -122,7 +122,7 @@ def markdown(output: Path, row: dict, manifest: dict | None, generated: Path) ->
         g5 = json.loads(gate.read_text(encoding="utf-8"))
         lines += ["## Results", "", run_table(output / "run"), "", "## Per question", "", *_questions(g5), ""]
     lines += ["## Assessors", ""]
-    if manifest:
+    if manifest and "S3" in manifest.get("implementations", {}):
         s3 = manifest["implementations"]["S3"]
         lines.append(f"- S3: `{s3['engine']}` ({s3['module']}); code {row.get('implementation', 'released')}, "
                      f"source manifest {manifest['code']['source_manifest_sha256']}.")

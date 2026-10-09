@@ -63,3 +63,11 @@ def test_a_finished_run_gets_its_receipts_a_summary_and_a_readable_report(tmp_pa
 def test_a_run_that_stopped_still_reports_where_to_look(tmp_path):
     lines = report.headline({"image": "small", "admission": "not reached"}, tmp_path)
     assert "see pipeline.log" in lines[0] and lines[-1].endswith("report.md")
+
+
+def test_a_run_that_stopped_before_its_assessors_still_gets_a_report(tmp_path):
+    output, generated, generation = finished_run(tmp_path)
+    (output / "run/gates/G5.json").unlink()
+    (output / "run/run-manifest.json").write_text(json.dumps({"gates": {}, "stages": []}))
+    report.complete(output, {"image": "small", "admission": "not reached"}, generated, generation)
+    assert "## Assessors" in (output / "report.md").read_text()
