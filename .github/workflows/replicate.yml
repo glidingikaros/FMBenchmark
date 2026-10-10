@@ -27,7 +27,7 @@ env:
 
 jobs:
   linux:
-    if: inputs.hosts != 'windows'
+    if: inputs.hosts != 'windows' && inputs.hosts != 'distros'
     name: linux ${{ matrix.image }}
     runs-on: ubuntu-24.04
     timeout-minutes: 355
@@ -175,7 +175,7 @@ jobs:
           docker run --rm --device /dev/kvm -v "$PWD":/work -v /mnt/fmb:/mnt/fmb -v "$HOME/Downloads":/downloads:ro \
             -e FMB_CACHE=/mnt/fmb/cache -e ISO -e IMAGE -e GITHUB_RUN_ID -w /work "$DISTRO" bash -euo pipefail -c '
             . /etc/os-release
-            case " $ID $ID_LIKE " in
+            case " $ID ${ID_LIKE:-} " in
               *" fedora "*) dnf install -y qemu-system-x86-core qemu-img edk2-ovmf git curl tar gzip procps-ng libicu ;;
               *" arch "*) pacman -Syu --noconfirm qemu-system-x86 qemu-img edk2-ovmf git curl tar gzip procps-ng icu ;;
               *" suse "*) zypper -n install qemu-x86 qemu-tools qemu-ovmf-x86_64 git curl tar gzip procps libicu ;;
