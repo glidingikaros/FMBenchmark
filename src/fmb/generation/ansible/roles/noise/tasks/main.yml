@@ -1,0 +1,90 @@
+---
+- name: Create the background activity directory
+  ansible.windows.win_file:
+    path: C:\ProgramData\LocalTasks
+    state: directory
+
+- name: Install the bounded background activity script
+  ansible.windows.win_copy:
+    dest: C:\ProgramData\LocalTasks\activity.ps1
+    content: |
+      param(
+          [ValidateRange(1, 500)]
+          [int]$Iterations = 36,
+          [switch]$ResolvedPlan
+      )
+
+      Set-StrictMode -Version Latest
+      $ErrorActionPreference = 'Stop'
+      if ($ResolvedPlan) {
+          $parsedPlan = [Console]::In.ReadToEnd() | ConvertFrom-Json
+          $plan = @($parsedPlan)
+          if ($plan.Count -lt 1 -or $plan.Count -gt 500) { throw 'Invalid activity plan count' }
+          $started = [DateTime]::UtcNow.ToString('o')
+          $completed = 0
+          foreach ($operation in $plan) {
+              $target = [string]$operation.path
+              $parent = Split-Path -Parent $target
+              New-Item -Path $parent -ItemType Directory -Force | Out-Null
+              Set-Content -LiteralPath $target -Value ([string]$operation.content) -Encoding Utf8
+              Add-Content -LiteralPath $target -Value ([string]$operation.append_content) -Encoding Utf8
+              if ([bool]$operation.delete) { Remove-Item -LiteralPath $target -Force }
+              if ((Test-Path -LiteralPath $target) -eq [bool]$operation.delete) {
+                  throw 'Activity presence postcondition failed'
+              }
+              Start-Sleep -Milliseconds ([int]$operation.sleep_ms)
+              $completed += 1
+          }
+          [ordered]@{schema_version='generation_activity_receipt.v1';
+                     completed_count=$completed; started_utc=$started;
+                     completed_utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Compress
+          return
+      }
+      $paths = @(
+          'C:\Users\Public\Documents',
+          'C:\Windows\Temp',
+          'C:\Users\vagrant\Desktop'
+      )
+
+      foreach ($path in $paths) {
+          if (-not (Test-Path -LiteralPath $path)) {
+              New-Item -Path $path -ItemType Directory -Force | Out-Null
+          }
+      }
+
+      for ($index = 0; $index -lt $Iterations; $index++) {
+          $directory = Get-Random -InputObject $paths
+          $name = [System.IO.Path]::GetRandomFileName()
+          $target = Join-Path -Path $directory -ChildPath $name
+          $timestamp = [DateTime]::UtcNow.ToString('O')
+          Set-Content -LiteralPath $target -Value "Local activity $index at $timestamp"
+          Add-Content -LiteralPath $target -Value "Updated at $timestamp"
+
+          if (($index % 3) -ne 0) {
+              Remove-Item -LiteralPath $target -Force
+          }
+
+          Start-Sleep -Milliseconds (Get-Random -Minimum 100 -Maximum 350)
+      }
+
+- name: Generate bounded local filesystem activity
+  ansible.windows.win_shell: |
+    & 'C:\ProgramData\LocalTasks\activity.ps1' -Iterations 36 {{ '-ResolvedPlan' if fmb_activity_plan is defined else '' }}
+  args:
+    stdin: "{{ fmb_activity_plan | default([]) | to_json }}"
+  register: fmb_activity_result
+  no_log: true
+  changed_when: true
+
+- name: Remove the background activity script from the guest
+  ansible.windows.win_file:
+    path: C:\ProgramData\LocalTasks
+    state: absent
+
+- name: Emit host-only resolved activity receipt
+  ansible.builtin.debug:
+    msg:
+      - "GENERATION_ACTIVITY_BEGIN"
+      - "{{ fmb_activity_result.stdout | trim }}"
+      - "GENERATION_ACTIVITY_END"
+  when: fmb_activity_plan is defined

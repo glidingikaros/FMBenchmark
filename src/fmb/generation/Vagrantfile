@@ -1,0 +1,111 @@
+require 'json'
+require 'rbconfig'
+require 'vagrant/util/is_port_open'
+
+module Vagrant::Util::IsPortOpen
+  def is_port_open?(host, port)
+    Socket.tcp(host, port, connect_timeout: 0.1) do |socket|
+      error = socket.getsockopt(Socket::SOL_SOCKET, Socket::SO_ERROR).int
+      raise SystemCallError.new('connect(2)', error) unless error.zero?
+      socket.remote_address
+    end
+    true
+  rescue Errno::ETIMEDOUT, Errno::ECONNREFUSED, Errno::EHOSTUNREACH,
+         Errno::ENETUNREACH, Errno::EACCES, Errno::ENOTCONN, Errno::EALREADY
+    false
+  end
+end
+
+unless RbConfig::CONFIG['host_os'].include?('darwin') && RbConfig::CONFIG['host_cpu'].match?(/arm64|aarch64/)
+  raise 'The paper realization requires macOS ARM64'
+end
+raise 'A frozen paper recipe is required' unless ENV['FMB_RECIPE_MODE'] == '1'
+recipe_inputs = JSON.parse(File.read(ENV.fetch('FMB_GENERATION_INPUTS_PATH')))
+frozen_hardware = recipe_inputs.fetch('fmb_hardware')
+raise 'Frozen recipe hardware is missing' if frozen_hardware.empty?
+disable_vmware_media_slots = ENV.fetch('FMB_VMWARE_DISABLE_MEDIA_SLOTS', '').split(',').map(&:strip).reject(&:empty?)
+
+Vagrant.configure('2') do |config|
+  config.vm.box = 'fmb/windows-11-arm64'
+  config.vm.box_version = ENV.fetch('FMB_BOX_VERSION')
+  config.vm.box_check_update = false
+  config.vm.synced_folder '.', '/vagrant', disabled: true
+  config.vm.guest = :windows
+  config.vm.communicator = 'winrm'
+  config.winrm.username = 'vagrant'
+  config.winrm.password = 'vagrant'
+  config.winrm.retry_limit = 30
+  config.winrm.timeout = 300
+  config.vm.network :forwarded_port, guest: 5985, host: 5985, id: 'winrm', auto_correct: true
+  config.vm.network :forwarded_port, guest: 5986, host: 5986, id: 'winrm-ssl', auto_correct: true
+  config.vm.network :forwarded_port, guest: 3389, host: 3389, id: 'rdp', auto_correct: true
+    config.vm.provider "vmware_desktop" do |vmware, override|
+      vmware.gui = false
+      vmware.memory = "4096"
+      vmware.cpus = 2
+      if recipe_inputs.key?('fmb_vmware_boot_clock_bias_minutes')
+        rtc_bias = recipe_inputs.fetch('fmb_vmware_boot_clock_bias_minutes')
+        unless rtc_bias.is_a?(Integer) && (-840..840).cover?(rtc_bias)
+          raise 'Frozen VMware boot clock bias is invalid'
+        end
+                                vmware.vmx['rtc.startInUTC'] = 'TRUE'
+        vmware.vmx['rtc.startTime'] = (Time.now.to_i - rtc_bias * 60).to_s
+      end
+      vmware.linked_clone = false
+      vmware.verify_vmnet = false
+      vmware.enable_vmrun_ip_lookup = false
+
+                  media_sources = ENV['FMB_NATIVE_MEDIA_SOURCES']
+      frozen_layout = recipe_inputs.fetch('generation_inputs').fetch('scenario_inputs').fetch('usbstor_setupapi_discrepancy_01', {}).fetch('media', [])
+      raise 'Paper media layout is missing' unless frozen_layout.empty? || (media_sources && !media_sources.empty?)
+      layout = frozen_layout.empty? ? [] : JSON.parse(media_sources)
+      unless layout.size == frozen_layout.size && (layout.empty? || layout.size.between?(2, 4))
+        raise 'Unsupported native pilot USB layout'
+      end
+      layout.zip(frozen_layout).each do |row, planned|
+        raise 'Pilot USB layout differs from its frozen recipe' unless row.fetch('unit') == planned.fetch('unit') && row.fetch('port') == planned.fetch('port') && File.basename(row.fetch('path')) == planned.fetch('source_file')
+        raise 'Pilot USB backing is missing' unless File.file?(row.fetch('path'))
+        slot = "usb_xhci:#{row.fetch('unit')}"
+        vmware.vmx['usb_xhci.present'] = 'TRUE'
+        vmware.vmx["#{slot}.present"] = 'TRUE'
+        vmware.vmx["#{slot}.deviceType"] = 'disk'
+        vmware.vmx["#{slot}.fileName"] = row.fetch('path')
+        vmware.vmx["#{slot}.readonly"] = 'FALSE'
+        vmware.vmx["#{slot}.startConnected"] = 'TRUE'
+        vmware.vmx["#{slot}.port"] = row.fetch('port').to_s
+        vmware.vmx["#{slot}.parent"] = '-1'
+        vmware.vmx["#{slot}.speed"] = '4'
+      end
+
+                                    vmware.vmx["ethernet0.connectiontype"] = "nat"
+      vmware.vmx["ethernet0.virtualdev"] = "vmxnet3"
+      vmware.vmx["ethernet0.startConnected"] = "TRUE"
+      vmware.vmx["ethernet0.allowGuestConnectionControl"] = "FALSE"
+      vmware.vmx["ethernet1.present"] = "TRUE"
+      vmware.vmx["ethernet1.connectiontype"] = "hostonly"
+      vmware.vmx["ethernet1.virtualdev"] = "vmxnet3"
+      vmware.vmx["ethernet1.startConnected"] = "TRUE"
+      vmware.vmx["ethernet1.allowGuestConnectionControl"] = "FALSE"
+      vmware.vmx["tools.syncTime"] = "FALSE"
+      vmware.vmx["time.synchronize.allow"] = "FALSE"
+      vmware.vmx["time.synchronize.continue"] = "FALSE"
+      vmware.vmx["time.synchronize.restore"] = "FALSE"
+      vmware.vmx["time.synchronize.resume.disk"] = "FALSE"
+      vmware.vmx["time.synchronize.shrink"] = "FALSE"
+      vmware.vmx["time.synchronize.tools.startup"] = "FALSE"
+      vmware.vmx["time.synchronize.tools.enable"] = "FALSE"
+      vmware.vmx["time.synchronize.resume.host"] = "FALSE"
+
+                  disable_vmware_media_slots.each do |slot|
+        vmware.vmx["#{slot}.present"] = "FALSE"
+        vmware.vmx["#{slot}.startConnected"] = "FALSE"
+        vmware.vmx["#{slot}.fileName"] = "auto detect"
+        vmware.vmx["#{slot}.deviceType"] = "cdrom-raw"
+      end
+
+      vmware.base_mac = frozen_hardware.fetch('base_mac')
+      vmware.vmx["uuid.bios"] = frozen_hardware.fetch('uuid_bios')
+      vmware.vmx["uuid.location"] = frozen_hardware.fetch('uuid_location')
+      vmware.vmx["displayName"] = frozen_hardware.fetch('display_name')
+    end
+end

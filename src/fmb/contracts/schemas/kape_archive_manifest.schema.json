@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kape_archive_manifest.schema.json",
+  "title": "Pinned KAPE archive manifest",
+  "description": "File list of the pinned Kroll KAPE archive (12 September 2026): per-file SHA-256 and size for every regular member, sorted by path, plus the whole-archive hash. The archive itself is Kroll-licensed and is not redistributed; entries carry a redistributable flag so the definition files can be shared while the kape executables and the Modules/bin binaries are re-obtained from their vendors. scripts/bootstrap_kape_archive.py verifies a user-supplied archive against this manifest.",
+  "$ref": "#/$defs/kape_archive_manifest",
+  "$defs": {
+    "kape_archive_manifest": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "generated_at",
+        "archive",
+        "redistribution_policy",
+        "file_count",
+        "entries"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "kape_archive_manifest.v1"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archive": {
+          "type": "object",
+          "required": [
+            "file_name",
+            "sha256",
+            "size_bytes",
+            "member_count",
+            "file_count",
+            "directory_count",
+            "license"
+          ],
+          "properties": {
+            "file_name": {
+              "type": "string",
+              "pattern": "^[^/\\u0000]+\\.zip$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "member_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "file_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "directory_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "license": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "redistribution_policy": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/policy_rule"
+          },
+          "uniqueItems": true
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/entry"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "policy_rule": {
+      "type": "object",
+      "required": [
+        "role",
+        "redistributable",
+        "reason"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "redistributable": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "role": {
+      "enum": [
+        "kape_core",
+        "windows_only_processor",
+        "module_binary",
+        "module_binary_asset",
+        "target_definition",
+        "module_definition",
+        "definition_guide"
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "required": [
+        "path",
+        "size_bytes",
+        "sha256",
+        "role",
+        "redistributable"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^KAPE/[^\\u0000]*[^/\\u0000]$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "redistributable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "enum": [
+                  "kape_core",
+                  "windows_only_processor",
+                  "module_binary",
+                  "module_binary_asset"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "redistributable": {
+                "const": false
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "redistributable": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

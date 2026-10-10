@@ -1,0 +1,282 @@
+{
+  "candidate_populations": [
+    {
+      "coverage_status": "complete",
+      "population_id": "population:case_media_01",
+      "question_id": "Q-MEDIA-01",
+      "subject_type": "device",
+      "subjects": [
+        {
+          "identity": {
+            "device_instance_id": "usbstor\\disk&ven_fmb&prod_trainingmedia&rev_1.0\\fmbusb20260730a",
+            "serial_number": "fmbusb20260730a"
+          },
+          "observation_ids": [
+            "observation:case_media_01:001:001"
+          ],
+          "subject_ref": "FMB Training Media"
+        }
+      ],
+      "technique_id": "usbstor_setupapi_discrepancy"
+    }
+  ],
+  "collector_runs": [
+    {
+      "artifact_count": 2,
+      "artifacts": [
+        {
+          "artifact_families": [
+            "windows.registry.usbstor"
+          ],
+          "artifact_family": "windows.registry.usbstor",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.registry.usbstor",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:300b2565eeb195d44191e28f",
+          "path": "benchmark/case_media_01/windows_usbstor-raw.json",
+          "relative_path": "benchmark/case_media_01/windows_usbstor-raw.json",
+          "sha256": "300b2565eeb195d44191e28fc5f9a6fc5993bc33fa6b349c5b2de17cf071c50f",
+          "size_bytes": 0
+        },
+        {
+          "artifact_families": [
+            "windows.setupapi"
+          ],
+          "artifact_family": "windows.setupapi",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.setupapi",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:8f75b4f99f3d500cf1ed13ce",
+          "path": "benchmark/case_media_01/windows_setupapi-raw.json",
+          "relative_path": "benchmark/case_media_01/windows_setupapi-raw.json",
+          "sha256": "8f75b4f99f3d500cf1ed13ce0c165e0ef3285689a5ed2fd5e35a393ea599e454",
+          "size_bytes": 0
+        }
+      ],
+      "collector": "kape",
+      "input_kind": "external_tool_output",
+      "output_root": "benchmark/case_media_01",
+      "provenance": {
+        "adapter": "fmb.tool_output_adapter",
+        "adapter_scope": "inventory_existing_tool_output_no_collection_execution"
+      },
+      "status": "consumed"
+    }
+  ],
+  "external_inputs_allowed": false,
+  "parser_runs": [
+    {
+      "coverage_families": [
+        "windows.registry.usbstor"
+      ],
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "windows.registry.usbstor"
+        ],
+        "artifact_family": "windows.registry.usbstor",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "windows.registry.usbstor",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:c606ffe38898cef24023cb57",
+        "artifact_record_id": "source:c606ffe38898cef2",
+        "path": "benchmark/case_media_01/windows_usbstor-normalized.json",
+        "record_count": 1,
+        "relative_path": "benchmark/case_media_01/windows_usbstor-normalized.json",
+        "sha256": "c606ffe38898cef24023cb571079a3c3952239eec416faab46c003ad83b8ca90",
+        "size_bytes": 0
+      },
+      "observation_count": 1,
+      "observation_families": [
+        "windows.registry.usbstor"
+      ],
+      "observations": [
+        {
+          "artifact_family": "windows.registry.usbstor",
+          "fields": {
+            "control_set": "ControlSet001",
+            "device_instance_id": "USBSTOR\\Disk&Ven_FMB&Prod_TrainingMedia&Rev_1.0\\FMBUSB20260730A",
+            "first_install": "2026-07-30T09:15:00",
+            "installed": "2026-07-30T09:15:00",
+            "serial_number": "FMBUSB20260730A",
+            "time_provenance": {
+              "first_install": "recmd_usbstor_plugin_naive:FirstInstalled",
+              "installed": "recmd_usbstor_plugin_naive:Installed"
+            },
+            "timestamp_basis": "plugin_naive_clock"
+          },
+          "observation_id": "observation:case_media_01:001:001",
+          "observation_type": "usb_device_seen",
+          "source_record_ref": "source:300b2565eeb195d4:1",
+          "subject_ref": "FMB Training Media"
+        }
+      ],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "windows_usbstor",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "windows.registry.usbstor"
+          ],
+          "artifact_family": "windows.registry.usbstor",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.registry.usbstor",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:300b2565eeb195d44191e28f",
+          "artifact_record_id": "source:300b2565eeb195d4",
+          "path": "benchmark/case_media_01/windows_usbstor-raw.json",
+          "relative_path": "benchmark/case_media_01/windows_usbstor-raw.json",
+          "sha256": "300b2565eeb195d44191e28fc5f9a6fc5993bc33fa6b349c5b2de17cf071c50f",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    },
+    {
+      "coverage_families": [
+        "windows.setupapi"
+      ],
+      "coverage_scope": {
+        "files": [
+          "setupapi.dev.log"
+        ],
+        "first_section_timestamp": "2026-07-01T08:00:00",
+        "kind": "setupapi_log",
+        "last_section_timestamp": "2026-07-31T18:00:00",
+        "retained_log_names": [
+          "setupapi.dev.log"
+        ],
+        "retention_basis": "SetupAPI logs rotate at 20 MB and are replaced by in-place upgrades; device installs before the earliest retained section are not observable",
+        "rotated_logs_present": false,
+        "section_count": 12,
+        "window_complete": true
+      },
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "windows.setupapi"
+        ],
+        "artifact_family": "windows.setupapi",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "windows.setupapi",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:7c2852da02787bba78f85a9d",
+        "artifact_record_id": "source:7c2852da02787bba",
+        "path": "benchmark/case_media_01/windows_setupapi-normalized.json",
+        "record_count": 0,
+        "relative_path": "benchmark/case_media_01/windows_setupapi-normalized.json",
+        "sha256": "7c2852da02787bba78f85a9d5f3b1cb6de15375f9f995d2db088079d312cca8c",
+        "size_bytes": 0
+      },
+      "observation_count": 0,
+      "observation_families": [],
+      "observations": [],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "windows_setupapi",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "windows.setupapi"
+          ],
+          "artifact_family": "windows.setupapi",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.setupapi",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:8f75b4f99f3d500cf1ed13ce",
+          "artifact_record_id": "source:8f75b4f99f3d500c",
+          "path": "benchmark/case_media_01/windows_setupapi-raw.json",
+          "relative_path": "benchmark/case_media_01/windows_setupapi-raw.json",
+          "sha256": "8f75b4f99f3d500cf1ed13ce0c165e0ef3285689a5ed2fd5e35a393ea599e454",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    }
+  ],
+  "question": {
+    "question_id": "Q-MEDIA-01",
+    "question_text": "Is a self-consistent USBSTOR identity absent from a complete SetupAPI surface with no partial identity conflict?"
+  },
+  "rule_runs": [],
+  "run_id": "benchmark-evidence:case_media_01",
+  "schema_version": "evidence_index.v1",
+  "tool_alignment": {
+    "collection_tools_supported": [
+      "kape",
+      "uac"
+    ],
+    "collection_tools_used": [
+      "kape"
+    ],
+    "custom_forensic_heuristics_allowed": false,
+    "normalization_role": "map_tool_outputs_to_project_contracts_only",
+    "parser_tools_supported": [
+      "fmb_bounded_parser"
+    ],
+    "parser_tools_used": [
+      "fmb_bounded_parser"
+    ],
+    "rule_engines_supported": [
+      "yara",
+      "sigma"
+    ],
+    "rule_engines_used": [],
+    "synthetic_fixture_role": "ground_truth_for_final_evaluation_only_not_analysis_input"
+  }
+}

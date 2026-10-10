@@ -1,0 +1,64 @@
+name: Firmware
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [src/fmb/generation/qemu_host.py, .github/workflows/firmware.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  distribution:
+    name: ${{ matrix.image }}
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:stable
+            install: apt-get update -qq && apt-get install -y -qq qemu-system-x86 qemu-utils ovmf python3 > /dev/null
+          - image: fedora:latest
+            install: dnf install -y -q qemu-system-x86-core qemu-img edk2-ovmf python3 findutils
+          - image: archlinux:latest
+            install: pacman -Syu --noconfirm --quiet qemu-system-x86 qemu-img edk2-ovmf python > /dev/null
+          - image: opensuse/tumbleweed
+            install: zypper --non-interactive --quiet install qemu-x86 qemu-tools qemu-ovmf-x86_64 python3 findutils
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: The distribution's QEMU and OVMF packages
+        run: ${{ matrix.install }}
+      - name: What doctor names for this distribution, and the firmware files present
+        run: |
+          python3 -c "import sys; sys.path.insert(0, 'src'); from fmb.replication.host import qemu_install; print('doctor:', qemu_install())"
+          for tool in qemu-system-x86_64 qemu-img qemu-io; do command -v "$tool" || exit 1; done
+          find / -xdev \( -iname '*ovmf*' -o -iname 'edk2-*' \) \( -iname '*.fd' -o -iname '*.bin' -o -iname '*.qcow2' \) 2>/dev/null | sort
+      - name: The firmware fmb finds boots
+        shell: python3 {0}
+        run: |
+          import shutil, subprocess, sys, time
+          from pathlib import Path
+          sys.path.insert(0, "src")
+          from fmb.generation.qemu_host import uefi_firmware
+
+          qemu = Path(shutil.which("qemu-system-x86_64")).resolve()
+          code, variables = uefi_firmware(qemu)
+          print(f"code {code} ({code.stat().st_size} bytes), variables {variables} ({variables.stat().st_size} bytes)")
+          shutil.copyfile(variables, "/tmp/vars.fd")
+          vm = subprocess.Popen([str(qemu), "-machine", "q35", "-accel", "tcg", "-m", "512", "-nodefaults", "-display", "none",
+                                 "-drive", f"if=pflash,format=raw,readonly=on,file={code}",
+                                 "-drive", "if=pflash,format=raw,file=/tmp/vars.fd", "-serial", "file:/tmp/serial.log"],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+          time.sleep(45)
+          running = vm.poll() is None
+          vm.kill()
+          print(vm.communicate()[0][-2000:])
+          console = Path("/tmp/serial.log").read_text(errors="replace")
+          print(console[-3000:])
+          if not running or not console.strip():
+              sys.exit("QEMU did not boot the firmware")

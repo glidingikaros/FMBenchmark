@@ -1,0 +1,28 @@
+{
+  "schema_version": "fmb_replication_pins.v1",
+  "windows_iso": {
+    "edition": "pro",
+    "download": "https://www.microsoft.com/software-download/windows11",
+    "choose": "Windows 11 (multi-edition ISO for x64 devices), then English (United States)",
+    "file": "Windows11_Client_x64_en-us_26300_9457.iso",
+    "sha256": "bd4307df32bc8af33b39ccecb1174aeb345386630f89a2b86c7a4e36b55ea650"
+  },
+  "windows_iso_arm64": {
+    "download": "https://www.microsoft.com/software-download/windows11arm64",
+    "choose": "Windows 11 (multi-edition ISO for Arm64), then English (United States)",
+    "file": "Windows11_Client_arm64_en-us_26300_9457.iso",
+    "sha256": "8992f2d2cfd2fa647e579e9eb31fc21f34da8333c29b6170fde17d2ed6623e9c"
+  },
+  "eztools": {
+    "file": "tools/eztools/eztools-net9-locked.tar.gz",
+    "sha256": "ea08df43c5e3b09c9a156a5a76c1bdefe9866bf394630145c1b1dda7131c818c"
+  },
+  "windows_parsers": {
+    "PECmd.exe": "https://download.ericzimmermanstools.com/PECmd.zip",
+    "SBECmd.exe": "https://download.ericzimmermanstools.com/SBECmd.zip"
+  },
+  "dotnet_runtime": {"channel": "10.0", "version": "10.0.7"},
+  "ansible": {"ansible-core": "2.20.5", "pywinrm": "0.5.0", "ansible.windows": "3.5.0"},
+  "base_builder": {"pycdlib": "1.14.0", "pywinrm": "0.5.0", "psutil": "7.1.0"},
+  "wsl_distribution": "Ubuntu-24.04"
+}

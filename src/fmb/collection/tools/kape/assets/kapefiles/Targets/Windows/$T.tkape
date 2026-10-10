@@ -1,0 +1,19 @@
+Description: $T
+Author: Eric Zimmerman and Andrew Rathbun
+Version: 1.1
+Id: 8c568aa0-9a67-4035-9720-1423770bc29a
+RecreateDirectories: true
+Targets:
+    -
+        Name: $T
+        Category: FileSystem
+        Path: C:\$Extend\$RmMetadata\$TxfLog\
+        FileMask: $Tops:$T
+        AlwaysAddToQueue: true
+        SaveAsFileName: $T
+    -
+        Name: $T
+        Category: FileSystem
+        Path: C:\$Extend\$RmMetadata\$TxfLog\
+        FileMask: $T
+        SaveAsFileName: $T

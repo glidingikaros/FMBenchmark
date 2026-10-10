@@ -1,0 +1,64 @@
+---
+- name: Update the bounded file population and remove one member
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    $ErrorActionPreference = 'Stop'
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $case = [string]$scenarioInput.case
+    if ($case -notin @('positive', 'benign')) {
+      throw "Unsupported generation case"
+    }
+    $populationPaths = @($scenarioInput.population_paths)
+    $paths = @($scenarioInput.operation_refs)
+    $expectedPopulationCount = [int]$scenarioInput.expected_population_count
+    $expectedOperationCount = [int]$scenarioInput.expected_operation_count
+    $operationRefsSha256 = Get-OperationRefsSha256 $paths
+    if (
+      $expectedPopulationCount -lt 1 -or
+      $populationPaths.Count -ne $expectedPopulationCount -or
+      ($case -eq 'positive' -and ($expectedOperationCount -lt 1 -or $expectedOperationCount -gt $expectedPopulationCount)) -or
+      ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
+      $paths.Count -ne $expectedOperationCount
+    ) {
+      throw "Journal population cardinality is invalid"
+    }
+    foreach ($path in $populationPaths) {
+       Add-Content -LiteralPath ([string]$path) -Value "Revision." -Encoding Ascii 
+    }
+    if ($case -eq 'positive') {
+      foreach ($operationPath in @($paths | ForEach-Object { [string]$_ })) {
+        Invoke-PaperOperation ("Remove-Item -LiteralPath " + (ConvertTo-OperationLiteral $operationPath) + " -Force")
+      }
+      $remaining = @($paths | Where-Object { Test-Path -LiteralPath ([string]$_) }).Count
+      $verified = $remaining -eq 0
+    }
+    else {
+      $retainedCount = @(
+        $populationPaths | Where-Object {
+          Test-Path -LiteralPath ([string]$_) -PathType Leaf
+        }
+      ).Count
+      $verified = $retainedCount -eq $populationPaths.Count
+    }
+    if (-not $verified) {
+      throw "Journal deletion postcondition failed"
+    }
+    [ordered]@{
+      scenario_id = 'usn_journal_01'
+      case = $case
+      operation_count = $paths.Count
+      operation_refs_sha256 = $operationRefsSha256
+      postcondition_verified = $verified
+      population_count = $populationPaths.Count
+    } | ConvertTo-Json -Compress
+  args:
+    stdin: "{{ generation_inputs.scenario_inputs.usn_journal_01 | to_json }}"
+  register: usn_receipt
+  no_log: true
+
+- name: Emit host-captured journal receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - "{{ usn_receipt.stdout | trim }}"
+      - "GROUND_TRUTH_END"

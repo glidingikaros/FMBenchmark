@@ -1,0 +1,853 @@
+{
+  "$schema": "../schemas/reference.schema.json",
+  "schema_version": "artifact_family_reference.v1",
+  "artifact_families": {
+    "ntfs.mft": {
+      "display_name": "NTFS Master File Table",
+      "logical_sources": [
+        "$MFT"
+      ],
+      "extractor_id": "pending.extractor.ntfs.mft",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "ntfs.mft.raw",
+              "mode": "raw_file",
+              "logical_source": "/$MFT",
+              "output_name": "$MFT.bin",
+              "sidecar_mode": "mft_record_index",
+              "sidecar_output_name": "mft_records.index.json",
+              "sidecar_coverage_status": "full_volume_mft_index",
+              "sidecar_scan_strategy": "mft_record_attribute_inventory",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "timestomp_01",
+                "directory_cleaning_i30_01",
+                "ads_injection_01",
+                "bitmap_trailing_data_01",
+                "prefetch_wipe_01",
+                "shimcache_path_residue_01",
+                "usn_journal_01",
+                "typed_path_residue_01",
+                "shellbag_path_residue_01",
+                "ntfs_allocation_01"
+              ],
+              "rationale": "Preserve the raw NTFS Master File Table for timestamp-bearing metadata and later SI/FN comparison.",
+              "known_blind_spots": [
+                "Structured MFT record inventory is a substrate only and does not make timestomp or SI/FN anomaly claims.",
+                "No independent cross-parser validation is recorded yet."
+              ],
+              "parser_state": "raw_export_with_mft_record_index",
+              "validation_state": "size_hash_and_record_index_validated"
+            }
+          ]
+        }
+      }
+    },
+    "ntfs.ads": {
+      "display_name": "NTFS Alternate Data Streams",
+      "logical_sources": [
+        "$MFT named stream metadata"
+      ],
+      "extractor_id": "pending.extractor.ntfs.ads",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "ntfs.ads.mft_named_data_index",
+              "mode": "mft_named_data_index",
+              "logical_source": "/$MFT",
+              "output_name": "named_data_streams.index.json",
+              "coverage_status": "full_volume_mft_index",
+              "scan_strategy": "mft_named_data_attributes",
+              "content_materialization": "bounded_roots",
+              "materialize_roots": [
+                "/Users/vagrant/Desktop"
+              ],
+              "limits": {
+                "stream_export_limit_bytes": 8388608
+              },
+              "full_volume_supported": true,
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "ads_injection_01"
+              ],
+              "rationale": "Enumerate named NTFS $DATA attributes through the MFT so ADS coverage is independent of recursive path walking.",
+              "known_blind_spots": [
+                "Stream content materialization is bounded to explicit roots.",
+                "No independent ADS parser or Windows dir /r comparison is recorded yet."
+              ],
+              "parser_state": "metadata_index_with_bounded_content_export",
+              "validation_state": "fixture_validated_cross_parser_pending"
+            }
+          ]
+        }
+      }
+    },
+    "ntfs.usn": {
+      "display_name": "NTFS USN Journal",
+      "logical_sources": [
+        "$UsnJrnl:$J"
+      ],
+      "extractor_id": "pending.extractor.ntfs.usn",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "ntfs.usn.j_external_reference",
+              "mode": "named_attribute_reference",
+              "logical_source": "/$Extend/$UsnJrnl",
+              "attribute_name": "$J",
+              "output_name": "$UsnJrnl-$J.bin",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "timestomp_01",
+                "directory_cleaning_i30_01",
+                "usn_journal_01"
+              ],
+              "rationale": "Reference the USN journal stream needed for journal-backed deletion persistence evidence.",
+              "known_blind_spots": [
+                "Bounded exact-reference USN parsing is limited to the registered truth-blind candidate population; full journal reconstruction is outside the active claim.",
+                "Oversized journal content is referenced with an explicit size-threshold policy rather than fully exported."
+              ],
+              "parser_state": "named_attribute_reference_with_bounded_record_index",
+              "validation_state": "fixture_validated_cross_parser_pending"
+            }
+          ]
+        }
+      }
+    },
+    "windows.registry.typed_paths": {
+      "display_name": "Windows TypedPaths Registry Values",
+      "logical_sources": [
+        "Users/vagrant/NTUSER.DAT"
+      ],
+      "extractor_id": "pending.extractor.windows.registry.typed_paths",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "windows.registry.typed_paths.ntuser_raw_hive",
+              "mode": "raw_file",
+              "logical_source": "/Users/vagrant/NTUSER.DAT",
+              "output_name": "NTUSER.DAT",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "typed_path_residue_01"
+              ],
+              "rationale": "Collect the complete user hive and normalize absolute local-path values from Explorer\\TypedPaths.",
+              "known_blind_spots": [
+                "Only structured TypedPaths values enter the bounded claim; other MRU and shell-artifact records are excluded.",
+                "Hive transaction logs (.LOG1/.LOG2) are collected with the hive; the Zimmerman registry parsers replay them into a dirty hive before parsing.",
+                "TypedPaths residue plus current absence does not establish access, deletion, or intent."
+              ],
+              "parser_state": "raw_export_with_typed_paths_parser",
+              "validation_state": "fixture_validated_cross_parser_pending"
+            }
+          ]
+        }
+      }
+    },
+    "windows.prefetch": {
+      "display_name": "Windows Prefetch",
+      "logical_sources": [
+        "Windows/Prefetch/*"
+      ],
+      "extractor_id": "pending.extractor.windows.prefetch",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "windows.prefetch.directory_manifest",
+              "mode": "directory_manifest",
+              "logical_source": "/Windows/Prefetch",
+              "output_name": "prefetch_manifest.json",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "prefetch_wipe_01"
+              ],
+              "rationale": "Preserve Prefetch files and a directory manifest for later missing-executable execution evidence.",
+              "known_blind_spots": [
+                "PECmd output establishes execution residue only when exact executable identity is available.",
+                "Current absence does not establish why the executable is absent."
+              ],
+              "parser_state": "file_export_with_pecmd_normalization_and_active_mft_join",
+              "validation_state": "fixture_validated"
+            }
+          ]
+        }
+      }
+    },
+    "windows.registry.shimcache": {
+      "display_name": "Windows Shimcache",
+      "logical_sources": [
+        "Windows/System32/config/SYSTEM"
+      ],
+      "extractor_id": "pending.extractor.windows.registry.shimcache",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "windows.registry.shimcache.system_raw_hive",
+              "mode": "raw_file",
+              "logical_source": "/Windows/System32/config/SYSTEM",
+              "output_name": "SYSTEM",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "shimcache_path_residue_01"
+              ],
+              "rationale": "Collect the complete SYSTEM hive for Shimcache/AppCompatCache parsing and raw record review.",
+              "known_blind_spots": [
+                "AppCompatCacheParser output is normalized and joined to current active-MFT state.",
+                "Hive transaction logs (.LOG1/.LOG2) are collected with the hive; the Zimmerman registry parsers replay them into a dirty hive before parsing.",
+                "Shimcache path residue does not prove execution or execution time."
+              ],
+              "parser_state": "raw_export_with_appcompatcache_parser_and_active_mft_join",
+              "validation_state": "fixture_validated"
+            }
+          ]
+        }
+      }
+    },
+    "windows.registry.software": {
+      "display_name": "Windows SOFTWARE Registry Hive",
+      "logical_sources": [
+        "Windows/System32/config/SOFTWARE"
+      ],
+      "extractor_id": "pending.extractor.windows.registry.software",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "windows.registry.software.raw_hive",
+              "mode": "raw_file",
+              "logical_source": "/Windows/System32/config/SOFTWARE",
+              "output_name": "SOFTWARE",
+              "status": "active",
+              "profile_role": "support_artifact",
+              "scenario_ids": [],
+              "rationale": "Preserve SOFTWARE hive context only when a profile selects it as supporting system context.",
+              "known_blind_spots": [
+                "SOFTWARE is not currently used as standalone primary evidence.",
+                "Hive transaction logs (.LOG1/.LOG2) are collected with the hive; the Zimmerman registry parsers replay them into a dirty hive before parsing.",
+                "Registry value-level parsing is deferred."
+              ],
+              "parser_state": "raw_export_only",
+              "validation_state": "size_hash_and_companion_logs_validated"
+            }
+          ]
+        }
+      }
+    },
+    "windows.event_log.security": {
+      "display_name": "Windows Security Event Log",
+      "logical_sources": [
+        "Windows/System32/winevt/Logs/Security.evtx"
+      ],
+      "extractor_id": "pending.extractor.windows.event_log.security",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "windows.event_log.security.raw_evtx",
+              "mode": "raw_file",
+              "logical_source": "/Windows/System32/winevt/Logs/Security.evtx",
+              "output_name": "Security.evtx",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "security_log_clear_event_01",
+                "event_record_sequence_gap_01"
+              ],
+              "rationale": "Preserve Security.evtx for later event-log clear detection and chronology anchoring.",
+              "known_blind_spots": [
+                "EVTX event-index parsing is bounded to chunk/record envelopes and selected normalized fields.",
+                "Security Event ID 1102 and record-id gap observations are normalized; full EVTX XML reconstruction, user/SID extraction, and cross-parser validation remain deferred.",
+                "Only a valid Event ID 1102 in the Security channel supports the clearing claim; record gaps are indeterminate context."
+              ],
+              "parser_state": "raw_export_with_bounded_event_index",
+              "validation_state": "size_hash_signature_event_id_channel_and_timestamp_status_validated"
+            }
+          ]
+        }
+      }
+    },
+    "windows.event_log.system": {
+      "display_name": "Windows System Event Log",
+      "logical_sources": [
+        "Windows/System32/winevt/Logs/System.evtx"
+      ],
+      "extractor_id": "pending.extractor.windows.event_log.system",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "windows.event_log.record_sequence": {
+      "display_name": "Windows Event Record Sequence",
+      "logical_sources": [
+        "parsed EVTX record identifiers"
+      ],
+      "extractor_id": "fmb.index.native_event_sequence",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "derived_parser_output",
+      "chunking_policy": "record_level",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "windows.event_log.record_sequence.native_parser",
+              "mode": "derived_parser_output",
+              "logical_source": "Security.evtx native record envelopes and complete unfiltered EvtxECmd projection",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "event_record_sequence_gap_01",
+                "security_log_clear_event_01"
+              ],
+              "rationale": "Native verified Security record sequences",
+              "known_blind_spots": [
+                "Incomplete native/parser coverage is indeterminate; intent is not inferred."
+              ],
+              "parser_state": "bounded_native_parser",
+              "validation_state": "fixture_validated"
+            }
+          ]
+        }
+      }
+    },
+    "windows.event_log.device": {
+      "display_name": "Windows Device Event Logs",
+      "logical_sources": [
+        "Windows/System32/winevt/Logs/*Device*.evtx"
+      ],
+      "extractor_id": "pending.extractor.windows.event_log.device",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "windows.event_log.sysmon": {
+      "display_name": "Windows Sysmon Event Log",
+      "logical_sources": [
+        "Windows/System32/winevt/Logs/Microsoft-Windows-Sysmon%4Operational.evtx"
+      ],
+      "extractor_id": "pending.extractor.windows.event_log.sysmon",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "windows.event_log.powershell": {
+      "display_name": "Windows PowerShell Event Logs",
+      "logical_sources": [
+        "Windows/System32/winevt/Logs/Windows PowerShell.evtx",
+        "Windows/System32/winevt/Logs/Microsoft-Windows-PowerShell%4Operational.evtx"
+      ],
+      "extractor_id": "pending.extractor.windows.event_log.powershell",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "ntfs.logfile": {
+      "display_name": "NTFS Transaction Log",
+      "logical_sources": [
+        "$LogFile"
+      ],
+      "extractor_id": "fmb.index.scanners.logfile_runtime.dfir_ntfs",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "ntfs.logfile.raw",
+              "mode": "raw_file",
+              "logical_source": "/$LogFile",
+              "output_name": "$LogFile",
+              "status": "active",
+              "profile_role": "support_artifact",
+              "scenario_ids": [
+                "timestomp_01",
+                "usn_journal_01"
+              ],
+              "rationale": "Preserve the raw NTFS transaction log; the locked dfir_ntfs driver binds retained $STANDARD_INFORMATION updates (undo = original, redo = new timestamps) to the exact object and reports the retained LSN range and embedded USN window.",
+              "known_blind_spots": [
+                "The log is circular: transactions older than the retained window are gone and their absence is never evidence.",
+                "USN records embedded in log pages and $I30 index-entry remnants are parsed but not yet bound to criteria (phase C4/C5).",
+                "Raw $LogFile collection does not by itself establish timestamp, delete, or rename intent."
+              ],
+              "parser_state": "raw_export_parsed_by_locked_dfir_ntfs_subprocess_with_optional_ntfslogtracker_context",
+              "validation_state": "size_hash_validated_si_updates_bound_to_byte_matched_mft_records"
+            }
+          ]
+        }
+      }
+    },
+    "ntfs.i30": {
+      "display_name": "NTFS Directory Index Records",
+      "logical_sources": [
+        "resident $INDEX_ROOT:$I30 attributes and slack",
+        "MFT record slack",
+        "$INDEX_ALLOCATION:$I30 buffers",
+        "$BITMAP:$I30"
+      ],
+      "extractor_id": "fmb.index.raw_mft_i30",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "derived_parser_output",
+      "chunking_policy": "record_level",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "ntfs.i30.raw_mft_scanner",
+              "mode": "derived_parser_output",
+              "logical_source": "bounded raw MFT and source-bound nonresident INDX/BITMAP streams",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "directory_cleaning_i30_01"
+              ],
+              "rationale": "Recover validated directory-index residue and independently resolve the referenced child against active MFT.",
+              "known_blind_spots": [
+                "Attribute-list extent assembly is unsupported.",
+                "Nonresident backing buffers and bitmap are required whenever INDEX_ALLOCATION is present."
+              ],
+              "parser_state": "native_i30_with_active_mft_join",
+              "validation_state": "fixture_validated"
+            }
+          ]
+        }
+      }
+    },
+    "ntfs.file_size_allocation": {
+      "display_name": "NTFS File Size And Allocation Metadata",
+      "logical_sources": [
+        "$MFT size fields",
+        "data run allocation metadata",
+        "native NTFS boot-sector cluster geometry"
+      ],
+      "extractor_id": "fmb.index.file_size_allocation",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "derived_parser_output",
+      "chunking_policy": "record_level",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "ntfs.file_size_allocation.mft_parser",
+              "mode": "derived_parser_output",
+              "logical_source": "$MFT unnamed $DATA attributes",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "bitmap_trailing_data_01",
+                "ntfs_allocation_01"
+              ],
+              "rationale": "Expose source-matched native DATA lengths, complete runlist clusters and native volume geometry for allocation consistency; retain separate BMP length validation.",
+              "known_blind_spots": [
+                "Sparse, compressed, encrypted, or incomplete attribute chains fail closed."
+              ],
+              "parser_state": "bounded_mft_data_attribute_parser",
+              "validation_state": "fixture_validated"
+            }
+          ]
+        }
+      }
+    },
+    "collected.file.content": {
+      "display_name": "Collected File Content",
+      "logical_sources": [
+        "bounded extracted file or stream bytes"
+      ],
+      "extractor_id": "fmb.index.materialized_file_content",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "bounded_materialization",
+      "chunking_policy": "file_level",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "collected.file.content.bounded_user_bmp",
+              "mode": "bounded_materialization",
+              "logical_source": "Users/*/{Documents,Desktop,Downloads,Pictures}/**/*.bmp",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "bitmap_trailing_data_01"
+              ],
+              "rationale": "Materialize bounded BMP subjects and compare parsed self-declared length to collected bytes.",
+              "known_blind_spots": [
+                "Only bounded supported BMP structures are parsed."
+              ],
+              "parser_state": "bounded_bmp_content_parser",
+              "validation_state": "fixture_validated"
+            }
+          ]
+        }
+      }
+    },
+    "content.hash": {
+      "display_name": "Content Hashes",
+      "logical_sources": [
+        "hash records for materialized content"
+      ],
+      "extractor_id": "pending.extractor.content.hash",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "derived_parser_output",
+      "chunking_policy": "record_level",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "content.export": {
+      "display_name": "Content Export Records",
+      "logical_sources": [
+        "bounded content export manifests"
+      ],
+      "extractor_id": "pending.extractor.content.export",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "bounded_materialization",
+      "chunking_policy": "record_level",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "content.yara": {
+      "display_name": "YARA Content Scan Evidence",
+      "logical_sources": [
+        "YARA output over collected content"
+      ],
+      "extractor_id": "pending.extractor.content.yara",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "derived_rule_output",
+      "chunking_policy": "match_level",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "windows.jump_list": {
+      "display_name": "Windows Jump Lists",
+      "logical_sources": [
+        "Users/*/AppData/Roaming/Microsoft/Windows/Recent/AutomaticDestinations/*",
+        "Users/*/AppData/Roaming/Microsoft/Windows/Recent/CustomDestinations/*"
+      ],
+      "extractor_id": "pending.extractor.windows.jump_list",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "windows.lnk": {
+      "display_name": "Windows Shortcut Files",
+      "logical_sources": [
+        "Users/*/AppData/Roaming/Microsoft/Windows/Recent/*.lnk"
+      ],
+      "extractor_id": "pending.extractor.windows.lnk",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "windows.registry.shellbag": {
+      "display_name": "Windows ShellBag Registry Traces",
+      "logical_sources": [
+        "Users/*/AppData/Local/Microsoft/Windows/UsrClass.dat"
+      ],
+      "extractor_id": "fmb.index.native_shellbag",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "derived_parser_output",
+      "chunking_policy": "record_level",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "windows.registry.shellbag.native_parser",
+              "mode": "derived_parser_output",
+              "logical_source": "UsrClass.dat BagMRU and SBECmd Directory shell items",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "shellbag_path_residue_01"
+              ],
+              "rationale": "Native Shellbag Directory records",
+              "known_blind_spots": [
+                "Incomplete native/parser coverage is indeterminate; intent is not inferred."
+              ],
+              "parser_state": "bounded_native_parser",
+              "validation_state": "fixture_validated"
+            }
+          ]
+        }
+      }
+    },
+    "windows.registry.amcache": {
+      "display_name": "Windows Amcache Registry Hive",
+      "logical_sources": [
+        "Windows/AppCompat/Programs/Amcache.hve"
+      ],
+      "extractor_id": "pending.extractor.windows.registry.amcache",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "reference_only",
+      "chunking_policy": "reference_only",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "windows.registry.usbstor": {
+      "display_name": "Windows USBSTOR Registry Traces",
+      "logical_sources": [
+        "Windows/System32/config/SYSTEM"
+      ],
+      "extractor_id": "fmb.index.windows_usbstor",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "derived_parser_output",
+      "chunking_policy": "record_level",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "windows.registry.usbstor.identity_parser",
+              "mode": "derived_parser_output",
+              "logical_source": "SYSTEM/ControlSet*/Enum/USBSTOR",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "usbstor_setupapi_discrepancy_01"
+              ],
+              "rationale": "Normalize exact USBSTOR instance and serial identities while preserving ControlSet provenance.",
+              "known_blind_spots": [
+                "Device identity does not establish device use or file transfer."
+              ],
+              "parser_state": "exact_usbstor_identity_parser",
+              "validation_state": "fixture_validated"
+            }
+          ]
+        }
+      }
+    },
+    "windows.setupapi": {
+      "display_name": "Windows SetupAPI Device Install Log",
+      "logical_sources": [
+        "Windows/INF/setupapi.dev.log"
+      ],
+      "extractor_id": "fmb.index.windows_setupapi",
+      "supported_export_formats": [
+        "e01"
+      ],
+      "retrieval_mode": "derived_parser_output",
+      "chunking_policy": "line_level",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "windows.setupapi.usb_identity_parser",
+              "mode": "derived_parser_output",
+              "logical_source": "Windows/INF/setupapi.dev.log",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "usbstor_setupapi_discrepancy_01"
+              ],
+              "rationale": "Normalize exact direct and WPD USBSTOR device-installation identities.",
+              "known_blind_spots": [
+                "SetupAPI retention can differ from USBSTOR registry retention."
+              ],
+              "parser_state": "setupapi_usb_identity_parser",
+              "validation_state": "fixture_validated"
+            }
+          ]
+        }
+      }
+    },
+    "collection.artifact": {
+      "display_name": "Collected Artifact Inventory",
+      "logical_sources": [
+        "evidence_index collector artifact records"
+      ],
+      "extractor_id": "fmb.collector.artifact_inventory",
+      "supported_export_formats": [
+        "raw",
+        "vmdk",
+        "e01"
+      ],
+      "retrieval_mode": "derived_inventory",
+      "chunking_policy": "record_level",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "tool.log": {
+      "display_name": "Tool Logs",
+      "logical_sources": [
+        "collector and rule-engine command logs"
+      ],
+      "extractor_id": "fmb.tool_log_inventory",
+      "supported_export_formats": [
+        "raw",
+        "vmdk",
+        "e01"
+      ],
+      "retrieval_mode": "derived_inventory",
+      "chunking_policy": "line_level",
+      "collection": {
+        "windows": {
+          "targets": []
+        }
+      }
+    },
+    "usb_volume": {
+      "display_name": "Native Virtual USB Volume Reference and History",
+      "logical_sources": [
+        "public native_media_binding.json, or three individually sealed media_<opaque-token>.json bindings for the native pilot",
+        "detached virtual USB companion NTFS $Boot/$MFT/$UsnJrnl:$J/$Max",
+        "native Shell Link"
+      ],
+      "extractor_id": "fmb.native_usb_volume",
+      "supported_export_formats": [
+        "vmdk"
+      ],
+      "retrieval_mode": "derived_parser_output",
+      "chunking_policy": "record_level",
+      "collection": {
+        "windows": {
+          "targets": [
+            {
+              "target_id": "usb_volume.native_reference_history",
+              "mode": "derived_parser_output",
+              "logical_source": "native USB companion and Shell Link",
+              "status": "active",
+              "profile_role": "primary_evidence",
+              "scenario_ids": [
+                "usb_volume_activity_gap_01"
+              ],
+              "rationale": "Assess a hash-bound native virtual USB volume and native Shell Link. Require matching boot, LinkInfo and binding volume serials, matching target path and exact historical Link/USN/binding file reference, complete active MFT and retained USN scans, and a journal interval covering the bound activity. The current MFT entry must be either the exact inactive reference or the same inactive entry at the immediate successor sequence after freeing, corroborated by a matching native filename and parent in historical-reference FILE_DELETE records. Keep current and historical sequences distinct; active entries with a nonmatching reference, sequence wrap or larger jumps are unresolved. Support only when the resolved prior object is inactive, the original path is absent, no same-reference original-name USN record remains, and same-reference alternative-name deletion history remains. A rename reason, unresolved reference, changed journal identity or incomplete retained interval is insufficient. Active original paths or retained original-name history are consistent. This is a bounded link-to-volume filename-history inconsistency, not absence of all object activity, proof of transfer, physical USB hardware, or intent.",
+              "known_blind_spots": [
+                "Unsupported Shell Item references, sequence reuse, incomplete journals and rename reasons are unresolved."
+              ],
+              "parser_state": "native_usb_volume",
+              "validation_state": "fixture_validated"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

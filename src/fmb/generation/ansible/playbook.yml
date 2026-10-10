@@ -1,0 +1,53 @@
+---
+- name: Establish the guest clock before any evidence-producing activity
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Wait for Windows' own boot-time time synchronization
+      ansible.windows.win_shell: |
+        $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+        $started = [DateTime]::UtcNow
+        do {
+          $sync = Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-Time-Service'; Id=37; StartTime=$boot} -MaxEvents 1 -ErrorAction SilentlyContinue
+          if ($sync) { break }
+          Start-Sleep -Seconds 2
+        } while (([DateTime]::UtcNow - $started).TotalSeconds -lt 120)
+        [ordered]@{observed=[bool]$sync; waited_seconds=[Math]::Round(([DateTime]::UtcNow - $started).TotalSeconds, 1)} | ConvertTo-Json -Compress
+      register: fmb_boot_sync_result
+      changed_when: false
+      when: fmb_clock_policy is defined
+
+    - name: Emit host-only boot-time synchronization observation
+      ansible.builtin.debug:
+        msg: "FMB_BOOT_SYNC {{ fmb_boot_sync_result.stdout | trim }}"
+      when: fmb_clock_policy is defined
+
+    - name: Apply the frozen guest clock policy
+      ansible.builtin.include_tasks: recipe_clock.yml
+      when: fmb_clock_policy is defined
+
+- name: Forensic Image Generation Pipeline
+  hosts: all
+  gather_facts: yes
+
+  pre_tasks:
+    - name: Validate the locked guest environment before case activity
+      ansible.builtin.include_tasks: recipe_environment.yml
+      when: fmb_expected_environment is defined
+
+  roles:
+    - role: noise
+      tags: ['noise']
+
+    - role: manipulation
+      tags: ['manipulation']
+
+- name: Record the guest clock immediately before the soft halt
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Guest clock checkpoint before export
+      ansible.builtin.include_tasks: clock_checkpoint.yml
+      vars:
+        fmb_clock_stage: pre_export
+      when: fmb_clock_policy is defined

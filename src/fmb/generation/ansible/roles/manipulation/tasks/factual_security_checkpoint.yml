@@ -1,0 +1,23 @@
+---
+- name: Export the native Security channel before the scheduled clearing
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    $p = Join-Path $env:TEMP ('e' + [guid]::NewGuid().ToString('N').Substring(0, 11) + '.evtx')
+    if(Test-Path -LiteralPath $p){throw 'Checkpoint destination already exists'}
+    wevtutil.exe epl Security $p
+    if($LASTEXITCODE -ne 0){throw 'Native Security export failed'}
+    $p
+  register: factual_channel_checkpoint
+  no_log: true
+
+- name: Retain the complete native channel export on the host
+  ansible.builtin.fetch:
+    src: "{{ factual_channel_checkpoint.stdout | trim }}"
+    dest: "{{ fmb_factual_checkpoint_directory }}/checkpoint-01.evtx"
+    flat: true
+    validate_checksum: true
+
+- name: Remove the temporary export after successful host capture
+  ansible.windows.win_file:
+    path: "{{ factual_channel_checkpoint.stdout | trim }}"
+    state: absent

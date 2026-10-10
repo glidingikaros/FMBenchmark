@@ -1,0 +1,191 @@
+---
+- name: Create native executable-content streams and benign named-stream controls
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    $ErrorActionPreference = 'Stop'
+    $failureStage = 'decode_input'
+    try {
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $failureStage = 'validate_input'
+    $case = [string]$scenarioInput.case
+    if ($case -notin @('positive', 'benign')) { throw "Unsupported generation case" }
+    $populationPaths = @($scenarioInput.population_paths)
+    $paths = @($scenarioInput.operation_refs)
+    $expectedPopulationCount = [int]$scenarioInput.expected_population_count
+    $expectedOperationCount = [int]$scenarioInput.expected_operation_count
+    $structuredContent = [string]$scenarioInput.content_kind -ceq 'native_windows_pe_zip.v2'
+    $extraNames = @(if ($null -ne $scenarioInput.extra_stream_names) { $scenarioInput.extra_stream_names })
+    $streamNames = @([string]$scenarioInput.stream_name, [string]$scenarioInput.zip_stream_name) + @($extraNames | ForEach-Object { [string]$_ })
+    $positiveCountValid = if ($structuredContent) {
+      $expectedOperationCount -ge 1 -and $expectedOperationCount -le $expectedPopulationCount -and
+        $extraNames.Count -eq [Math]::Max(0, $expectedOperationCount - 2)
+    } else { $expectedOperationCount -eq 1 }
+    $operationRefsSha256 = Get-OperationRefsSha256 $paths
+    if ($expectedPopulationCount -lt 1 -or
+        $populationPaths.Count -ne $expectedPopulationCount -or
+        ($case -eq 'positive' -and -not $positiveCountValid) -or
+        ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
+        $paths.Count -ne $expectedOperationCount) {
+      throw "Named-stream operation cardinality is invalid"
+    }
+    $failureStage = 'zone_stream_write'
+    $zoneContent = "[ZoneTransfer]`r`nZoneId=3`r`n"
+    foreach ($path in $populationPaths) {
+      Set-Content -LiteralPath ([string]$path) -Stream 'Zone.Identifier' -Value $zoneContent -NoNewline -Encoding Ascii
+    }
+    $failureStage = 'metadata_stream_write'
+    $metadataPath = [string]$scenarioInput.benign_stream_path
+    $metadataName = [string]$scenarioInput.benign_stream_name
+    $metadataContent = [string]$scenarioInput.benign_stream_content
+    Set-Content -LiteralPath $metadataPath -Stream $metadataName -Value $metadataContent -NoNewline -Encoding Ascii
+    $failureStage = 'control_stream_readback'
+    $metadataVerified = (Get-Content -LiteralPath $metadataPath -Stream $metadataName -Raw) -ceq $metadataContent
+    $zoneCount = @($populationPaths | Where-Object {
+      (Get-Content -LiteralPath ([string]$_) -Stream 'Zone.Identifier' -Raw) -ceq $zoneContent
+    }).Count
+    $streamName = ''
+    $streamLength = 0
+    $streamSha256 = $null
+    $contentVerified = $true
+    $instances = @()
+    if ($case -eq 'positive') {
+      if (-not $structuredContent -and [string]$scenarioInput.content_kind -cne 'native_windows_pe_copy') {
+        throw "Unsupported named-stream content generator"
+      }
+      $failureStage = 'payload_file_read'
+      [byte[]]$payload = [IO.File]::ReadAllBytes("$env:SystemRoot\System32\whoami.exe")
+      $failureStage = 'payload_structure_validation'
+      if ($payload.Length -lt 512 -or $payload[0] -ne 0x4d -or $payload[1] -ne 0x5a) {
+        throw "Native executable content is unavailable"
+      }
+      $peOffset = [BitConverter]::ToUInt32($payload, 60)
+      if ($peOffset + 24 -gt $payload.Length -or [BitConverter]::ToUInt32($payload, $peOffset) -ne 0x00004550) {
+        throw "Native executable content lacks the PE signature"
+      }
+      for ($targetIndex = 0; $targetIndex -lt $paths.Count; $targetIndex += 1) {
+        if ($targetIndex % 2 -eq 0) {
+          $streamName = [string]$streamNames[$targetIndex]
+          $failureStage = 'payload_stream_write'
+          Set-Content -LiteralPath ([string]$paths[$targetIndex]) -Stream $streamName -Value $payload -Encoding Byte
+          $failureStage = 'payload_stream_readback'
+          [byte[]]$readback = Get-Content -LiteralPath ([string]$paths[$targetIndex]) -Stream $streamName -Encoding Byte -ReadCount 0
+          $failureStage = 'payload_hash_validation'
+          $hasher = [Security.Cryptography.SHA256]::Create()
+          try {
+            $expectedHash = [Convert]::ToBase64String($hasher.ComputeHash($payload))
+            $observedHash = $hasher.ComputeHash($readback)
+            $streamSha256 = ([BitConverter]::ToString($observedHash)).Replace('-', '').ToLowerInvariant()
+            $contentVerified = $contentVerified -and $readback.Length -eq $payload.Length -and [Convert]::ToBase64String($observedHash) -ceq $expectedHash
+          } finally { $hasher.Dispose() }
+          $streamLength = $readback.Length
+          if ($structuredContent) {
+            $instances += [ordered]@{format='pe';stream_name=$streamName;stream_length=$streamLength;stream_sha256=$streamSha256}
+          }
+        } else {
+          $failureStage = 'archive_file_create'
+          Add-Type -AssemblyName System.IO.Compression
+          $zipPath = Join-Path $env:TEMP ([string]$scenarioInput.zip_stage_name)
+          $file = [IO.File]::Open($zipPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+          try {
+            $archive = [IO.Compression.ZipArchive]::new($file, [IO.Compression.ZipArchiveMode]::Create, $true)
+            try {
+              $entry = $archive.CreateEntry([string]$scenarioInput.zip_member_name, [IO.Compression.CompressionLevel]::Optimal)
+              $entryStream = $entry.Open()
+              try {
+                [byte[]]$memberBytes = [Text.Encoding]::UTF8.GetBytes([string]$scenarioInput.zip_member_content)
+
+                $entryStream.Write($memberBytes, 0, $memberBytes.Length)
+              } finally { $entryStream.Dispose() }
+            } finally { $archive.Dispose() }
+          } finally { $file.Dispose() }
+          [byte[]]$archiveBytes = [IO.File]::ReadAllBytes($zipPath)
+          $failureStage = 'archive_file_readback'
+          $nativeFile = [IO.File]::OpenRead($zipPath)
+          try {
+            $readArchive = [IO.Compression.ZipArchive]::new($nativeFile, [IO.Compression.ZipArchiveMode]::Read, $true)
+            try {
+              if ($readArchive.Entries.Count -ne 1) { throw "Native archive entry count changed" }
+              $nativeEntry = $readArchive.Entries[0].Open()
+              try {
+                $check = [IO.MemoryStream]::new()
+                try { $nativeEntry.CopyTo($check); [byte[]]$memberReadback = $check.ToArray() }
+                finally { $check.Dispose() }
+              } finally { $nativeEntry.Dispose() }
+            } finally { $readArchive.Dispose() }
+          } finally { $nativeFile.Dispose() }
+          $hasher = [Security.Cryptography.SHA256]::Create()
+          try {
+            if ([Convert]::ToBase64String($hasher.ComputeHash($memberBytes)) -cne [Convert]::ToBase64String($hasher.ComputeHash($memberReadback))) {
+              throw "Native archive member readback changed"
+            }
+            $failureStage = 'archive_stream_write'
+            $zipName = [string]$streamNames[$targetIndex]
+            Invoke-PaperOperation ("Set-Content -LiteralPath " + (ConvertTo-OperationLiteral ([string]$paths[$targetIndex])) + " -Stream " + (ConvertTo-OperationLiteral $zipName) + " -Encoding Byte -Value ([IO.File]::ReadAllBytes(" + (ConvertTo-OperationLiteral $zipPath) + "))")
+            [byte[]]$archiveReadback = Get-Content -LiteralPath ([string]$paths[$targetIndex]) -Stream $zipName -Encoding Byte -ReadCount 0
+            if ($archiveReadback.Length -ne $archiveBytes.Length -or
+                [Convert]::ToBase64String($hasher.ComputeHash($archiveReadback)) -cne [Convert]::ToBase64String($hasher.ComputeHash($archiveBytes))) {
+              throw "Native archive stream readback changed"
+            }
+            $zipHash = ([BitConverter]::ToString($hasher.ComputeHash($archiveReadback))).Replace('-', '').ToLowerInvariant()
+            $instances += [ordered]@{format='zip';stream_name=$zipName;stream_length=$archiveReadback.Length;stream_sha256=$zipHash}
+          } finally { $hasher.Dispose() }
+          Invoke-PaperOperation ("Remove-Item -LiteralPath " + (ConvertTo-OperationLiteral $zipPath))
+        }
+      }
+    }
+    $failureStage = 'stream_postcondition'
+    $verified = $contentVerified -and $metadataVerified -and $zoneCount -eq $populationPaths.Count
+    if (-not $verified) { throw "Named-stream postcondition failed" }
+    $result = [ordered]@{
+      ok = $true
+      receipt = [ordered]@{
+        scenario_id = 'ads_injection_01'
+        case = $case
+        operation_count = $paths.Count
+        operation_refs_sha256 = $operationRefsSha256
+        postcondition_verified = $verified
+        stream_name = $streamName
+        stream_length = $streamLength
+        stream_sha256 = $streamSha256
+        zone_stream_count = $zoneCount
+        metadata_stream_count = [int]$metadataVerified
+      }
+    }
+    if ($structuredContent) {
+      $result.receipt.Remove('stream_name')
+      $result.receipt.Remove('stream_length')
+      $result.receipt.Remove('stream_sha256')
+      $result.receipt['content_contract'] = 'named_stream_pe_zip.v2'
+      $result.receipt['streams'] = @($instances)
+    }
+    $result | ConvertTo-Json -Compress -Depth 5
+    } catch {
+      $exception = $_.Exception
+      while ($exception.InnerException) { $exception = $exception.InnerException }
+      [ordered]@{
+        ok = $false
+        failure_stage = $failureStage
+        error_type = $exception.GetType().FullName
+      } | ConvertTo-Json -Compress
+    }
+  args:
+    stdin: "{{ generation_inputs.scenario_inputs.ads_injection_01 | to_json }}"
+  register: ads_receipt
+  no_log: true
+
+- name: Require the native named-stream operation to complete
+  ansible.builtin.assert:
+    that:
+      - (ads_receipt.stdout | trim | from_json).ok | bool
+    fail_msg: >-
+      Named-stream generation failed during
+      {{ (ads_receipt.stdout | trim | from_json).failure_stage | default('unknown') }}
+      (exception class:
+      {{ (ads_receipt.stdout | trim | from_json).error_type | default('unknown') }})
+
+- name: Emit host-captured named-stream receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - "{{ (ads_receipt.stdout | trim | from_json).receipt | to_json }}"
+      - "GROUND_TRUTH_END"

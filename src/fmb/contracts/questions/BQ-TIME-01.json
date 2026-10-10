@@ -1,0 +1,76 @@
+{
+  "schema_version": "fmb.question_pack.v1",
+  "question_id": "BQ-TIME-01",
+  "order": 1,
+  "group": {
+    "group_id": "timestamp_backdating",
+    "title": "Timestamp backdating",
+    "description": "Assess whether these files show evidence of timestamp backdating."
+  },
+  "definition": {
+    "title": "Timestamp backdating assessment",
+    "question_text": "Assess whether these files show evidence of timestamp backdating.",
+    "scope": "Creation, modification and metadata-change timestamps; access-time-only changes are outside this assessment."
+  },
+  "components": [
+    {
+      "technique_id": "timestamp_manipulation",
+      "component_question_id": "Q-TIME-01",
+      "subject_type": "file",
+      "required_artifact_families": [
+        "ntfs.mft",
+        "ntfs.usn"
+      ],
+      "optional_artifact_families": [
+        "ntfs.logfile"
+      ],
+      "alternative_required_artifact_families": [
+        [
+          "ntfs.mft",
+          "ntfs.logfile"
+        ]
+      ],
+      "projected_artifact_families": [
+        "ntfs.logfile",
+        "ntfs.mft",
+        "ntfs.usn"
+      ]
+    }
+  ],
+  "presentation": {
+    "request_per_card": false,
+    "listing_lookup": false,
+    "transforms": [
+      "u_usn_complete_stream",
+      "u_usn_dedupe_by_usn",
+      "u_time_null_rows"
+    ]
+  },
+  "assessment": {
+    "engine": "rules",
+    "components": [
+      "timestamp_manipulation"
+    ]
+  },
+  "reference": {
+    "supplemental_supported": [
+      "coordinated",
+      "creation_backdate",
+      "record_change_backdate",
+      "same_year",
+      "single_tick",
+      "superseded"
+    ],
+    "supplemental_negative": [
+      "access_only",
+      "forward",
+      "old_copy",
+      "unchanged"
+    ]
+  },
+  "generation": {
+    "scenarios": [
+      "timestomp_01"
+    ]
+  }
+}
