@@ -221,15 +221,18 @@ On Linux and Windows, download the Windows 11 ISO from
 *Windows 11 (multi-edition ISO for x64 devices)*, then *English (United States)*. The link is valid for one
 day. `fmb setup` checks the SHA-256 of `Windows11_Client_x64_en-us_26300_9457.iso`. Microsoft replaces this ISO
 from time to time. If the page offers a newer build, add `--unpinned-iso`. Each result then records the build
-and the SHA-256 of the ISO. The results of the paper were checked on build 26300 (Linux and Windows) and
-build 22000 (macOS) only.
+and the SHA-256 of the ISO. The results of the paper were checked on build 26300 (Linux, Windows and macOS)
+and build 22000 (macOS, the box of the paper) only.
 
 **macOS.** Install VMware Fusion 13, Vagrant with the `vagrant-vmware-desktop` plugin, and Ansible
-(`brew install ansible`). Without the box of the paper, build a box from the Windows 11 ARM64 ISO
-([microsoft.com/software-download/windows11arm64](https://www.microsoft.com/software-download/windows11arm64),
-*English (United States)*) with `tools/base-image/windows11-arm64/build-vmware-box.sh <ISO> <its SHA-256>`.
-The build needs Packer and approximately 60 GB of free disk. The box records its Windows build, and each
-result names it.
+(`brew install ansible`). Without the box of the paper, build a box from the Windows 11 ARM64 ISO: on
+[microsoft.com/software-download/windows11arm64](https://www.microsoft.com/software-download/windows11arm64),
+select *Windows 11 (multi-edition ISO for Arm64)*, then *English (United States)*. `fmb setup --check` names
+the pinned file, `Windows11_Client_arm64_en-us_26300_9457.iso`, and the command that builds the box:
+`tools/base-image/windows11-arm64/build-vmware-box.sh <ISO> <its SHA-256>`. The build needs Packer and
+approximately 60 GB of free disk, and takes approximately 30 min. The box records its Windows build and its
+ISO, and each result names them. I1, I2 and I3 replicate on a box built from the pinned ISO as on the box of
+the paper.
 
 ## Code
 
