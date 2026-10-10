@@ -1,6 +1,8 @@
 name: Replicate
 
 on:
+  schedule:
+    - cron: "23 3 * * 1,4"
   workflow_dispatch:
     inputs:
       iso_url:
@@ -32,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: ${{ fromJSON(inputs.images) }}
+        image: ${{ fromJSON(inputs.images || '["I1", "random"]') }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -59,6 +61,7 @@ jobs:
         with:
           path: ~/Downloads/${{ env.ISO }}
           key: windows-iso-${{ steps.pin.outputs.sha256 }}
+          enableCrossOsArchive: true
       - name: Microsoft's ISO, saved in ~/Downloads as a browser saves it
         if: steps.iso.outputs.cache-hit != 'true'
         run: |
@@ -77,6 +80,7 @@ jobs:
         with:
           path: ~/Downloads/${{ env.ISO }}
           key: windows-iso-${{ steps.pin.outputs.sha256 }}
+          enableCrossOsArchive: true
       - name: "README, Linux: QEMU and OVMF (runner: -y answers apt's question)"
         run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils ovmf
       - name: "README, Linux: /dev/kvm (runner: later steps start through sg kvm, as a new login would)"
@@ -129,14 +133,14 @@ jobs:
           include-hidden-files: true
 
   windows:
-    if: inputs.hosts != 'linux'
+    if: inputs.hosts == 'windows' || inputs.hosts == 'both'
     name: windows ${{ matrix.image }}
     runs-on: windows-2025
     timeout-minutes: 355
     strategy:
       fail-fast: false
       matrix:
-        image: ${{ fromJSON(inputs.images) }}
+        image: ${{ fromJSON(inputs.images || '["I1", "random"]') }}
     defaults:
       run:
         shell: pwsh
@@ -162,9 +166,21 @@ jobs:
         run: '"name=$([IO.Path]::GetFileNameWithoutExtension($env:IMAGE))" >> $env:GITHUB_OUTPUT'
       - name: Git's line-ending settings the checkout ran with
         run: git config --show-origin --get-all core.autocrlf; git ls-files --eol src/fmb/replication/run.py
+      - name: "runner: the pinned ISO's SHA-256"
+        id: pin
+        run: '"sha256=$((Get-Content -Raw src/fmb/replication/pins.json | ConvertFrom-Json).windows_iso.sha256)" >> $env:GITHUB_OUTPUT'
+      - name: "runner: the ISO from this repository's Actions cache, when a Linux run kept it"
+        id: iso
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/Downloads/${{ env.ISO }}
+          key: windows-iso-${{ steps.pin.outputs.sha256 }}
+          enableCrossOsArchive: true
       - name: Microsoft's ISO, saved in Downloads as a browser saves it
+        if: steps.iso.outputs.cache-hit != 'true'
         run: |
           $url = (Get-Content -Raw $env:GITHUB_EVENT_PATH | ConvertFrom-Json).inputs.iso_url
+          if (-not $url) { Write-Output "::error::the Actions cache holds no ISO yet: run the workflow with iso_url"; exit 1 }
           Write-Output "::add-mask::$url"
           New-Item -ItemType Directory -Force "$HOME\Downloads" | Out-Null
           curl.exe -fsSL --retry 5 --retry-all-errors -o "$HOME\Downloads\$env:ISO" $url
