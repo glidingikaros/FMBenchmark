@@ -128,7 +128,7 @@ def image_need_gib() -> float:
 
 
 def generation_running() -> bool:
-    listing = subprocess.run(["ps", "-axo", "pid=,args="], capture_output=True, text=True, check=False).stdout
+    listing = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,args="], capture_output=True, text=True, check=False).stdout
     return any("fmb.replication.steps generate" in line and line.split(None, 1)[0] != str(os.getpid())
                for line in listing.splitlines())
 
@@ -141,7 +141,7 @@ def leftovers() -> list[tuple[str, str]]:
     if MACOS and work.is_dir():
         found += [("clone", str(folder)) for folder in sorted(work.iterdir()) if folder.is_dir()]
     if not MACOS:
-        listing = subprocess.run(["ps", "-axo", "pid=,args="], capture_output=True, text=True, check=False).stdout
+        listing = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,args="], capture_output=True, text=True, check=False).stdout
         found += [("qemu", line.split(None, 1)[0]) for line in listing.splitlines()
                   if "qemu-system" in line and "/.vagrant/system.qcow2" in line]
         found += [("overlay", str(disk.parent)) for disk in

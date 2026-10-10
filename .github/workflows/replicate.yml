@@ -12,7 +12,7 @@ on:
       hosts:
         description: "Windows hosts are work in progress: generation works, evidence collection does not yet"
         type: choice
-        options: [linux, windows, both]
+        options: [linux, windows, both, distros]
         default: linux
       images:
         description: "The images to generate and run, as a JSON list of names of files in images/ (such as I1), of paths ending in .json (such as tests/fixtures/images/stress.json), or random (a random image seeded by the run ID)"
@@ -128,6 +128,87 @@ jobs:
             /mnt/fmb/cache/qemu-bases/**/guest.json
             /mnt/fmb/cache/base-build/*.log
             /mnt/fmb/cache/base-build/shots/
+          retention-days: 7
+          if-no-files-found: warn
+          include-hidden-files: true
+
+  distros:
+    if: inputs.hosts == 'distros'
+    name: ${{ matrix.distro }} ${{ matrix.image }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: ["fedora:42", "archlinux:latest", "opensuse/tumbleweed:latest"]
+        image: ${{ fromJSON(inputs.images || '["I1"]') }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: "runner: names and disk"
+        id: names
+        env:
+          DISTRO: ${{ matrix.distro }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          echo "distro=$(printf '%s' "$DISTRO" | tr ':/' '--')" >> "$GITHUB_OUTPUT"
+          echo "image=$(basename "$IMAGE" .json)" >> "$GITHUB_OUTPUT"
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache /usr/share/dotnet /usr/local/share/boost
+          sudo mkdir -p /mnt/fmb && sudo chown -R "$USER" /mnt/fmb
+          df -h / /mnt
+      - name: "runner: the pinned ISO's SHA-256"
+        id: pin
+        run: echo "sha256=$(jq -r .windows_iso.sha256 src/fmb/replication/pins.json)" >> "$GITHUB_OUTPUT"
+      - name: "runner: the ISO from this repository's Actions cache"
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/Downloads/${{ env.ISO }}
+          key: windows-iso-${{ steps.pin.outputs.sha256 }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+      - name: "README, Linux, in a fresh ${{ matrix.distro }}: QEMU, OVMF, uv, setup, generate, run"
+        env:
+          DISTRO: ${{ matrix.distro }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          docker run --rm --device /dev/kvm -v "$PWD":/work -v /mnt/fmb:/mnt/fmb -v "$HOME/Downloads":/downloads:ro \
+            -e FMB_CACHE=/mnt/fmb/cache -e ISO -e IMAGE -e GITHUB_RUN_ID -w /work "$DISTRO" bash -euo pipefail -c '
+            . /etc/os-release
+            case " $ID $ID_LIKE " in
+              *" fedora "*) dnf install -y qemu-system-x86-core qemu-img edk2-ovmf git curl tar gzip procps-ng libicu ;;
+              *" arch "*) pacman -Syu --noconfirm qemu-system-x86 qemu-img edk2-ovmf git curl tar gzip procps-ng icu ;;
+              *" suse "*) zypper -n install qemu-x86 qemu-tools qemu-ovmf-x86_64 git curl tar gzip procps libicu ;;
+              *) echo "unknown distribution $ID"; exit 1 ;;
+            esac
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH="$HOME/.local/bin:$PATH"
+            mkdir -p /mnt/fmb/generated /mnt/fmb/results
+            ln -sfn /mnt/fmb/generated generated && ln -sfn /mnt/fmb/results results
+            uv sync --locked --all-extras
+            uv run fmb setup --check || true
+            uv run fmb setup --iso "/downloads/$ISO"
+            if [ "$IMAGE" = random ]; then uv run python scripts/random_image.py "$GITHUB_RUN_ID" images/random.json; fi
+            uv run fmb generate "$IMAGE"
+            uv run fmb run "$(basename "$IMAGE" .json)"'
+      - name: Summary
+        if: always()
+        run: sudo cat /mnt/fmb/results/*/*/report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - name: "runner: let the upload read what the container wrote"
+        if: always()
+        run: sudo chmod -R a+rX /mnt/fmb/results /mnt/fmb/generated /mnt/fmb/cache 2>/dev/null || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: user-path-${{ steps.names.outputs.distro }}-${{ steps.names.outputs.image }}
+          path: |
+            /mnt/fmb/results/*/*/report.md
+            /mnt/fmb/results/*/*/summary.json
+            /mnt/fmb/results/*/*/pipeline.log
+            /mnt/fmb/results/*/*/run/gates/*.json
+            /mnt/fmb/generated/*/*.log
+            /mnt/fmb/cache/qemu-bases/**/guest.json
+            /mnt/fmb/cache/base-build/*.log
           retention-days: 7
           if-no-files-found: warn
           include-hidden-files: true

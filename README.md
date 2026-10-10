@@ -200,7 +200,8 @@ approximately 10 GB on Linux. A generated image keeps approximately 25 GB and a 
 - Arch: `sudo pacman -S qemu-system-x86 qemu-img edk2-ovmf`
 - openSUSE: `sudo zypper install qemu-x86 qemu-tools qemu-ovmf-x86_64`
 
-Your user needs read and write access to `/dev/kvm`. If it does not have it, run
+A minimal or server installation may also need `git`, `curl`, `tar` and the ICU library (`libicu`, `icu` on
+Arch). Your user needs read and write access to `/dev/kvm`. If it does not have it, run
 `sudo usermod -aG kvm $USER` and log in again.
 
 Download the Windows 11 ISO from
