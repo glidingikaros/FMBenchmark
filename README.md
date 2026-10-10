@@ -18,7 +18,7 @@ FMBenchmark does three tasks:
 | Command | Function |
 |---|---|
 | `fmb setup --check` | Checks the host. Shows the missing items and the commands that install them. |
-| `fmb setup` | Installs the pinned tools. On Linux, builds the Windows base from the ISO (approximately 30 min). |
+| `fmb setup` | Installs the pinned tools. On Linux and Windows, builds the Windows base from the ISO (approximately 30 min). |
 | `fmb generate NAME` | Generates `images/NAME.json` into `generated/NAME/` (approximately 1 h). |
 | `fmb run NAME` | Runs S1 to S4 on `generated/NAME/`. Writes `results/NAME/<time>/`. |
 
@@ -30,14 +30,14 @@ Without `NAME`, `fmb generate` and `fmb run` show the choices and ask.
 2. Install the host requirements (see [Hosts](#hosts)).
 3. Run `uv sync --locked --all-extras`.
 4. Run `uv run fmb setup --check`. Correct each item that shows `NO`.
-5. Run `uv run fmb setup`. On Linux, add `--iso <path of the ISO>`.
+5. Run `uv run fmb setup`. On Linux and Windows, add `--iso <path of the ISO>`.
 6. Run `uv run fmb generate I1`.
 7. Run `uv run fmb run I1`.
 
 To replicate the paper, generate and run I1, I2 and I3. An image replicates when its admission passes. For
 admission, S3 must be exact on all the questions of the image (nine for the images of the paper).
 
-On Linux, the first image after a base build waits approximately 70 min. The guest clock must be after the
+On Linux and Windows, the first image after a base build waits approximately 70 min. The guest clock must be after the
 last event of the base build.
 
 If you stop `fmb generate` (Ctrl-C, closing the terminal or `kill`), it removes its virtual machine first. If a
@@ -88,7 +88,7 @@ To make a new image:
 
 | Generation setting | Function |
 |---|---|
-| `clock_bias_minutes` | The guest's hardware clock starts at UTC minus this value, −840 to 840. Windows reads that clock with the bias it saved when it last shut down: 480 minutes on the Mac (Pacific standard time), and on Linux Pacific's offset on the day the base was built (420 in summer, 480 in winter). The guest boots behind the true time by this value minus that bias, and the generator then moves the clock forward. It never moves the clock back, so a smaller value is refused. `"auto"` boots 2 minutes behind. The paper uses 480. |
+| `clock_bias_minutes` | The guest's hardware clock starts at UTC minus this value, −840 to 840. Windows reads that clock with the bias it saved when it last shut down: 480 minutes on the Mac (Pacific standard time), and on Linux and Windows Pacific's offset on the day the base was built (420 in summer, 480 in winter). The guest boots behind the true time by this value minus that bias, and the generator then moves the clock forward. It never moves the clock back, so a smaller value is refused. `"auto"` boots 2 minutes behind. The paper uses 480. |
 | `activity_count` | The number of user actions before the manipulations, 1 to 500. The paper uses 12. |
 | `activity_seed`, `hardware_seed` | The seeds of the user actions and of the virtual hardware. The default is `seed`. |
 
@@ -184,13 +184,12 @@ range and cost of each S3′ condition. `results/NAME/<time>/` contains:
 |---|---|---|
 | macOS on Apple silicon | VMware Fusion through Vagrant (the setup of the paper) | Windows 11 ARM64, the box of the paper |
 | Linux x86-64 | QEMU with KVM | Windows 11 Pro x64, built from the Microsoft ISO |
-
-Windows hosts are not supported at this time. The images generate, but the evidence collection fails.
+| Windows 11 x64 | QEMU with the Windows Hypervisor Platform | Windows 11 Pro x64, built from the Microsoft ISO |
 
 Each host needs internet access during setup. While an image is generated and analysed, it needs free disk of
 approximately the Windows guest plus 19 GB on macOS (45 GB with the box of the paper) and twice the Windows
-base plus 10 GB on Linux (30 GB). `fmb setup --check` computes this for your machine. The Windows base takes
-approximately 10 GB on Linux. A generated image keeps approximately 25 GB and a result approximately 2 GB.
+base plus 10 GB on Linux and Windows (30 GB). `fmb setup --check` computes this for your machine. The Windows
+base takes approximately 10 GB. A generated image keeps approximately 25 GB and a result approximately 2 GB.
 `fmb run NAME --delete-image` deletes the image after a passing run; the result stays.
 
 **Linux.** Install QEMU and OVMF:
@@ -204,13 +203,26 @@ A minimal or server installation may also need `git`, `curl`, `tar` and the ICU 
 Arch). Your user needs read and write access to `/dev/kvm`. If it does not have it, run
 `sudo usermod -aG kvm $USER` and log in again.
 
-Download the Windows 11 ISO from
+**Windows.** Use Windows 11 x64. In an administrator PowerShell, run these commands, then restart Windows:
+
+```powershell
+Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform
+New-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force
+winget install SoftwareFreedomConservancy.QEMU
+wsl --install -d Ubuntu-24.04 --no-launch
+wsl --set-version Ubuntu-24.04 1
+```
+
+The Windows guest runs in QEMU with the Windows Hypervisor Platform, and Ansible runs in WSL 1. `fmb` works from
+PowerShell 7 and from Windows PowerShell.
+
+On Linux and Windows, download the Windows 11 ISO from
 [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11): select
 *Windows 11 (multi-edition ISO for x64 devices)*, then *English (United States)*. The link is valid for one
 day. `fmb setup` checks the SHA-256 of `Windows11_Client_x64_en-us_26300_9457.iso`. Microsoft replaces this ISO
 from time to time. If the page offers a newer build, add `--unpinned-iso`. Each result then records the build
-and the SHA-256 of the ISO. The results of the paper were checked on build 26300 (Linux) and build 22000
-(macOS) only.
+and the SHA-256 of the ISO. The results of the paper were checked on build 26300 (Linux and Windows) and
+build 22000 (macOS) only.
 
 **macOS.** Install VMware Fusion 13, Vagrant with the `vagrant-vmware-desktop` plugin, and Ansible
 (`brew install ansible`). Without the box of the paper, build a box from the Windows 11 ARM64 ISO
@@ -235,7 +247,7 @@ The code follows Figure 1. `src/fmb/pipeline` runs S1 to S4 for one image. It wr
 
 The question definitions, the protocol and the contracts of the data interfaces are in `src/fmb/contracts`.
 The base images are in `tools/base-image/windows11-arm64` (macOS) and `tools/base-image/windows11-x64`
-(Linux).
+(Linux and Windows).
 
 A new technique, case or question is a change to the code:
 

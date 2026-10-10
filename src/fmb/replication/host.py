@@ -191,9 +191,6 @@ def check(rows: list, name: str, found, fix: str) -> None:
 def checks() -> list[tuple[str, bool, str]]:
     rows: list[tuple[str, bool, str]] = []
     system = platform.system()
-    if WINDOWS:
-        rows.append(("supported host", False, "Windows hosts are not supported yet (evidence collection fails); "
-                                               "use Linux or macOS"))
     need, free = image_need_gib(), free_gib(Path.cwd())
     rows.append((f"free disk for one image ({need:.0f} GiB while it is generated and analysed)", free >= need,
                  f"{free:.0f} GiB free at {Path.cwd()}"))

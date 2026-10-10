@@ -316,8 +316,7 @@ jobs:
       - name: "README: setup --check, before setup"
         continue-on-error: true
         run: uv run fmb setup --check
-      - name: "README: setup --iso (runner: goes on past the unsupported-host row, to reach collection)"
-        continue-on-error: true
+      - name: "README: setup --iso"
         run: uv run fmb setup --iso ~/Downloads/${{ env.ISO }}
       - name: "README: generate ${{ matrix.image }}"
         run: uv run fmb generate ${{ matrix.image }}
