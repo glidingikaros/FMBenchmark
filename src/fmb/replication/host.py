@@ -144,6 +144,8 @@ def leftovers() -> list[tuple[str, str]]:
         listing = subprocess.run(["ps", "-axo", "pid=,args="], capture_output=True, text=True, check=False).stdout
         found += [("qemu", line.split(None, 1)[0]) for line in listing.splitlines()
                   if "qemu-system" in line and "/.vagrant/system.qcow2" in line]
+        found += [("overlay", str(disk.parent)) for disk in
+                  sorted(Path.cwd().glob("generated/*/generation/attempt-*/full_scale/*/.vagrant/system.qcow2"))]
     return found
 
 

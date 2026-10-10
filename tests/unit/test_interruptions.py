@@ -132,12 +132,14 @@ def test_a_generation_left_running_is_stopped_and_removed(tmp_path, monkeypatch)
     vmx.parent.mkdir(parents=True)
     vmx.write_text("")
     commands, killed = [], []
-    monkeypatch.setattr(host, "leftovers", lambda: [("clone", str(clone)), ("qemu", "4242")])
+    overlay = tmp_path / "attempt-1" / ".vagrant"
+    overlay.mkdir(parents=True)
+    monkeypatch.setattr(host, "leftovers", lambda: [("clone", str(clone)), ("qemu", "4242"), ("overlay", str(overlay))])
     monkeypatch.setattr(run.subprocess, "run", lambda command, **_: commands.append(command))
     monkeypatch.setattr(run.os, "kill", lambda pid, number: killed.append((pid, number)))
     run.remove_leftovers()
     assert commands == [[str(host.VMRUN), "-T", "fusion", "stop", str(vmx), "hard"]]
-    assert not clone.exists()
+    assert not clone.exists() and not overlay.exists()
     assert killed == [(4242, signal.SIGTERM)]
 
 
@@ -155,10 +157,14 @@ def test_leftovers_are_only_reported_while_no_generation_runs(tmp_path, monkeypa
     monkeypatch.setattr(host.subprocess, "run", listing("1 /bin/zsh", "77 python -m fmb.replication.steps generate {}"))
     assert host.leftovers() == []
     monkeypatch.setattr(host, "MACOS", False)
+    monkeypatch.chdir(tmp_path)
+    overlay = tmp_path / "generated" / "I1" / "generation" / "attempt-1" / "full_scale" / "a" / ".vagrant"
+    overlay.mkdir(parents=True)
+    (overlay / "system.qcow2").write_bytes(b"")
     monkeypatch.setattr(host.subprocess, "run", listing(
         "5 qemu-system-x86_64 -drive file=/w/generated/I1/generation/attempt-1/.vagrant/system.qcow2",
         "6 qemu-system-x86_64 -drive file=/home/me/other.qcow2"))
-    assert host.leftovers() == [("qemu", "5")]
+    assert host.leftovers() == [("qemu", "5"), ("overlay", str(overlay))]
 
 
 def test_the_disk_check_counts_the_box_or_base_and_a_result(tmp_path, monkeypatch):

@@ -76,6 +76,10 @@ def remove_leftovers() -> None:
             os.kill(int(target), signal.SIGTERM)
             log(f"stopped QEMU process {target}, left by an interrupted generation")
             continue
+        if kind == "overlay":
+            shutil.rmtree(target)
+            log(f"removed {target}, the guest disk of an interrupted generation")
+            continue
         for vmx in Path(target).rglob("*.vmx"):
             subprocess.run([str(host.VMRUN), "-T", "fusion", "stop", str(vmx), "hard"], capture_output=True,
                            check=False, timeout=180)
