@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import signal
 import sys
 from pathlib import Path
 
@@ -71,9 +72,9 @@ def freeze(image: str, provider: str, lock: str, recipe: str, image_file: str | 
         from fmb.replication import host, image_files
 
         own = image_files.load(Path(image_file))
-        facts = (host.base_guest_facts() or {}) if provider == "qemu" else {}
+        facts = host.guest_facts(provider) or {}
         config = recipes.image_config(own.seed, own.contract, provider, settings=own.settings,
-                                      guest_bias=recipes.guest_clock_bias(provider, facts.get("finished_utc")))
+                                      guest_bias=recipes.guest_clock_bias(facts.get("finished_utc")))
         contract = own.contract
     pipeline = _pipeline(config, default_current_root() / "generated", population_contract=contract)
     try:
@@ -112,10 +113,40 @@ def analyse(config: str, recipe: str | None = None) -> dict:
 
 
 STEPS = {"lock": lock, "freeze": freeze, "generate": generate, "analyse": analyse}
+SIGNALS = [getattr(signal, name) for name in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, name)]
+
+
+class Tolerant:
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, text):
+        try:
+            return self.stream.write(text)
+        except OSError:
+            return len(text)
+
+    def flush(self):
+        try:
+            self.stream.flush()
+        except OSError:
+            pass
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+def interrupt(number, frame):
+    for other in SIGNALS:
+        signal.signal(other, lambda *_: None)
+    raise KeyboardInterrupt(signal.Signals(number).name)
 
 
 def main(argv: list[str] | None = None) -> int:
     name, arguments = argv if argv is not None else sys.argv[1:]
+    for number in SIGNALS:
+        signal.signal(number, interrupt)
+    sys.stdout, sys.stderr = Tolerant(sys.stdout), Tolerant(sys.stderr)
 
     def call() -> int:
         result = STEPS[name](**json.loads(arguments))

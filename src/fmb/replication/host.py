@@ -19,6 +19,9 @@ LINUX_QEMU = {
     "arch": "sudo pacman -S qemu-system-x86 qemu-img edk2-ovmf",
     "suse": "sudo zypper install qemu-x86 qemu-tools qemu-ovmf-x86_64",
 }
+VMRUN = Path("/Applications/VMware Fusion.app/Contents/Public/vmrun")
+RESERVE_GIB = 8
+RESULT_GIB = 2
 LONG_PATHS = ("admin PowerShell: New-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem "
               "-Name LongPathsEnabled -Value 1 -PropertyType DWord -Force")
 
@@ -42,12 +45,22 @@ def base_guest_facts() -> dict | None:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
 
+def box_guest_facts() -> dict | None:
+    path = vagrant_boxes() / "fmb-VAGRANTSLASH-windows-11-arm64" / "0" / "guest.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def guest_facts(name: str | None = None) -> dict | None:
+    return base_guest_facts() if (name or provider()) == "qemu" else box_guest_facts()
+
+
 def windows_base() -> dict | None:
-    facts = base_guest_facts() if provider() == "qemu" else None
+    facts = guest_facts()
     if facts is None:
         return None
     sha256 = facts.get("iso_sha256")
-    return {"build": f"{facts['build']}.{facts['ubr']}", "iso_sha256": sha256,
+    return {"build": ".".join(str(part) for part in (facts["build"], facts.get("ubr")) if part is not None),
+            "iso_sha256": sha256,
             "iso_pinned": None if sha256 is None else sha256 == PINS["windows_iso"]["sha256"]}
 
 
@@ -88,6 +101,50 @@ def which(name: str) -> str | None:
 def free_gib(path: Path) -> float:
     path.mkdir(parents=True, exist_ok=True)
     return shutil.disk_usage(path).free / 2**30
+
+
+def vagrant_boxes() -> Path:
+    return Path(os.environ.get("VAGRANT_HOME") or Path.home() / ".vagrant.d").expanduser() / "boxes"
+
+
+def allocated_gib(folder: Path) -> float:
+    total = 0
+    for path in folder.rglob("*"):
+        if path.is_file():
+            stat = path.stat()
+            total += getattr(stat, "st_blocks", 0) * 512 or stat.st_size
+    return total / 2**30
+
+
+def image_need_gib() -> float:
+    if MACOS:
+        box = vagrant_boxes() / "fmb-VAGRANTSLASH-windows-11-arm64"
+        size = max((allocated_gib(version) for version in box.glob("*") if version.is_dir()), default=26)
+        return size + 2 * RESERVE_GIB + 1 + RESULT_GIB
+    from fmb.generation.recipe import qemu_box
+
+    base = base_home() / qemu_box().replace("/", "-VAGRANTSLASH-") / "0"
+    return 2 * (allocated_gib(base) if base.is_dir() else 10) + RESERVE_GIB + RESULT_GIB
+
+
+def generation_running() -> bool:
+    listing = subprocess.run(["ps", "-axo", "pid=,args="], capture_output=True, text=True, check=False).stdout
+    return any("fmb.replication.steps generate" in line and line.split(None, 1)[0] != str(os.getpid())
+               for line in listing.splitlines())
+
+
+def leftovers() -> list[tuple[str, str]]:
+    if WINDOWS or generation_running():
+        return []
+    found = []
+    work = cache() / "vm-work"
+    if MACOS and work.is_dir():
+        found += [("clone", str(folder)) for folder in sorted(work.iterdir()) if folder.is_dir()]
+    if not MACOS:
+        listing = subprocess.run(["ps", "-axo", "pid=,args="], capture_output=True, text=True, check=False).stdout
+        found += [("qemu", line.split(None, 1)[0]) for line in listing.splitlines()
+                  if "qemu-system" in line and "/.vagrant/system.qcow2" in line]
+    return found
 
 
 def accelerates(qemu: str, accelerator: str) -> bool:
@@ -135,20 +192,23 @@ def checks() -> list[tuple[str, bool, str]]:
     if WINDOWS:
         rows.append(("supported host", False, "Windows hosts are not supported yet (evidence collection fails); "
                                                "use Linux or macOS"))
-    rows.append(("free disk at the cache (40 GiB per image in flight)", free_gib(cache()) >= 40,
-                 f"{free_gib(cache()):.0f} GiB free at {cache()}"))
+    need, free = image_need_gib(), free_gib(Path.cwd())
+    rows.append((f"free disk for one image ({need:.0f} GiB while it is generated and analysed)", free >= need,
+                 f"{free:.0f} GiB free at {Path.cwd()}"))
+    stale = leftovers()
+    rows.append(("no VMs left by an interrupted generation", not stale,
+                 "none" if not stale else "fmb generate stops and removes them before it starts: "
+                 + ", ".join(target for _, target in stale)))
     runtimes = subprocess.run([which("dotnet"), "--list-runtimes"], capture_output=True, text=True,
                               check=False).stdout if which("dotnet") else ""
     wanted = f"Microsoft.NETCore.App {PINS['dotnet_runtime']['version']}"
     check(rows, f".NET runtime {PINS['dotnet_runtime']['version']}", wanted in runtimes,
           "run: fmb setup (installs it under the cache)")
     if MACOS:
-        vmrun = Path("/Applications/VMware Fusion.app/Contents/Public/vmrun")
-        check(rows, "VMware Fusion (vmrun)", vmrun.exists() and vmrun, "install VMware Fusion 13")
+        check(rows, "VMware Fusion (vmrun)", VMRUN.exists() and VMRUN, "install VMware Fusion 13")
         check(rows, "Vagrant", which("vagrant"), "install Vagrant and the vagrant-vmware-desktop plugin")
         check(rows, "Ansible", which("ansible-playbook"), "brew install ansible")
-        boxes = Path(os.environ.get("VAGRANT_HOME") or Path.home() / ".vagrant.d").expanduser() / "boxes"
-        box = boxes / "fmb-VAGRANTSLASH-windows-11-arm64"
+        box = vagrant_boxes() / "fmb-VAGRANTSLASH-windows-11-arm64"
         check(rows, "the paper's Windows box (fmb/windows-11-arm64)", box.is_dir() and box,
               "build it: tools/base-image/windows11-arm64/build-vmware-box.sh (or set VAGRANT_HOME to where it is)")
         return rows

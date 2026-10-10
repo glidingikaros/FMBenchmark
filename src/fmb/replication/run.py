@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import signal
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -13,8 +17,35 @@ from fmb.replication import host
 from fmb.replication.setup import log, windows_parsers
 
 RETRYABLE = re.compile(r'"outcome": "error", "phase": "(qemu_boot|vagrant_boot|ansible_provisioning)"')
+LOGFILE_WRAP = re.compile(r"timestamp transitions are not retained in the exported \$LogFile")
+INTERRUPTED = 130
 GENERATED = Path("generated")
 RESULTS = Path("results")
+
+
+@contextmanager
+def forwarded_signals(process: subprocess.Popen):
+    received = []
+
+    def forward(number, frame):
+        received.append(number)
+        if os.name == "posix" and process.poll() is None:
+            process.send_signal(signal.SIGTERM)
+
+    names = [name for name in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, name)]
+    previous = {name: signal.signal(getattr(signal, name), forward) for name in names}
+    try:
+        yield received
+    finally:
+        for name, handler in previous.items():
+            signal.signal(getattr(signal, name), handler)
+
+
+def echo(line: str) -> None:
+    try:
+        sys.stdout.write(line)
+    except OSError:
+        pass
 
 
 def step(name: str, *, log_path: Path | None = None, **arguments) -> int:
@@ -22,14 +53,42 @@ def step(name: str, *, log_path: Path | None = None, **arguments) -> int:
     command = [sys.executable, "-m", "fmb.replication.steps", name, encoded]
     log(f"{name} {encoded}")
     if log_path is None:
-        return subprocess.run(command, env=host.environment(), check=False).returncode
-    with log_path.open("w", encoding="utf-8") as stream:
-        process = subprocess.Popen(command, env=host.environment(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   text=True, encoding="utf-8", errors="replace")
-        for line in process.stdout:
-            sys.stdout.write(line)
-            stream.write(line)
-        return process.wait()
+        process = subprocess.Popen(command, env=host.environment())
+        with forwarded_signals(process) as received:
+            code = process.wait()
+    else:
+        with log_path.open("w", encoding="utf-8") as stream:
+            process = subprocess.Popen(command, env=host.environment(), stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+            with forwarded_signals(process) as received:
+                for line in process.stdout:
+                    echo(line)
+                    stream.write(line)
+                code = process.wait()
+    if received:
+        raise KeyboardInterrupt(f"{name} stopped after cleaning up")
+    return code
+
+
+def remove_leftovers() -> None:
+    for kind, target in host.leftovers():
+        if kind == "qemu":
+            os.kill(int(target), signal.SIGTERM)
+            log(f"stopped QEMU process {target}, left by an interrupted generation")
+            continue
+        for vmx in Path(target).rglob("*.vmx"):
+            subprocess.run([str(host.VMRUN), "-T", "fusion", "stop", str(vmx), "hard"], capture_output=True,
+                           check=False, timeout=180)
+        shutil.rmtree(target)
+        log(f"removed {target}, the VM of an interrupted generation")
+
+
+def discard_disks(attempt: Path) -> float:
+    freed = 0
+    for disk in [*attempt.rglob("*.vmdk"), *attempt.rglob("*.qcow2")]:
+        freed += disk.stat().st_size
+        disk.unlink()
+    return freed / 2**30
 
 
 def vm_work_root() -> Path | None:
@@ -44,12 +103,10 @@ def dependency_lock(root: Path) -> Path:
     lock = root / "lock.json"
     if lock.is_file():
         return lock
-    build = None
-    if host.provider() == "qemu":
-        facts = host.base_guest_facts()
-        if facts is None:
-            raise SystemExit("no Windows base yet: run `fmb setup` first")
-        build = facts["build"]
+    facts = host.guest_facts()
+    if facts is None and host.provider() == "qemu":
+        raise SystemExit("no Windows base yet: run `fmb setup` first")
+    build = facts["build"] if facts else None
     if step("lock", path=lock, provider=host.provider(), windows_build=build) != 0:
         raise SystemExit("writing the dependency lock failed")
     return lock
@@ -63,8 +120,8 @@ def base_clock_wait_seconds(finished_utc: str, bias_minutes: int, now: datetime)
 
 
 def await_base_clock(recipe: Path) -> None:
-    facts = host.base_guest_facts() or {}
-    if host.provider() != "qemu" or "finished_utc" not in facts:
+    facts = host.guest_facts() or {}
+    if "finished_utc" not in facts:
         return
     bias = json.loads((recipe / "recipe.json").read_text(encoding="utf-8"))["config"].get("vmware_boot_clock_bias_minutes", 0)
     wait = base_clock_wait_seconds(facts["finished_utc"], int(bias), datetime.now(timezone.utc))
@@ -94,7 +151,16 @@ def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
                     vm_work_root=vm_work_root(), log_path=log_path)
         if code == 0 and (done := completed(folder / "generation" / f"attempt-{attempt}")) is not None:
             return done
-        if not RETRYABLE.search(log_path.read_text(encoding="utf-8", errors="replace")):
+        if code == INTERRUPTED:
+            raise SystemExit(f"{image.name}: generation interrupted; its VM is removed")
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+        if LOGFILE_WRAP.search(text):
+            freed = discard_disks(folder / "generation" / f"attempt-{attempt}")
+            log(f"{image.name}: attempt {attempt} lost a timestamp change from the $LogFile before export, which "
+                f"Windows activity in the guest sometimes causes; removed its disk images ({freed:.0f} GiB) and "
+                "retrying with the same recipe")
+            continue
+        if not RETRYABLE.search(text):
             break
         log(f"{image.name}: attempt {attempt} failed while booting or provisioning; retrying with the same recipe")
     raise SystemExit(f"{image.name}: generation failed, see {folder}")
@@ -167,6 +233,8 @@ def generate_images(paths: list[Path], attempts: int, root: Path = GENERATED) ->
     if base and base["iso_pinned"] is False:
         log(f"the Windows base is build {base['build']} from an ISO that is not the pinned one "
             f"(SHA-256 {base['iso_sha256']}); every result records it")
+    if not host.WINDOWS:
+        remove_leftovers()
     lock = dependency_lock(root)
     failed = []
     for image in images:
@@ -192,7 +260,8 @@ def generated(root: Path = GENERATED) -> list[str]:
     return sorted(folder.name for folder in root.glob("*") if completed(folder / "generation") is not None)
 
 
-def run_images(names: list[str], llm: dict | None, root: Path = GENERATED, results: Path = RESULTS) -> int:
+def run_images(names: list[str], llm: dict | None, root: Path = GENERATED, results: Path = RESULTS,
+               delete_image: bool = False) -> int:
     from fmb.replication import report
 
     folders = {name: (root / name).resolve() for name in names}
@@ -213,4 +282,13 @@ def run_images(names: list[str], llm: dict | None, root: Path = GENERATED, resul
         report.complete(output, row, folder, generation)
         rows.append(row)
         print("\n".join(report.headline(row, output)), flush=True)
+        if row["admission"] != "passed":
+            continue
+        size = host.allocated_gib(folder)
+        if delete_image:
+            shutil.rmtree(folder)
+            log(f"{name}: deleted the generated image ({size:.0f} GiB); its result stays in {output}")
+        else:
+            log(f"{name}: the generated image ({size:.0f} GiB) stays in {folder} for further runs, such as an LLM "
+                f"comparison; --delete-image removes it after a passing run")
     return 0 if all(row["admission"] == "passed" for row in rows) else 1

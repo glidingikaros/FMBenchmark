@@ -331,7 +331,8 @@ def test_vmware_build_script_adds_the_box_the_generator_boots() -> None:
     assert '-var "work_dir=$work"' in script, "the build output goes where the script checked the free space"
     assert "shasum -a 256" in script, "the ISO's checksum is verified before the build"
     assert 'packer build -on-error=abort "$@" "$template"' in script, "a failed build keeps its VM for inspection"
-    assert "--write-dependency-lock" in script and "--guest-windows-build $build" in script
+    assert '"$box_home/guest.json"' in script and '"build": "%s"' in script and '"finished_utc": "%s"' in script, (
+        "the box records its Windows build and build time for the lock and the guest clock")
 
 
 def test_the_ui_language_comes_from_the_iso_in_both_builders() -> None:

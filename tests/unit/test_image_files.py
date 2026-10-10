@@ -228,15 +228,16 @@ def test_generate_and_run_take_names_stages_and_llm_conditions(tmp_path, monkeyp
     (tmp_path / "images/I1.json").write_text((ROOT / "images/I1.json").read_text())
     generated, analysed = [], []
     monkeypatch.setattr(run, "generate_images", lambda paths, attempts: generated.append(paths) or 0)
-    monkeypatch.setattr(run, "run_images", lambda names, llm: analysed.append((names, llm)) or 0)
+    monkeypatch.setattr(run, "run_images",
+                        lambda names, llm, delete_image: analysed.append((names, llm, delete_image)) or 0)
     assert main(["generate", "small", "I1"]) == 0
     assert generated == [[Path("images/small.json"), Path("images/I1.json")]]
     assert main(["run", "small", "--compare", "S3", "--llm", "sonnet5-high", "--cap-usd", "20"]) == 0
-    assert main(["run", "small"]) == 0
+    assert main(["run", "small", "--delete-image"]) == 0
     assert analysed == [(["small"], {
         "conditions": ["sonnet5-high"],
-        "dispatch": {"execute": True, "cap_usd": "20.0", "rates": {"sonnet5-high": {"input": "2.000", "output": "10.000"}}}}),
-        (["small"], None)]
+        "dispatch": {"execute": True, "cap_usd": "20.0", "rates": {"sonnet5-high": {"input": "2.000", "output": "10.000"}}}},
+        False), (["small"], None, True)]
     with pytest.raises(SystemExit, match="needs --llm"):
         main(["run", "small", "--compare", "S3"])
     with pytest.raises(SystemExit):
@@ -285,8 +286,7 @@ def test_llm_conditions_reach_the_analysis_and_the_summary(tmp_path, monkeypatch
 
 def test_an_image_may_set_its_clock_bias_activity_and_seeds(tmp_path):
     summer, winter = "2026-07-01T12:00:00+00:00", "2026-01-15T12:00:00+00:00"
-    assert recipe.guest_clock_bias("vmware_desktop", summer) == 480
-    assert [recipe.guest_clock_bias("qemu", built) for built in (summer, winter, None)] == [420, 480, 480]
+    assert [recipe.guest_clock_bias(built) for built in (summer, winter, None)] == [420, 480, 480]
     settings = {"clock_bias_minutes": "auto", "activity_count": 40, "activity_seed": 7, "hardware_seed": 8}
     image = image_files.load(write_image(tmp_path / "busy.json", {**example(), "generation": settings}))
     assert image.settings == settings and image.contract == example()

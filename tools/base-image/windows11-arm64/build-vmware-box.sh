@@ -55,8 +55,10 @@ packer build -on-error=abort "$@" "$template" ||
 
 vagrant box add --name "$box_name" "$box_file"
 build=$(tr -d '\r\n ' < "$work/build/guest-build.txt")
+box_home="${VAGRANT_HOME:-$HOME/.vagrant.d}/boxes/fmb-VAGRANTSLASH-windows-11-arm64/0"
+printf '{"build": "%s", "iso_sha256": "%s", "finished_utc": "%s"}\n' "$build" "$sha" \
+  "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" > "$box_home/guest.json"
 echo
-echo "Added $box_name (Windows build $build). Next, from the package directory:"
-echo "  fmb paper generate --check-host"
-echo "  fmb paper generate --write-dependency-lock ~/fmb/dependency-lock.json --guest-windows-build $build"
+echo "Added $box_name (Windows build $build). Next, from the repository:"
+echo "  uv run fmb setup --check"
 echo "The box file $box_file can be deleted once added."

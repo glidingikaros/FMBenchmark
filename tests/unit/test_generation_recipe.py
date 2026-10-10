@@ -252,7 +252,8 @@ def test_freezing_an_own_image_starts_its_clock_behind_the_mac_box(locked_recipe
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(pipeline.GenerationPipeline, "run", lambda self: pytest.fail("freeze must not execute"))
     monkeypatch.setattr(steps, "_load_generation_pipeline", lambda: pipeline)
-    monkeypatch.setattr(host, "base_guest_facts", lambda: pytest.fail("the Mac box has no base facts"))
+    monkeypatch.setattr(host, "base_guest_facts", lambda: pytest.fail("a Mac image reads the box, not the base"))
+    monkeypatch.setattr(host, "box_guest_facts", lambda: None)
     definition = json.loads((SOURCE.parents[2] / "tests/fixtures/images/subset.json").read_text(encoding="utf-8"))
     image = tmp_path / "own.json"
     image.write_text(json.dumps({**definition, "generation": {"clock_bias_minutes": "auto"}}), encoding="utf-8")
@@ -261,6 +262,10 @@ def test_freezing_an_own_image_starts_its_clock_behind_the_mac_box(locked_recipe
                  image_file=str(image))
     config = recipe.load_recipe(destination, source_root=SOURCE)["recipe"]["config"]
     assert config["vmware_boot_clock_bias_minutes"] == 482
+    monkeypatch.setattr(host, "box_guest_facts", lambda: {"build": "26100", "finished_utc": "2026-07-01T12:00:00+00:00"})
+    summer = tmp_path / "summer"
+    steps.freeze(image="own", provider="vmware_desktop", lock=str(lock_path), recipe=str(summer), image_file=str(image))
+    assert recipe.load_recipe(summer, source_root=SOURCE)["recipe"]["config"]["vmware_boot_clock_bias_minutes"] == 422
 
 
 def test_each_replay_gets_new_realization_identity(locked_recipe, tmp_path, monkeypatch):

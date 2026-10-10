@@ -45,6 +45,8 @@ def add_parsers(commands, argv: Sequence[str] = ()) -> None:
     run.add_argument("--passes", type=int, metavar="N",
                      help="how many times each LLM request is sent, 1 to 10 (default 3, as in the paper)")
     run.add_argument("--cap-usd", type=float, help="the most the LLM requests of one image may cost, in US dollars")
+    run.add_argument("--delete-image", action="store_true",
+                     help="delete the generated image after a passing run (its result stays; about 25 GB each)")
     run.add_argument("--price", action="append", default=[], metavar="CONDITION=INPUT,OUTPUT",
                      help="US dollars per million input and output tokens, for a condition without a recorded price")
 
@@ -105,7 +107,7 @@ def pipeline_command(args: argparse.Namespace) -> int:
     if compare and not chosen:
         raise SystemExit("--compare S3 needs --llm CONDITION, the LLM to compare: " + ", ".join(conditions(own)))
     llm = image_files.llm_dispatch(chosen, cap, args.price, dict(os.environ), own=own, passes=args.passes)
-    return run.run_images(names, llm)
+    return run.run_images(names, llm, delete_image=args.delete_image)
 
 
 def pick(title: str, rows: list[tuple[str, str]], prompt: str, default: list[str]) -> list[str]:

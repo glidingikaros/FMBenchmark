@@ -70,13 +70,13 @@ def _shared(config):
     return {key: value for key, value in config.items() if key not in POPULATION_KEYS | set(SETTING_RANGES)}
 
 
-def guest_clock_bias(provider, base_finished_utc=None):
+def guest_clock_bias(base_finished_utc=None):
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     from fmb.generation.clock_protocol import GUEST_STANDARD_BIAS_MINUTES
 
-    if provider != "qemu" or base_finished_utc is None:
+    if base_finished_utc is None:
         return GUEST_STANDARD_BIAS_MINUTES
     offset = datetime.fromisoformat(base_finished_utc).astimezone(ZoneInfo(GUEST_ZONE)).utcoffset()
     return -int(offset.total_seconds() // 60)

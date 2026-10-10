@@ -395,7 +395,7 @@ def test_fmb_run_takes_a_conditions_file_and_passes_and_lists_them_in_its_help(t
     (tmp_path / "conditions").mkdir()
     (tmp_path / "conditions/mine.json").write_text(json.dumps(OWN))
     analysed = []
-    monkeypatch.setattr(run, "run_images", lambda names, llm: analysed.append((names, llm)) or 0)
+    monkeypatch.setattr(run, "run_images", lambda names, llm, delete_image: analysed.append((names, llm)) or 0)
     assert main(["run", "small", "--conditions", "conditions/mine.json", "--llm", "mine-t0", "--cap-usd", "5",
                  "--passes", "2"]) == 0
     assert main(["run", "small", "--llm", "sonnet5-high", "--cap-usd", "5"]) == 0

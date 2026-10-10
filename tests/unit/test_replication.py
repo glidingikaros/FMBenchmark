@@ -149,3 +149,27 @@ def test_doctor_names_the_qemu_packages_of_the_linux_distribution(monkeypatch):
                              ({"ID": "opensuse-tumbleweed", "ID_LIKE": "opensuse suse"}, "zypper"), ({"ID": "nixos"}, "OVMF")):
         monkeypatch.setattr(host.platform, "freedesktop_os_release", lambda release=release: release)
         assert manager in host.qemu_install()
+
+
+def test_a_box_built_on_the_mac_brings_its_windows_build_and_build_time(tmp_path, monkeypatch):
+    monkeypatch.setenv("VAGRANT_HOME", str(tmp_path))
+    monkeypatch.setattr(host, "provider", lambda: "vmware_desktop")
+    assert host.guest_facts() is None and host.windows_base() is None
+    built = tmp_path / "boxes" / "fmb-VAGRANTSLASH-windows-11-arm64" / "0"
+    built.mkdir(parents=True)
+    (built / "guest.json").write_text(json.dumps({"build": "26100", "iso_sha256": "a" * 64,
+                                                  "finished_utc": "2026-07-01T12:00:00+00:00"}))
+    assert host.guest_facts()["build"] == "26100"
+    assert host.windows_base() == {"build": "26100", "iso_sha256": "a" * 64, "iso_pinned": False}
+    locked = []
+    monkeypatch.setattr(run, "step", lambda name, **arguments: locked.append(arguments["windows_build"]) or 0)
+    run.dependency_lock(tmp_path / "generated")
+    assert locked == ["26100"]
+    recipe = tmp_path / "recipe"
+    recipe.mkdir()
+    (recipe / "recipe.json").write_text(json.dumps({"config": {"vmware_boot_clock_bias_minutes": 480}}))
+    waited = []
+    monkeypatch.setattr(run.time, "sleep", waited.append)
+    monkeypatch.setattr(run, "base_clock_wait_seconds", lambda finished, bias, now: 4200.0)
+    run.await_base_clock(recipe)
+    assert waited == [4200.0]

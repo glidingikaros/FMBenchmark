@@ -40,6 +40,11 @@ admission, S3 must be exact on all the questions of the image (nine for the imag
 On Linux, the first image after a base build waits approximately 70 min. The guest clock must be after the
 last event of the base build.
 
+If you stop `fmb generate` (Ctrl-C, closing the terminal or `kill`), it removes its virtual machine first. If a
+crash leaves one behind, `fmb setup --check` lists it and the next `fmb generate` removes it. On macOS, Windows
+activity in the guest sometimes overwrites a timestamp change in the `$LogFile` before the export. `fmb generate`
+then deletes the disk of that attempt and tries again with the same recipe.
+
 ## Images
 
 `images/` contains one JSON file for each image.
@@ -182,8 +187,11 @@ range and cost of each S3′ condition. `results/NAME/<time>/` contains:
 
 Windows hosts are not supported at this time. The images generate, but the evidence collection fails.
 
-Each host needs internet access during setup, approximately 40 GB of free disk for each image, and
-approximately 10 GB for the Windows base.
+Each host needs internet access during setup. While an image is generated and analysed, it needs free disk of
+approximately the Windows guest plus 19 GB on macOS (45 GB with the box of the paper) and twice the Windows
+base plus 10 GB on Linux (30 GB). `fmb setup --check` computes this for your machine. The Windows base takes
+approximately 10 GB on Linux. A generated image keeps approximately 25 GB and a result approximately 2 GB.
+`fmb run NAME --delete-image` deletes the image after a passing run; the result stays.
 
 **Linux.** Install QEMU and OVMF:
 
@@ -198,11 +206,17 @@ Your user needs read and write access to `/dev/kvm`. If it does not have it, run
 Download the Windows 11 ISO from
 [microsoft.com/software-download/windows11](https://www.microsoft.com/software-download/windows11): select
 *Windows 11 (multi-edition ISO for x64 devices)*, then *English (United States)*. The link is valid for one
-day. `fmb setup` checks the SHA-256 of `Windows11_Client_x64_en-us_26300_9457.iso`. For a newer build, add
-`--unpinned-iso`. Each result then records the build and the SHA-256 of the ISO.
+day. `fmb setup` checks the SHA-256 of `Windows11_Client_x64_en-us_26300_9457.iso`. Microsoft replaces this ISO
+from time to time. If the page offers a newer build, add `--unpinned-iso`. Each result then records the build
+and the SHA-256 of the ISO. The results of the paper were checked on build 26300 (Linux) and build 22000
+(macOS) only.
 
 **macOS.** Install VMware Fusion 13, Vagrant with the `vagrant-vmware-desktop` plugin, and Ansible
-(`brew install ansible`). Build the box of the paper with `tools/base-image/windows11-arm64/build-vmware-box.sh`.
+(`brew install ansible`). Without the box of the paper, build a box from the Windows 11 ARM64 ISO
+([microsoft.com/software-download/windows11arm64](https://www.microsoft.com/software-download/windows11arm64),
+*English (United States)*) with `tools/base-image/windows11-arm64/build-vmware-box.sh <ISO> <its SHA-256>`.
+The build needs Packer and approximately 60 GB of free disk. The box records its Windows build, and each
+result names it.
 
 ## Code
 
