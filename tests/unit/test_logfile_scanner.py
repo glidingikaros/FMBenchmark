@@ -267,3 +267,19 @@ def test_read_mft_record_requires_the_file_signature(tmp_path: Path) -> None:
         assert read_mft_record(handle, 2) is not None
         assert read_mft_record(handle, 3) is None
         assert read_mft_record(handle, -1) is None
+
+
+def test_a_log_record_aimed_far_past_the_mft_is_unreadable_not_an_error(tmp_path: Path) -> None:
+    # One of 65,597 records in a real $LogFile (macOS guest, I1) parsed as this update; seeking to it raised.
+    mft = tmp_path / "$MFT"
+    mft.write_bytes(b"\0" * 2048 + file_record_bytes(entry=2, sequence=1))
+    garbage = dict(_driver_record(lsn=3917479929, entry=2253688922204337, offset=89905, redo=b"\0" * 38),
+                   target_block_size=475)
+    with mft.open("rb") as handle:
+        assert read_mft_record(handle, 2253688922204337, record_size=475 * 512) is None
+        assert read_mft_record(handle, 2) is not None
+
+    updates, diagnostics = si_updates_from_records([garbage], mft_path=mft)
+
+    assert updates == []
+    assert diagnostics["unbound_reasons"] == {"record_unreadable": 1}

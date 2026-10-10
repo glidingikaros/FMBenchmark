@@ -50,7 +50,10 @@ def read_mft_record(
 ) -> bytes | None:
     if entry < 0 or record_size <= 0:
         return None
-    handle.seek(entry * record_size)
+    offset = entry * record_size
+    if offset + record_size > handle.seek(0, 2):
+        return None
+    handle.seek(offset)
     record = handle.read(record_size)
     if len(record) != record_size or record[:4] != b"FILE":
         return None
