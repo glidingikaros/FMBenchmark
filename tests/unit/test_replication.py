@@ -206,3 +206,16 @@ def test_setup_names_the_mac_box_it_finds_and_the_pinned_iso_to_build_one(tmp_pa
     (box / "guest.json").write_text(json.dumps({"build": "26300", "iso_sha256": iso["sha256"],
                                                 "finished_utc": "2026-10-10T18:35:22+00:00"}))
     assert mac_box_row(monkeypatch) == (True, "build 26300, from the pinned ISO")
+
+
+def test_a_busy_machine_is_warned_about_before_generation(monkeypatch):
+    monkeypatch.setattr(host.os, "cpu_count", lambda: 8)
+    monkeypatch.setattr(host.os, "getloadavg", lambda: (9.0, 5.5, 3.0), raising=False)
+    assert host.load_warning() is None
+    monkeypatch.setattr(host.os, "getloadavg", lambda: (9.0, 7.5, 3.0), raising=False)
+    assert "load 7.5 on 8 CPUs" in host.load_warning()
+    monkeypatch.setattr(host.os, "cpu_count", lambda: 2)
+    monkeypatch.setattr(host.os, "getloadavg", lambda: (1.0, 1.0, 1.0), raising=False)
+    assert host.load_warning() is None
+    monkeypatch.delattr(host.os, "getloadavg")
+    assert host.load_warning() is None

@@ -251,6 +251,8 @@ def generate_images(paths: list[Path], attempts: int, root: Path = GENERATED) ->
             raise SystemExit(f"{image.path} changed since {folder} was started; delete {folder} to start again")
         folder.mkdir(exist_ok=True)
         (folder / "image.json").write_bytes(definition)
+        if busy := host.load_warning():
+            log(f"{image.name}: {busy}")
         try:
             done = generate_image(image, lock, folder, attempts)
             log(f"{image.name}: generated {done / 'full_scale.vmdk'}; analyse it with: fmb run {image.name}")

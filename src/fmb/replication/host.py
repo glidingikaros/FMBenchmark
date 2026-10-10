@@ -185,6 +185,18 @@ def long_paths() -> bool:
         return False
 
 
+def load_warning() -> str | None:
+    """A warning when other work leaves the generation guest's 2 vCPUs short; None when idle or unknown (Windows)."""
+    if not hasattr(os, "getloadavg"):
+        return None
+    load, cpus = os.getloadavg()[1], os.cpu_count() or 1
+    if load <= max(cpus - 2, 1):
+        return None
+    return (f"the machine is busy: load {load:.1f} on {cpus} CPUs over the last 5 minutes. The guest needs 2 of them; "
+            "on a busy host its clock readings and Windows' own timing get slow, and generation can fail or be "
+            "retried. Close other work or wait for it to finish.")
+
+
 def check(rows: list, name: str, found, fix: str) -> None:
     rows.append((name, bool(found), str(found) if found and found is not True else ("found" if found else fix)))
 
