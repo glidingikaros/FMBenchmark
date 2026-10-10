@@ -54,7 +54,8 @@ def test_journal_hashes_once_per_boundary_and_enforces_read_only(pipeline, tmp_p
     journal = pipeline.PostExportJournal(tmp_path / "post-export", hasher=hasher)
     journal.run("first", image, lambda: image.write_bytes(b"two"))
     journal.run("second", image, lambda: None, read_only=True)
-    assert hashed == ["image.bin", "image.bin", "image.bin"]
+    # The read-only step left the file alone, so its before hash stands without reading the image again.
+    assert hashed == ["image.bin", "image.bin"]
     with pytest.raises(RuntimeError, match="read-only post-export intervention third changed"):
         journal.run("third", image, lambda: image.write_bytes(b"three"), read_only=True)
     entries = journal_entries(tmp_path)

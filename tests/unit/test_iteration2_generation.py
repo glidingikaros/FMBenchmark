@@ -355,7 +355,7 @@ def test_playbook_applies_the_policy_before_any_role_and_checkpoints_the_populat
     assert first["gather_facts"] is False
     wait, emit, policy = first["tasks"]
     script = wait["ansible.windows.win_shell"]
-    assert "Microsoft-Windows-Time-Service" in script and "Id=37" in script and "-lt 120" in script
+    assert "Microsoft-Windows-Time-Service" in script and "Id=37" in script and "-lt {{ fmb_boot_sync_seconds | default(120) | int }}" in script
     assert not any(verb in script for verb in ("Set-Service", "Stop-Service", "Start-Service", "Set-Date",
                                                "Set-Item", "New-Item", "Remove-Item", "w32tm", "sc.exe"))
     assert emit["ansible.builtin.debug"]["msg"].startswith("FMB_BOOT_SYNC ")
