@@ -59,9 +59,10 @@ def windows_base() -> dict | None:
     if facts is None:
         return None
     sha256 = facts.get("iso_sha256")
+    pin = PINS["windows_iso" if provider() == "qemu" else "windows_iso_arm64"]
     return {"build": ".".join(str(part) for part in (facts["build"], facts.get("ubr")) if part is not None),
             "iso_sha256": sha256,
-            "iso_pinned": None if sha256 is None else sha256 == PINS["windows_iso"]["sha256"]}
+            "iso_pinned": None if sha256 is None else sha256 == pin["sha256"]}
 
 
 def dotnet_home() -> Path:
@@ -208,8 +209,12 @@ def checks() -> list[tuple[str, bool, str]]:
         check(rows, "Vagrant", which("vagrant"), "install Vagrant and the vagrant-vmware-desktop plugin")
         check(rows, "Ansible", which("ansible-playbook"), "brew install ansible")
         box = vagrant_boxes() / "fmb-VAGRANTSLASH-windows-11-arm64"
-        check(rows, "the paper's Windows box (fmb/windows-11-arm64)", box.is_dir() and box,
-              "build it: tools/base-image/windows11-arm64/build-vmware-box.sh (or set VAGRANT_HOME to where it is)")
+        base, iso = windows_base(), PINS["windows_iso_arm64"]
+        built = base and f"build {base['build']}, " + {True: "from the pinned ISO", None: "ISO not recorded",
+                                                        False: f"from an unpinned ISO (SHA-256 {base['iso_sha256']})"}[base["iso_pinned"]]
+        check(rows, "Windows box (fmb/windows-11-arm64)", box.is_dir() and (built or "the box of the paper, build 22000"),
+              f"download {iso['file']} from {iso['download']}, then run: tools/base-image/windows11-arm64/"
+              f"build-vmware-box.sh <that file> {iso['sha256']} (~30 min; or set VAGRANT_HOME to where a box is)")
         return rows
     from fmb.generation.qemu_host import uefi_firmware
 

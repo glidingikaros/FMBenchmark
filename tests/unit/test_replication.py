@@ -161,6 +161,9 @@ def test_a_box_built_on_the_mac_brings_its_windows_build_and_build_time(tmp_path
                                                   "finished_utc": "2026-07-01T12:00:00+00:00"}))
     assert host.guest_facts()["build"] == "26100"
     assert host.windows_base() == {"build": "26100", "iso_sha256": "a" * 64, "iso_pinned": False}
+    (built / "guest.json").write_text(json.dumps({"build": "26100", "finished_utc": "2026-07-01T12:00:00+00:00",
+                                                  "iso_sha256": host.PINS["windows_iso_arm64"]["sha256"]}))
+    assert host.windows_base()["iso_pinned"] is True
     locked = []
     monkeypatch.setattr(run, "step", lambda name, **arguments: locked.append(arguments["windows_build"]) or 0)
     run.dependency_lock(tmp_path / "generated")
@@ -173,3 +176,27 @@ def test_a_box_built_on_the_mac_brings_its_windows_build_and_build_time(tmp_path
     monkeypatch.setattr(run, "base_clock_wait_seconds", lambda finished, bias, now: 4200.0)
     run.await_base_clock(recipe)
     assert waited == [4200.0]
+
+
+def mac_box_row(monkeypatch):
+    monkeypatch.setattr(host, "MACOS", True)
+    monkeypatch.setattr(host, "WINDOWS", False)
+    monkeypatch.setattr(host, "provider", lambda: "vmware_desktop")
+    monkeypatch.setattr(host, "image_need_gib", lambda: 1.0)
+    monkeypatch.setattr(host, "leftovers", lambda: [])
+    monkeypatch.setattr(host, "which", lambda name: None)
+    rows = {name: (ok, detail) for name, ok, detail in host.checks()}
+    return rows["Windows box (fmb/windows-11-arm64)"]
+
+
+def test_setup_names_the_mac_box_it_finds_and_the_pinned_iso_to_build_one(tmp_path, monkeypatch):
+    monkeypatch.setenv("VAGRANT_HOME", str(tmp_path))
+    iso = host.PINS["windows_iso_arm64"]
+    ok, detail = mac_box_row(monkeypatch)
+    assert not ok and iso["file"] in detail and iso["sha256"] in detail and "build-vmware-box.sh" in detail
+    box = tmp_path / "boxes" / "fmb-VAGRANTSLASH-windows-11-arm64" / "0"
+    box.mkdir(parents=True)
+    assert mac_box_row(monkeypatch) == (True, "the box of the paper, build 22000")
+    (box / "guest.json").write_text(json.dumps({"build": "26300", "iso_sha256": iso["sha256"],
+                                                "finished_utc": "2026-10-10T18:35:22+00:00"}))
+    assert mac_box_row(monkeypatch) == (True, "build 26300, from the pinned ISO")
