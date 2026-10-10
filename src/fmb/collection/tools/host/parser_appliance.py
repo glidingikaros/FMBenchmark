@@ -4,6 +4,8 @@ import argparse
 import csv
 import fnmatch
 import json
+import ntpath
+import os
 import re
 import shutil
 import subprocess
@@ -99,6 +101,25 @@ if (Test-Path -LiteralPath $outputs) { Remove-Item -LiteralPath $outputs -Force 
 
 class ParserApplianceError(runner.KapeApplianceError):
     pass
+
+
+def _script_failed(completed: subprocess.CompletedProcess, stdout_path: Path, stderr_path: Path) -> ParserApplianceError:
+    stderr = (completed.stderr or "").strip()
+    tail = "\n".join((stderr or (completed.stdout or "").strip()).splitlines()[-12:])
+    where = stderr_path if stderr else stdout_path
+    return ParserApplianceError(f"parser script exited {completed.returncode}; see {where}" + (f"\n{tail}" if tail else ""))
+
+
+def _windows_powershell() -> tuple[str, dict[str, str]]:
+    # Started from PowerShell 7, powershell.exe inherits its module path, finds PowerShell 7's
+    # Microsoft.PowerShell.Utility first, and then lacks the script cmdlets of its own, such as Get-FileHash.
+    home = ntpath.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "WindowsPowerShell", "v1.0")
+    env = {key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"}
+    env["PSModulePath"] = ";".join([
+        ntpath.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "WindowsPowerShell", "Modules"),
+        ntpath.join(home, "Modules"),
+    ])
+    return ntpath.join(home, "powershell.exe"), env
 
 
 def _utc_now() -> datetime:
@@ -255,10 +276,11 @@ def _run_native_windows_parsers(*, package_path: Path, script_path: Path, output
         root = Path(temporary)
         shutil.copyfile(package_path, root / "inputs.zip")
         shutil.copyfile(script_path, root / "run_parsers.ps1")
-        command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        powershell, env = _windows_powershell()
+        command = [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                    "-File", str(root / "run_parsers.ps1"), "-Root", str(root)]
         try:
-            completed = run_owned(command, capture_output=True, timeout=DEFAULT_GUEST_TIMEOUT_SECONDS)
+            completed = run_owned(command, env=env, capture_output=True, timeout=DEFAULT_GUEST_TIMEOUT_SECONDS)
         except subprocess.CalledProcessError as error:
             return subprocess.CompletedProcess(command, error.returncode, error.output or "", error.stderr or "")
         shutil.copyfile(root / "outputs.zip", outputs_zip)
@@ -409,7 +431,7 @@ def run_parser_appliance(
         guest_stdout.write_text(completed.stdout or "", encoding="utf-8")
         guest_stderr.write_text(completed.stderr or "", encoding="utf-8")
         if completed.returncode != 0:
-            raise ParserApplianceError(f"parser script exited {completed.returncode}; see {guest_stdout}")
+            raise _script_failed(completed, guest_stdout, guest_stderr)
         record = phase("merge_outputs", lambda: _merge_outputs(
             outputs_zip=outputs_zip, appliance_dir=appliance_dir, modules_root=modules_root,
             tool_logs=tool_logs, package=package))

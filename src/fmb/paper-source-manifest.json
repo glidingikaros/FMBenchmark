@@ -44,7 +44,7 @@
     "package/collection/tools/host/eztools-lock.json": "e88a6ce79d28b63840dedb4ee0b44529ac4f5f05315bf531eacb20c48ef86aac",
     "package/collection/tools/host/modules.py": "0b7705503910321d1c9c409fa2def9e5034e2f85971fa8cbdbcbc6f10277806f",
     "package/collection/tools/host/ntfs_index.py": "7d1624fab874f09993d66aa8c06e1d583f09b7bb0688c557a5c6cf13b94213c9",
-    "package/collection/tools/host/parser_appliance.py": "43e64dac9c86b84fecbd0540ac9cc47e29f14bbc86827e67f656b1e43c8301c6",
+    "package/collection/tools/host/parser_appliance.py": "186f9b077fc9cd9977616950da3e168ba2f32d6e07c66622ad224828e548bd3a",
     "package/collection/tools/host/toolchain.py": "ac34cfdcb961434bfb6905301086efd843f47c73485d3200714a47bd82bc1387",
     "package/collection/tools/host/validation.py": "d6c92d546165a5544097bf7083618dbf3cf47665d38301ec386592f702450d7f",
     "package/collection/tools/host/vmware.py": "4e733a4ea8f7ec701f68da4325a64ee90b39f39d5aed544db22570361131fda6",
