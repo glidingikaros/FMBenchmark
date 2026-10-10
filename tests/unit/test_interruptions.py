@@ -127,6 +127,18 @@ def test_an_interrupted_generation_is_not_retried(tmp_path, monkeypatch):
     assert calls == ["generate"]
 
 
+def test_only_an_attempt_with_another_to_follow_says_it_is_retried(tmp_path, monkeypatch):
+    provisioning = '{"outcome": "error", "phase": "ansible_provisioning"}'
+    folder, calls = generating(tmp_path, monkeypatch, [(1, provisioning, False), (1, provisioning, False)])
+    said = []
+    monkeypatch.setattr(run, "log", said.append)
+    image = SimpleNamespace(name="I3", paper=True, path=tmp_path / "I3.json")
+    with pytest.raises(SystemExit, match="generation failed"):
+        run.generate_image(image, tmp_path / "lock.json", folder, attempts=2)
+    assert said == ["I3: attempt 1 failed while booting or provisioning; retrying with the same recipe",
+                    "I3: attempt 2 failed while booting or provisioning; that was the last of 2 attempts"]
+
+
 def test_a_generation_left_running_is_stopped_and_removed(tmp_path, monkeypatch):
     clone = tmp_path / "vm-work" / "20261010_101010_000000"
     vmx = clone / "machines" / "default" / "vmware_desktop" / "box.vmx"

@@ -158,15 +158,15 @@ def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
         if code == INTERRUPTED:
             raise SystemExit(f"{image.name}: generation interrupted; its VM is removed")
         text = log_path.read_text(encoding="utf-8", errors="replace")
+        then = "retrying with the same recipe" if attempt < attempts else f"that was the last of {attempts} attempts"
         if LOGFILE_WRAP.search(text):
             freed = discard_disks(folder / "generation" / f"attempt-{attempt}")
             log(f"{image.name}: attempt {attempt} lost a timestamp change from the $LogFile before export, which "
-                f"Windows activity in the guest sometimes causes; removed its disk images ({freed:.0f} GiB) and "
-                "retrying with the same recipe")
+                f"Windows activity in the guest sometimes causes; removed its disk images ({freed:.0f} GiB); {then}")
             continue
         if not RETRYABLE.search(text):
             break
-        log(f"{image.name}: attempt {attempt} failed while booting or provisioning; retrying with the same recipe")
+        log(f"{image.name}: attempt {attempt} failed while booting or provisioning; {then}")
     raise SystemExit(f"{image.name}: generation failed, see {folder}")
 
 
