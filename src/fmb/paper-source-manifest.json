@@ -184,7 +184,7 @@
     "package/generation/ansible/roles/noise/tasks/main.yml": "e93023470a98d3f481ef3a17153512e23a9d571ec48c75439cd1b7808d34dcb8",
     "package/generation/archive_control.py": "5ffb8869378fe280d5ca23fb591dd22d606cff71a151bdefc0e01857bbe1aeeb",
     "package/generation/backends.py": "9e58067f1d2e4f3f147815709817ca6b7b3cde1d988d99838d247d9a87f2ae5c",
-    "package/generation/clock_protocol.py": "90a500b771af952bca5bba0334ef42fc8977ebda942acfb748a5cf5e57a9ea8c",
+    "package/generation/clock_protocol.py": "45ba498f6a1e86d64d489f7071881d27dd544cf884b45ff3d9d7551fe747f9bf",
     "package/generation/clock_transport.py": "cadc95a0197657f4db26536641019ad839e8e88df750fd91956a20fb4fa6a39b",
     "package/generation/dependency_lock.py": "7997b50cb0327ce9026a3214c8f4152b2c132208f3ef2c1766c85a37860535b6",
     "package/generation/event_sequence_injection.py": "eff8105cdd88637af3dfe0f1673f0f376cca875d6b084d95a30cceeef53b0ea1",
