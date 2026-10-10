@@ -11,7 +11,7 @@
           $sync = Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-Time-Service'; Id=37; StartTime=$boot} -MaxEvents 1 -ErrorAction SilentlyContinue
           if ($sync) { break }
           Start-Sleep -Seconds 2
-        } while (([DateTime]::UtcNow - $started).TotalSeconds -lt 120)
+        } while (([DateTime]::UtcNow - $started).TotalSeconds -lt {{ fmb_boot_sync_seconds | default(120) | int }})
         [ordered]@{observed=[bool]$sync; waited_seconds=[Math]::Round(([DateTime]::UtcNow - $started).TotalSeconds, 1)} | ConvertTo-Json -Compress
       register: fmb_boot_sync_result
       changed_when: false

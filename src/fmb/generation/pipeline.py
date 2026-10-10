@@ -115,6 +115,11 @@ def write_json_replace(path, value, *, private=False):
         partial.unlink(missing_ok=True)
 
 
+def _file_signature(path):
+    status = Path(path).stat()
+    return status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns
+
+
 class PostExportJournal:
 
     def __init__(self, directory, *, hasher, checkpoint=None):
@@ -254,9 +259,15 @@ class PostExportJournal:
         self._record(entry)
         print(f"[*] Post-export intervention {ordinal:02d} {name} on {image.name} "
               f"(SHA-256 before: {before})")
+        started = time.monotonic()
+        signature = _file_signature(image) if read_only else None
         try:
             result = action()
-            after = self.hasher(image)
+            acted = time.monotonic()
+            # A read-only step that left the file's size, times and identity alone kept its bytes: the before
+            # hash stands, sparing a full read of the image. Anything else is hashed again.
+            unchanged = signature is not None and _file_signature(image) == signature
+            after = before if unchanged else self.hasher(image)
             if read_only and after != before:
                 raise RuntimeError(f"read-only post-export intervention {name} changed {image.name}")
             if self.checkpoint is not None:
@@ -269,7 +280,9 @@ class PostExportJournal:
         entry.update(status="completed", finished_utc=utc_now_iso(), sha256_after=after)
         write_json_replace(path, entry, private=True)
         self.boundary_hashes[image.name] = after
-        print(f"[*] Post-export intervention {ordinal:02d} {name} completed (SHA-256 after: {after})")
+        print(f"[*] Post-export intervention {ordinal:02d} {name} completed in {acted - started:.0f}s, "
+              f"{'hash kept' if unchanged else f'hashed in {time.monotonic() - acted:.0f}s'} "
+              f"(SHA-256 after: {after})")
         return result
 
     def _record(self, entry):
@@ -516,6 +529,9 @@ class GenerationPipeline:
         )
         try:
             payload = {"generation_inputs": guest_plan}
+            if self.provider == "qemu":
+                # The QEMU guest's network is restricted, so Windows' boot-time time sync never arrives: look once.
+                payload["fmb_boot_sync_seconds"] = 0
             if recipe_bundle is not None:
                 private = recipe_bundle["private"]
                 payload.update(fmb_activity_plan=private["activity_plan"],
@@ -1710,6 +1726,7 @@ class GenerationPipeline:
         partial_path = final_path.with_name(
             f"{final_path.name}.{secrets.token_hex(4)}.partial"
         )
+        started = time.monotonic()
         try:
             self.run_command(
                 [
@@ -1730,6 +1747,7 @@ class GenerationPipeline:
                 capture_output=True,
             )
             partial_path.replace(final_path)
+            print(f"[*] Converted {final_path.name} in {time.monotonic() - started:.0f}s")
             return final_path
         finally:
             if partial_path.exists():
