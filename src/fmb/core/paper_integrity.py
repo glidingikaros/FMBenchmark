@@ -10,6 +10,8 @@ from fmb.core.hashing import sha256_file
 from fmb.core.sealed_records import read_json, contained_path
 
 _MODIFIED_PERMITTED = False
+_DIGESTS: dict[Path, tuple[tuple, str]] = {}
+_RACY_NS = 2_000_000_000
 
 
 def permit_modified_sources() -> None:
@@ -59,10 +61,30 @@ def source_files(roots=None):
     return dict(sorted(files.items()))
 
 
+def _identity(path: Path) -> tuple:
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
+def source_sha256(path: Path) -> str:
+    # A digest is reused only while the file keeps its identity, size and timestamps. A file
+    # changed within two seconds of being hashed is never remembered, so a rewrite that lands
+    # in the same timestamp tick cannot reuse a stale digest.
+    identity = _identity(path)
+    cached = _DIGESTS.get(path)
+    if cached is not None and cached[0] == identity:
+        return cached[1]
+    hashed_at = time.time_ns()
+    digest = sha256_file(path)
+    if hashed_at - identity[3] > _RACY_NS and _identity(path) == identity:
+        _DIGESTS[path] = (identity, digest)
+    return digest
+
+
 def current_record(roots=None) -> dict:
     roots = roots or source_roots()
     sealed = read_json(roots["package"] / "paper-source-manifest.json")
-    return {**sealed, "files": {name: sha256_file(path) for name, path in source_files(roots).items()}}
+    return {**sealed, "files": {name: source_sha256(path) for name, path in source_files(roots).items()}}
 
 
 def record_bytes(record: dict) -> bytes:
@@ -90,7 +112,7 @@ def verify_sources(manifest_path: Path | None = None, *, roots=None) -> dict:
     for name, digest in record["files"].items():
         prefix, relative = name.split("/", 1)
         path = contained_path(roots[prefix], relative)
-        if path != actual[name] or sha256_file(path) != digest:
+        if path != actual[name] or source_sha256(path) != digest:
             raise ValueError("paper implementation changed: " + name)
     if roots == source_roots():
         import fmb.core.case_contract as contract
@@ -118,7 +140,7 @@ def snapshot_sources(output: Path) -> dict:
         target = output / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(path.read_bytes())
-        records[name] = sha256_file(path)
+        records[name] = source_sha256(path)
     return records
 
 
