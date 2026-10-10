@@ -150,6 +150,7 @@
     "package/generation/Vagrantfile": "26ac15997f88ef8fdc20946641fa1e22cf6a403860631daf2931d878c3fdfb87",
     "package/generation/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "package/generation/ansible/action_plugins/fmb_clock.py": "ca173f2f8e3cf01bcc4ae0457415e285f9a605afe7a12a8c95f16a02cf01c39d",
+    "package/generation/ansible/callback_plugins/fmb_task_times.py": "a18a494f5a078f1f046096eb8a619efc61458880cf054e242e4e1c608f94399b",
     "package/generation/ansible/clock_checkpoint.yml": "0283374a903c8aed4299d2faff09e4f0bb24761077c5a3e5e9255acaa0d02b95",
     "package/generation/ansible/playbook.yml": "8bad2fec8a1ac545f5ea3e7f904e71aa7e0bed705e7997a617693a3eee834b98",
     "package/generation/ansible/recipe_clock.yml": "7db440402cea1711a1128727dea9d1cd0fc376cc5a14a2d252a6dbf9d9bc3a36",
