@@ -1,0 +1,27 @@
+---
+- name: Check observed guest build, timezone and locale against the recipe
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    $expected = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $observed = [ordered]@{
+      windows_build = [string](Get-CimInstance Win32_OperatingSystem).BuildNumber
+      timezone = [string](Get-TimeZone).Id
+      locale = [string](Get-Culture).Name
+    }
+    foreach ($key in @('windows_build', 'timezone', 'locale')) {
+      if ($observed[$key] -cne [string]$expected.$key) {
+        throw "Guest environment does not match the frozen recipe: $key"
+      }
+    }
+    $observed | ConvertTo-Json -Compress
+  args:
+    stdin: "{{ fmb_expected_environment | to_json }}"
+  register: fmb_environment_result
+  no_log: true
+
+- name: Emit host-only observed guest environment
+  ansible.builtin.debug:
+    msg:
+      - "GENERATION_ENVIRONMENT_BEGIN"
+      - "{{ fmb_environment_result.stdout | trim }}"
+      - "GENERATION_ENVIRONMENT_END"

@@ -1,0 +1,668 @@
+{
+  "candidate_populations": [
+    {
+      "coverage_status": "complete",
+      "population_id": "population:case_del_02",
+      "question_id": "Q-DEL-02",
+      "subject_type": "registry_path",
+      "subjects": [
+        {
+          "identity": {
+            "canonical_name": "d_ad3e2062af37"
+          },
+          "observation_ids": [
+            "observation:case_del_02:001:001"
+          ],
+          "subject_ref": "d_ad3e2062af37"
+        },
+        {
+          "identity": {
+            "canonical_name": "c:\\users\\vagrant\\desktop\\d_b291ce2f3fce"
+          },
+          "observation_ids": [
+            "observation:case_del_02:002:001"
+          ],
+          "subject_ref": "C:\\Users\\vagrant\\Desktop\\d_b291ce2f3fce"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_03b5d716e74b"
+          },
+          "observation_ids": [
+            "observation:case_del_02:003:001"
+          ],
+          "subject_ref": "d_03b5d716e74b"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_0399e822ab77"
+          },
+          "observation_ids": [
+            "observation:case_del_02:004:001"
+          ],
+          "subject_ref": "d_0399e822ab77"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_d88128cacedc"
+          },
+          "observation_ids": [
+            "observation:case_del_02:005:001"
+          ],
+          "subject_ref": "d_d88128cacedc"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_83f427db115c"
+          },
+          "observation_ids": [
+            "observation:case_del_02:006:001"
+          ],
+          "subject_ref": "d_83f427db115c"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_23d117380c8f"
+          },
+          "observation_ids": [
+            "observation:case_del_02:007:001"
+          ],
+          "subject_ref": "d_23d117380c8f"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_a16399222bb2"
+          },
+          "observation_ids": [
+            "observation:case_del_02:008:001"
+          ],
+          "subject_ref": "d_a16399222bb2"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_4c51f7347c39"
+          },
+          "observation_ids": [
+            "observation:case_del_02:009:001"
+          ],
+          "subject_ref": "d_4c51f7347c39"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_baa8a9cb21d3"
+          },
+          "observation_ids": [
+            "observation:case_del_02:010:001"
+          ],
+          "subject_ref": "d_baa8a9cb21d3"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_389e1cec8ce0"
+          },
+          "observation_ids": [
+            "observation:case_del_02:011:001"
+          ],
+          "subject_ref": "d_389e1cec8ce0"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_c7358bc0698e"
+          },
+          "observation_ids": [
+            "observation:case_del_02:012:001"
+          ],
+          "subject_ref": "d_c7358bc0698e"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_90d2bc88841b"
+          },
+          "observation_ids": [
+            "observation:case_del_02:013:001"
+          ],
+          "subject_ref": "d_90d2bc88841b"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_7931213753ba"
+          },
+          "observation_ids": [
+            "observation:case_del_02:014:001"
+          ],
+          "subject_ref": "d_7931213753ba"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_17c9d5f0d155"
+          },
+          "observation_ids": [
+            "observation:case_del_02:015:001"
+          ],
+          "subject_ref": "d_17c9d5f0d155"
+        },
+        {
+          "identity": {
+            "canonical_name": "d_ce6ca74bbd4e"
+          },
+          "observation_ids": [
+            "observation:case_del_02:016:001"
+          ],
+          "subject_ref": "d_ce6ca74bbd4e"
+        }
+      ],
+      "technique_id": "typed_path_residue"
+    }
+  ],
+  "collector_runs": [
+    {
+      "artifact_count": 2,
+      "artifacts": [
+        {
+          "artifact_families": [
+            "ntfs.mft"
+          ],
+          "artifact_family": "ntfs.mft",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "ntfs.mft",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:40a462e08c7fdfd7c8409102",
+          "path": "benchmark/case_del_02/ntfs_mft-raw.json",
+          "relative_path": "benchmark/case_del_02/ntfs_mft-raw.json",
+          "sha256": "40a462e08c7fdfd7c840910242f97fe732647b0aff967ec014955a3f9e189a60",
+          "size_bytes": 0
+        },
+        {
+          "artifact_families": [
+            "windows.registry.typed_paths"
+          ],
+          "artifact_family": "windows.registry.typed_paths",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.registry.typed_paths",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:eb3c5f3f55c5b2caabb6260c",
+          "path": "benchmark/case_del_02/windows_typed_paths-raw.json",
+          "relative_path": "benchmark/case_del_02/windows_typed_paths-raw.json",
+          "sha256": "eb3c5f3f55c5b2caabb6260c81cccbf4d4d4c745a39289ea4e0501842a57eca4",
+          "size_bytes": 0
+        }
+      ],
+      "collector": "kape",
+      "input_kind": "external_tool_output",
+      "output_root": "benchmark/case_del_02",
+      "provenance": {
+        "adapter": "fmb.tool_output_adapter",
+        "adapter_scope": "inventory_existing_tool_output_no_collection_execution"
+      },
+      "status": "consumed"
+    }
+  ],
+  "external_inputs_allowed": false,
+  "parser_runs": [
+    {
+      "coverage_families": [
+        "ntfs.mft"
+      ],
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "ntfs.mft"
+        ],
+        "artifact_family": "ntfs.mft",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "ntfs.mft",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:f38bef5215ef0e5c712159fc",
+        "artifact_record_id": "source:f38bef5215ef0e5c",
+        "path": "benchmark/case_del_02/ntfs_mft-normalized.json",
+        "record_count": 15,
+        "relative_path": "benchmark/case_del_02/ntfs_mft-normalized.json",
+        "sha256": "f38bef5215ef0e5c712159fcdc2be5c34b6044f406a3bc7e6b9d9ab5e5ee0c28",
+        "size_bytes": 0
+      },
+      "observation_count": 15,
+      "observation_families": [
+        "ntfs.mft"
+      ],
+      "observations": [
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89062",
+            "file_name": "d_ad3e2062af37",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 89062,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_del_02:001:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:1",
+          "subject_ref": "d_ad3e2062af37"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89063",
+            "file_name": "d_03b5d716e74b",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 89063,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_del_02:003:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:2",
+          "subject_ref": "d_03b5d716e74b"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "89064",
+            "file_name": "d_0399e822ab77",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 89064,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "3"
+          },
+          "observation_id": "observation:case_del_02:004:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:3",
+          "subject_ref": "d_0399e822ab77"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "20125",
+            "file_name": "d_d88128cacedc",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 20125,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "4"
+          },
+          "observation_id": "observation:case_del_02:005:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:4",
+          "subject_ref": "d_d88128cacedc"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "49795",
+            "file_name": "d_83f427db115c",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 49795,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "4"
+          },
+          "observation_id": "observation:case_del_02:006:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:5",
+          "subject_ref": "d_83f427db115c"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "52527",
+            "file_name": "d_23d117380c8f",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 52527,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "10"
+          },
+          "observation_id": "observation:case_del_02:007:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:6",
+          "subject_ref": "d_23d117380c8f"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "54597",
+            "file_name": "d_a16399222bb2",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 54597,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "9"
+          },
+          "observation_id": "observation:case_del_02:008:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:7",
+          "subject_ref": "d_a16399222bb2"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "54598",
+            "file_name": "d_4c51f7347c39",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 54598,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "9"
+          },
+          "observation_id": "observation:case_del_02:009:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:8",
+          "subject_ref": "d_4c51f7347c39"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "71465",
+            "file_name": "d_baa8a9cb21d3",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 71465,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "10"
+          },
+          "observation_id": "observation:case_del_02:010:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:9",
+          "subject_ref": "d_baa8a9cb21d3"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "74409",
+            "file_name": "d_389e1cec8ce0",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 74409,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "6"
+          },
+          "observation_id": "observation:case_del_02:011:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:10",
+          "subject_ref": "d_389e1cec8ce0"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "74413",
+            "file_name": "d_c7358bc0698e",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 74413,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "5"
+          },
+          "observation_id": "observation:case_del_02:012:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:11",
+          "subject_ref": "d_c7358bc0698e"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "74425",
+            "file_name": "d_90d2bc88841b",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 74425,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "5"
+          },
+          "observation_id": "observation:case_del_02:013:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:12",
+          "subject_ref": "d_90d2bc88841b"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "74520",
+            "file_name": "d_7931213753ba",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 74520,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "6"
+          },
+          "observation_id": "observation:case_del_02:014:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:13",
+          "subject_ref": "d_7931213753ba"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "74521",
+            "file_name": "d_17c9d5f0d155",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 74521,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "4"
+          },
+          "observation_id": "observation:case_del_02:015:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:14",
+          "subject_ref": "d_17c9d5f0d155"
+        },
+        {
+          "artifact_family": "ntfs.mft",
+          "fields": {
+            "entry_number": "74533",
+            "file_name": "d_ce6ca74bbd4e",
+            "in_use": "True",
+            "is_directory": "True",
+            "mft_entry": 74533,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "parent_path": ".\\Users\\vagrant\\Desktop",
+            "sequence_number": "4"
+          },
+          "observation_id": "observation:case_del_02:016:001",
+          "observation_type": "mft_file_record",
+          "source_record_ref": "source:40a462e08c7fdfd7:15",
+          "subject_ref": "d_ce6ca74bbd4e"
+        }
+      ],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "ntfs_mft",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "ntfs.mft"
+          ],
+          "artifact_family": "ntfs.mft",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "ntfs.mft",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:40a462e08c7fdfd7c8409102",
+          "artifact_record_id": "source:40a462e08c7fdfd7",
+          "path": "benchmark/case_del_02/ntfs_mft-raw.json",
+          "relative_path": "benchmark/case_del_02/ntfs_mft-raw.json",
+          "sha256": "40a462e08c7fdfd7c840910242f97fe732647b0aff967ec014955a3f9e189a60",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    },
+    {
+      "coverage_families": [
+        "windows.registry.typed_paths"
+      ],
+      "coverage_status": "complete",
+      "input_kind": "external_tool_parser_output",
+      "normalized_output": {
+        "artifact_families": [
+          "windows.registry.typed_paths"
+        ],
+        "artifact_family": "windows.registry.typed_paths",
+        "artifact_family_declarations": [
+          {
+            "artifact_family": "windows.registry.typed_paths",
+            "basis": "fixed truth-blind benchmark evidence",
+            "coverage_role": "direct",
+            "method": "parser_output_declaration",
+            "source_field": "artifact_family",
+            "source_surface": "parser_normalized_output"
+          }
+        ],
+        "artifact_id": "artifact:27d896ee9e42ef498cc775c9",
+        "artifact_record_id": "source:27d896ee9e42ef49",
+        "path": "benchmark/case_del_02/windows_typed_paths-normalized.json",
+        "record_count": 1,
+        "relative_path": "benchmark/case_del_02/windows_typed_paths-normalized.json",
+        "sha256": "27d896ee9e42ef498cc775c9ddf7c67c70c51b83989a8d05d3bf6d8bd032d3a1",
+        "size_bytes": 0
+      },
+      "observation_count": 1,
+      "observation_families": [
+        "windows.registry.typed_paths"
+      ],
+      "observations": [
+        {
+          "artifact_family": "windows.registry.typed_paths",
+          "fields": {
+            "category": "File Access and Opening",
+            "deleted": "False",
+            "description": "TypedPaths",
+            "hive_path": "C:\\FMB-Appliance\\bundle\\kape-output\\targets\\F\\Users\\vagrant\\NTUSER.DAT",
+            "key_path": "ROOT\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths",
+            "last_write_timestamp": "2026-08-08 17:01:14.7356725",
+            "mft_active_path_match": false,
+            "mft_active_presence_basis": "path_comparison",
+            "mft_active_presence_check_supported": true,
+            "mft_active_presence_status": "active_mft_absent",
+            "mft_active_reference_match": false,
+            "mft_volume_id": "mft-source:fixture-case-del-02",
+            "source_key": "ROOT\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths",
+            "source_module": "RegistryMRU",
+            "source_parser": "RECmd",
+            "timestamp": "2026-08-08 17:01:14.7356725",
+            "value_data": "C:\\Users\\vagrant\\Desktop\\d_b291ce2f3fce",
+            "value_name": "url1",
+            "value_type": "RegSz"
+          },
+          "observation_id": "observation:case_del_02:002:001",
+          "observation_type": "typed_path_seen",
+          "source_record_ref": "source:eb3c5f3f55c5b2ca:1",
+          "subject_ref": "C:\\Users\\vagrant\\Desktop\\d_b291ce2f3fce"
+        }
+      ],
+      "parser": "fmb_bounded_parser",
+      "parser_kind": "windows_typed_paths",
+      "provenance": {
+        "adapter": "fmb.parser_output_adapter",
+        "adapter_scope": "consume_external_parser_output",
+        "truth_sources_used": []
+      },
+      "raw_outputs": [
+        {
+          "artifact_families": [
+            "windows.registry.typed_paths"
+          ],
+          "artifact_family": "windows.registry.typed_paths",
+          "artifact_family_declarations": [
+            {
+              "artifact_family": "windows.registry.typed_paths",
+              "basis": "fixed truth-blind benchmark evidence",
+              "coverage_role": "direct",
+              "method": "collector_source_declaration",
+              "source_field": "artifact_family",
+              "source_surface": "collector_output"
+            }
+          ],
+          "artifact_id": "artifact:eb3c5f3f55c5b2caabb6260c",
+          "artifact_record_id": "source:eb3c5f3f55c5b2ca",
+          "path": "benchmark/case_del_02/windows_typed_paths-raw.json",
+          "relative_path": "benchmark/case_del_02/windows_typed_paths-raw.json",
+          "sha256": "eb3c5f3f55c5b2caabb6260c81cccbf4d4d4c745a39289ea4e0501842a57eca4",
+          "size_bytes": 0
+        }
+      ],
+      "source_collector": "kape",
+      "status": "consumed"
+    }
+  ],
+  "question": {
+    "question_id": "Q-DEL-02",
+    "question_text": "Does a structured TypedPaths registry value reference an absolute local path proven absent from the active filesystem?"
+  },
+  "rule_runs": [],
+  "run_id": "benchmark-evidence:case_del_02",
+  "schema_version": "evidence_index.v1",
+  "tool_alignment": {
+    "collection_tools_supported": [
+      "kape",
+      "uac"
+    ],
+    "collection_tools_used": [
+      "kape"
+    ],
+    "custom_forensic_heuristics_allowed": false,
+    "normalization_role": "map_tool_outputs_to_project_contracts_only",
+    "parser_tools_supported": [
+      "fmb_bounded_parser"
+    ],
+    "parser_tools_used": [
+      "fmb_bounded_parser"
+    ],
+    "rule_engines_supported": [
+      "yara",
+      "sigma"
+    ],
+    "rule_engines_used": [],
+    "synthetic_fixture_role": "ground_truth_for_final_evaluation_only_not_analysis_input"
+  }
+}

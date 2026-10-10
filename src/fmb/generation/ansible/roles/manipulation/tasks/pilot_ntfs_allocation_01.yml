@@ -1,0 +1,207 @@
+---
+- name: Prepare native NTFS size and storage-mode controls before offline mutation
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    $stage = 'decode_input'
+    $controlMode = 'not_started'
+    $apiOk = $null; $win32 = $null; $allocation = $null; $eof = $null
+    $openAllocation = $null; $nativeExit = $null; $apiStage = 'not_called'
+    try {
+    $scenarioInput = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $stage = 'validate_input'
+    $case = [string]$scenarioInput.case
+    $paths = @($scenarioInput.operation_refs)
+    $populationPaths = @($scenarioInput.population_paths)
+    $expectedPopulationCount = [int]$scenarioInput.expected_population_count
+    $expectedOperationCount = [int]$scenarioInput.expected_operation_count
+    [object[]]$operationRefStrings = @($paths | ForEach-Object { [string]$_ })
+    $operationRefsJson = ConvertTo-Json -InputObject $operationRefStrings -Compress
+    $operationRefsJson = $operationRefsJson.Replace('\u0026', '&')
+    $operationRefsJson = $operationRefsJson.Replace('\u0027', "'")
+    $operationRefsJson = $operationRefsJson.Replace('\u003c', '<')
+    $operationRefsJson = $operationRefsJson.Replace('\u003e', '>')
+    $operationRefsHasher = [Security.Cryptography.SHA256]::Create()
+    try {
+      $operationRefsSha256 = ([BitConverter]::ToString(
+        $operationRefsHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes(
+          "generation_operation_refs.v1`n$operationRefsJson"
+        ))
+      )).Replace('-', '').ToLowerInvariant()
+    } finally {
+      $operationRefsHasher.Dispose()
+    }
+    $storageCases = @($scenarioInput.storage_cases)
+    if ($expectedPopulationCount -lt 1 -or
+        $storageCases.Count -ne $expectedPopulationCount -or
+        $populationPaths.Count -ne $expectedPopulationCount -or
+        ($case -eq 'positive' -and ($expectedOperationCount -lt 1 -or $expectedOperationCount -gt $expectedPopulationCount)) -or
+        ($case -eq 'benign' -and $expectedOperationCount -ne 0) -or
+        $paths.Count -ne $expectedOperationCount) {
+      throw "NTFS allocation population cardinality is invalid"
+    }
+    $stage = 'compile_native_interop'
+    Add-Type -TypeDefinition @'
+    using System;
+    using System.Runtime.InteropServices;
+    using Microsoft.Win32.SafeHandles;
+    public static class LocalAllocationControl {
+      [StructLayout(LayoutKind.Sequential)] public struct AllocationInfo { public long Size; }
+      [StructLayout(LayoutKind.Sequential)] public struct StandardInfo {
+        public long AllocationSize, EndOfFile;
+        public uint NumberOfLinks;
+        [MarshalAs(UnmanagedType.U1)] public bool DeletePending;
+        [MarshalAs(UnmanagedType.U1)] public bool Directory;
+      }
+      [DllImport("kernel32.dll", SetLastError=true)]
+      public static extern bool SetFileInformationByHandle(SafeFileHandle handle, int kind,
+          ref AllocationInfo info, uint size);
+      [DllImport("kernel32.dll", SetLastError=true)]
+      public static extern bool GetFileInformationByHandleEx(SafeFileHandle handle, int kind,
+          out StandardInfo info, uint size);
+    }
+    '@
+    $preallocationCloseControls = [Collections.Generic.List[object]]::new()
+    $preparedModes = @(
+      foreach ($item in $storageCases) {
+        $stage = 'prepare_control'
+        $controlMode = 'not_available'
+        $apiOk = $null; $win32 = $null; $allocation = $null; $eof = $null
+        $openAllocation = $null; $nativeExit = $null; $apiStage = 'not_called'
+        $path = [string]$item.path
+        $mode = [string]$item.storage_mode
+        if ($mode -cin @('ordinary','resident','preallocation_request_then_close')) { $controlMode = $mode }
+        $length = [int]$item.logical_length
+        [byte[]]$data = New-Object byte[] $length
+        for ($index = 0; $index -lt $length; $index++) { $data[$index] = [byte](($index * 37 + 19) % 251) }
+        $stage = 'write_content'
+        [IO.File]::WriteAllBytes($path, $data)
+        if ($mode -eq 'preallocation_request_then_close') {
+          $stage = 'preallocation_open'
+          $contentBefore = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Read)
+          try {
+            $info = [LocalAllocationControl+AllocationInfo]::new()
+            $info.Size = 65536
+            $stage = 'preallocation_set_api'
+            $apiStage = $stage
+            $apiOk = [LocalAllocationControl]::SetFileInformationByHandle($stream.SafeFileHandle, 5, [ref]$info, 8)
+            $win32 = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            if (-not $apiOk) {
+              throw "Native file preallocation failed"
+            }
+            $openInfo = [LocalAllocationControl+StandardInfo]::new()
+            $stage = 'preallocation_open_readback'
+            $apiOk = $null; $win32 = $null; $apiStage = $stage
+            $apiOk = [LocalAllocationControl]::GetFileInformationByHandleEx($stream.SafeFileHandle, 1, [ref]$openInfo, 24)
+            $win32 = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            $allocation = [long]$openInfo.AllocationSize; $eof = [long]$openInfo.EndOfFile
+            $openAllocation = [long]$openInfo.AllocationSize
+            if (-not $apiOk -or
+                $openInfo.AllocationSize -lt $info.Size -or $openInfo.EndOfFile -ne $length) {
+              throw "Native open-handle preallocation readback failed"
+            }
+          } finally { $stream.Dispose() }
+          $stage = 'preallocation_closed_readback'
+          $apiOk = $null; $win32 = $null; $allocation = $null; $eof = $null
+          $apiStage = 'not_called'
+          $closedStream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+          try {
+            $closedInfo = [LocalAllocationControl+StandardInfo]::new()
+            $apiStage = $stage
+            $apiOk = [LocalAllocationControl]::GetFileInformationByHandleEx($closedStream.SafeFileHandle, 1, [ref]$closedInfo, 24)
+            $win32 = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            $allocation = [long]$closedInfo.AllocationSize; $eof = [long]$closedInfo.EndOfFile
+            if (-not $apiOk -or
+                $closedInfo.EndOfFile -ne $length -or $closedInfo.AllocationSize -lt $length -or
+                $closedInfo.AllocationSize -ge $openInfo.AllocationSize) {
+              throw "Native post-close allocation release readback failed"
+            }
+          } finally { $closedStream.Dispose() }
+          $stage = 'preallocation_verify_content'
+          $contentAfter = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($contentBefore -cne $contentAfter) { throw "Native preallocation lifecycle changed content" }
+          $preallocationCloseControls.Add([ordered]@{
+            path = $path
+            requested_allocation_bytes = [long]$info.Size
+            open_allocation_bytes = [long]$openInfo.AllocationSize
+            open_eof_bytes = [long]$openInfo.EndOfFile
+            closed_allocation_bytes = [long]$closedInfo.AllocationSize
+            closed_eof_bytes = [long]$closedInfo.EndOfFile
+            content_sha256 = $contentAfter
+          })
+        }
+        $stage = 'verify_metadata'
+        $observed = Get-Item -LiteralPath $path -Force
+        if ($observed.Length -ne $length) { throw "NTFS storage control logical size mismatch" }
+        $mode
+      }
+    )
+    $stage = 'encode_receipt'
+    [ordered]@{
+      scenario_id = 'ntfs_allocation_01'
+      case = $case
+      operation_count = $paths.Count
+      operation_refs_sha256 = $operationRefsSha256
+      postcondition_verified = $true
+      population_count = $populationPaths.Count
+      prepared_modes = $preparedModes
+      preallocation_close_controls = @($preallocationCloseControls.ToArray())
+    } | ConvertTo-Json -Compress -Depth 5
+    } catch {
+      $exception = $_.Exception
+      while ($exception.InnerException) { $exception = $exception.InnerException }
+      $code = switch -CaseSensitive -Exact ([string]$exception.Message) {
+        "NTFS allocation population cardinality is invalid" { 'population_cardinality_invalid' }
+        "Native file preallocation failed" { 'preallocation_api_failed' }
+        "Native open-handle preallocation readback failed" { 'open_preallocation_readback_failed' }
+        "Native post-close allocation release readback failed" { 'closed_preallocation_readback_failed' }
+        "Native preallocation lifecycle changed content" { 'preallocation_content_changed' }
+        "NTFS storage control logical size mismatch" { 'logical_size_mismatch' }
+        default { 'unrecognized_native_failure' }
+      }
+      [ordered]@{
+        fmb_native_failure = $true
+        failure_stage = $stage
+        error_type = $exception.GetType().FullName
+        error_hresult = [int]$exception.HResult
+        native_failure_code = [string]$code
+        control_mode = $controlMode
+        native_diagnostic = [ordered]@{
+          last_api_stage = $apiStage
+          api_success = $apiOk
+          last_win32_error = $win32
+          last_error_meaningful = ($apiOk -is [bool] -and -not $apiOk)
+          readback_valid = ($apiOk -is [bool] -and $apiOk -and $null -ne $allocation)
+          allocation_bytes = $allocation
+          end_of_file_bytes = $eof
+          open_allocation_bytes = $openAllocation
+          command_exit_code = $nativeExit
+        }
+      } | ConvertTo-Json -Compress -Depth 4
+    }
+  args:
+    stdin: "{{ generation_inputs.scenario_inputs.ntfs_allocation_01 | to_json }}"
+  register: allocation_receipt
+  no_log: true
+
+- name: Require native NTFS storage preparation to complete
+  ansible.builtin.assert:
+    that:
+      - not ((allocation_receipt.stdout | trim | from_json).fmb_native_failure | default(false) | bool)
+      - (allocation_receipt.stdout | trim | from_json).postcondition_verified | default(false) | bool
+    fail_msg: >-
+      Native NTFS preparation failed during
+      {{ (allocation_receipt.stdout | trim | from_json).failure_stage | default('unknown') }}
+      (exception class: {{ (allocation_receipt.stdout | trim | from_json).error_type | default('unknown') }};
+      HRESULT: {{ (allocation_receipt.stdout | trim | from_json).error_hresult | default(none) }};
+      native code: {{ (allocation_receipt.stdout | trim | from_json).native_failure_code | default('not_available') }};
+      control mode: {{ (allocation_receipt.stdout | trim | from_json).control_mode | default('not_available') }};
+      native diagnostic: {{ (allocation_receipt.stdout | trim | from_json).native_diagnostic | default(none) | to_json }})
+
+- name: Emit host-captured NTFS preparation receipt
+  ansible.builtin.debug:
+    msg:
+      - "GROUND_TRUTH_BEGIN"
+      - "{{ allocation_receipt.stdout | trim }}"
+      - "GROUND_TRUTH_END"
+

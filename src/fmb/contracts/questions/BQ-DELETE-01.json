@@ -1,0 +1,87 @@
+{
+  "schema_version": "fmb.question_pack.v1",
+  "question_id": "BQ-DELETE-01",
+  "order": 2,
+  "group": {
+    "group_id": "deleted_file_or_path_history",
+    "title": "Deleted file or path history",
+    "description": "Assess whether these files or paths retain evidence that they were deleted or are no longer present."
+  },
+  "definition": {
+    "title": "Historical object and path assessment",
+    "question_text": "Assess which historically referenced files or paths are no longer present."
+  },
+  "components": [
+    {
+      "technique_id": "deleted_file_journal_residue",
+      "component_question_id": "Q-DEL-01",
+      "subject_type": "file",
+      "required_artifact_families": [
+        "ntfs.usn",
+        "ntfs.mft"
+      ],
+      "optional_artifact_families": [
+        "ntfs.logfile"
+      ],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "ntfs.logfile",
+        "ntfs.mft",
+        "ntfs.usn"
+      ]
+    },
+    {
+      "technique_id": "typed_path_residue",
+      "component_question_id": "Q-DEL-02",
+      "subject_type": "registry_path",
+      "required_artifact_families": [
+        "windows.registry.typed_paths",
+        "ntfs.mft"
+      ],
+      "optional_artifact_families": [
+        "ntfs.usn"
+      ],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "ntfs.mft",
+        "ntfs.usn",
+        "windows.registry.typed_paths"
+      ]
+    }
+  ],
+  "presentation": {
+    "request_per_card": true,
+    "listing_lookup": true,
+    "transforms": [
+      "u_usn_complete_stream",
+      "u_usn_dedupe_by_usn",
+      "u_delete_uniform_labels"
+    ]
+  },
+  "assessment": {
+    "engine": "rules",
+    "components": [
+      "deleted_file_journal_residue",
+      "typed_path_residue"
+    ]
+  },
+  "reference": {
+    "supplemental_supported": [
+      "deleted",
+      "entry_reused",
+      "recreated"
+    ],
+    "supplemental_negative": [
+      "hardlink_survives",
+      "moved",
+      "present",
+      "renamed"
+    ]
+  },
+  "generation": {
+    "scenarios": [
+      "typed_path_residue_01",
+      "usn_journal_01"
+    ]
+  }
+}

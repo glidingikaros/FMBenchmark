@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "toolchain_verification.schema.json",
+  "title": "Host toolchain verification receipt",
+  "description": "Output of fmb doctor (12 September 2026): every pinned dependency and host tool checked on one host without a VM. The receipt is copied next to pair records so a sealed pair states which toolchain bytes and host state produced it. A pass receipt has no failing or missing check.",
+  "$ref": "#/$defs/toolchain_verification",
+  "$defs": {
+    "toolchain_verification": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "generated_at",
+        "host",
+        "status",
+        "exit_code",
+        "summary",
+        "checks"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "toolchain_verification.v1"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "host": {
+          "type": "object",
+          "required": [
+            "platform",
+            "system",
+            "release",
+            "machine",
+            "node",
+            "python"
+          ],
+          "properties": {
+            "platform": {
+              "type": "string",
+              "minLength": 1
+            },
+            "system": {
+              "type": "string"
+            },
+            "release": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            },
+            "node": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        "exit_code": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "summary": {
+          "type": "object",
+          "required": [
+            "check_count",
+            "pass_count",
+            "fail_count",
+            "missing_count",
+            "failed_checks"
+          ],
+          "properties": {
+            "check_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "pass_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fail_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "missing_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failed_checks": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "profile": {
+          "enum": [
+            "full",
+            "analysis"
+          ]
+        },
+        "not_checked": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "exit_code": {
+                "const": 0
+              },
+              "summary": {
+                "properties": {
+                  "fail_count": {
+                    "const": 0
+                  },
+                  "missing_count": {
+                    "const": 0
+                  },
+                  "failed_checks": {
+                    "maxItems": 0
+                  }
+                }
+              },
+              "checks": {
+                "items": {
+                  "properties": {
+                    "status": {
+                      "const": "pass"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "exit_code": {
+                "const": 1
+              },
+              "summary": {
+                "properties": {
+                  "failed_checks": {
+                    "minItems": 1
+                  }
+                }
+              },
+              "checks": {
+                "contains": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "fail",
+                        "missing"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "check": {
+      "type": "object",
+      "required": [
+        "name",
+        "expected",
+        "found",
+        "status",
+        "detail"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "expected": {
+          "type": "string",
+          "minLength": 1
+        },
+        "found": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "missing"
+          ]
+        },
+        "detail": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

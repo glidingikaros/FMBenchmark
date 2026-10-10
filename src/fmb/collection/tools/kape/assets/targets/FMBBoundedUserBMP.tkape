@@ -1,0 +1,30 @@
+Description: Bounded user-profile BMP subjects
+Author: FMB
+Version: 1.0
+Id: 5d3ca2e1-9e11-48c6-88c7-63d06080cbb8
+RecreateDirectories: true
+Targets:
+    -
+        Name: User Documents BMP files
+        Category: FMB
+        Path: C:\Users\*\Documents\
+        FileMask: "*.bmp"
+        Recursive: true
+    -
+        Name: User Desktop BMP files
+        Category: FMB
+        Path: C:\Users\*\Desktop\
+        FileMask: "*.bmp"
+        Recursive: true
+    -
+        Name: User Downloads BMP files
+        Category: FMB
+        Path: C:\Users\*\Downloads\
+        FileMask: "*.bmp"
+        Recursive: true
+    -
+        Name: User Pictures BMP files
+        Category: FMB
+        Path: C:\Users\*\Pictures\
+        FileMask: "*.bmp"
+        Recursive: true

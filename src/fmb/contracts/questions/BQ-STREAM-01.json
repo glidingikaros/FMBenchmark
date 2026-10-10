@@ -1,0 +1,61 @@
+{
+  "schema_version": "fmb.question_pack.v1",
+  "question_id": "BQ-STREAM-01",
+  "order": 5,
+  "group": {
+    "group_id": "named_stream_content",
+    "title": "Named stream content",
+    "description": "Assess whether these files contain PE or ZIP content in a named NTFS stream."
+  },
+  "definition": {
+    "title": "Alternate-stream content assessment",
+    "question_text": "Assess whether these files contain executable or archive content in alternate data streams.",
+    "scope": "PE executable and ZIP archive formats."
+  },
+  "components": [
+    {
+      "technique_id": "alternate_data_stream",
+      "component_question_id": "Q-HIDE-01",
+      "subject_type": "file",
+      "required_artifact_families": [
+        "ntfs.ads",
+        "ntfs.mft"
+      ],
+      "optional_artifact_families": [],
+      "alternative_required_artifact_families": [],
+      "projected_artifact_families": [
+        "ntfs.ads",
+        "ntfs.mft"
+      ]
+    }
+  ],
+  "presentation": {
+    "request_per_card": false,
+    "listing_lookup": false,
+    "transforms": []
+  },
+  "assessment": {
+    "engine": "rules",
+    "components": [
+      "alternate_data_stream"
+    ]
+  },
+  "reference": {
+    "supplemental_supported": [
+      "mixed_streams",
+      "pe",
+      "second_pe",
+      "zip"
+    ],
+    "supplemental_negative": [
+      "empty_zip",
+      "metadata",
+      "signature_decoy"
+    ]
+  },
+  "generation": {
+    "scenarios": [
+      "ads_injection_01"
+    ]
+  }
+}

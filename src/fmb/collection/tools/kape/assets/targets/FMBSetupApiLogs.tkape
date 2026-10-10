@@ -1,0 +1,31 @@
+Description: SetupAPI device-install logs including rotated and upgrade copies
+Author: FMB
+Version: 1.0
+Id: 9d2c5b6e-4f0a-4c33-9a4b-2b7e6d1f0c21
+RecreateDirectories: true
+Targets:
+    -
+        Name: SetupAPI device log
+        Category: USBDevices
+        Path: C:\Windows\inf\
+        FileMask: setupapi.dev.log
+    -
+        Name: SetupAPI rotated device logs
+        Category: USBDevices
+        Path: C:\Windows\inf\
+        FileMask: setupapi.dev.*.log
+    -
+        Name: SetupAPI upgrade log
+        Category: USBDevices
+        Path: C:\Windows\inf\
+        FileMask: setupapi.upgrade.log
+    -
+        Name: SetupAPI setup log
+        Category: USBDevices
+        Path: C:\Windows\inf\
+        FileMask: setupapi.setup.log
+    -
+        Name: SetupAPI offline log
+        Category: USBDevices
+        Path: C:\Windows\inf\
+        FileMask: setupapi.offline.log

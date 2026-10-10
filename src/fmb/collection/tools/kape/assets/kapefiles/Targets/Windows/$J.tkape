@@ -1,0 +1,32 @@
+Description: $J
+Author: Eric Zimmerman and Andrew Rathbun
+Version: 1.1
+Id: 2a9c6f80-250b-42a6-9d29-90cb0a20f7be
+RecreateDirectories: true
+Targets:
+    -
+        Name: $J
+        Category: FileSystem
+        Path: C:\$Extend\
+        FileMask: $UsnJrnl:$J
+        AlwaysAddToQueue: true
+        SaveAsFileName: $J
+    -
+        Name: $Max
+        Category: FileSystem
+        Path: C:\$Extend\
+        FileMask: $UsnJrnl:$Max
+        AlwaysAddToQueue: true
+        SaveAsFileName: $Max
+    -
+        Name: $J
+        Category: FileSystem
+        Path: C:\$Extend\
+        FileMask: $J
+        SaveAsFileName: $J
+    -
+        Name: $Max
+        Category: FileSystem
+        Path: C:\$Extend\
+        FileMask: $Max
+        SaveAsFileName: $Max

@@ -1,0 +1,121 @@
+---
+- name: Restore file contents and archived last-write metadata
+  ansible.windows.win_shell: |
+    {{ lookup('file', role_path + '/files/operations.ps1') | indent(4) }}
+    Set-StrictMode -Version Latest
+    $ErrorActionPreference = 'Stop'
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $inputRecord = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    $paths = @($inputRecord.paths)
+    $expectedPopulationCount = [int]$inputRecord.expected_population_count
+    $partitioned = [bool]$inputRecord.partitioned_control
+    $restorePaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($p in @($inputRecord.restore_paths)) { [void]$restorePaths.Add([string]$p) }
+    if ($expectedPopulationCount -lt 1 -or $paths.Count -ne $expectedPopulationCount) {
+      throw 'Archive restore population cardinality is invalid'
+    }
+    $archiveTime = [DateTimeOffset]::Parse(
+      [string]$inputRecord.archive_last_write_utc,
+      [Globalization.CultureInfo]::InvariantCulture
+    )
+    $receipts = [Collections.Generic.List[object]]::new()
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    function Get-ContentHash([byte[]]$Bytes) {
+      $hasher = [Security.Cryptography.SHA256]::Create()
+      try {
+        return ([BitConverter]::ToString($hasher.ComputeHash($Bytes))).Replace('-', '').ToLowerInvariant()
+      } finally { $hasher.Dispose() }
+    }
+    function Get-NativeFileId([string]$Path) {
+      $output = (& fsutil.exe file queryfileid $Path 2>&1 | Out-String)
+      if ($LASTEXITCODE -ne 0 -or $output -notmatch '(?i)0x[0-9a-f]+') {
+        throw 'Native file identity could not be read'
+      }
+      return $Matches[0].ToLowerInvariant()
+    }
+    foreach ($rawPath in $paths) {
+      $path = [string]$rawPath
+      if (-not $seen.Add($path) -or -not [IO.File]::Exists($path)) {
+        throw 'Archive restore path is missing or repeated'
+      }
+      $beforeCreation = [IO.File]::GetCreationTimeUtc($path)
+      $beforeWrite = [IO.File]::GetLastWriteTimeUtc($path)
+      $beforeId = Get-NativeFileId $path
+      [byte[]]$bytes = [IO.File]::ReadAllBytes($path)
+      $beforeHash = Get-ContentHash $bytes
+      $restored = $restorePaths.Contains($path)
+      $effectiveWrite = $beforeWrite
+      if ($restored) {
+      $memory = [IO.MemoryStream]::new()
+      try {
+        $writer = [IO.Compression.ZipArchive]::new($memory, [IO.Compression.ZipArchiveMode]::Create, $true)
+        try {
+          $entry = $writer.CreateEntry([IO.Path]::GetFileName($path), [IO.Compression.CompressionLevel]::NoCompression)
+          $entry.LastWriteTime = $archiveTime
+          $stream = $entry.Open()
+          try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+        } finally { $writer.Dispose() }
+        $memory.Position = 0
+        $reader = [IO.Compression.ZipArchive]::new($memory, [IO.Compression.ZipArchiveMode]::Read, $true)
+        try {
+          if ($reader.Entries.Count -ne 1) { throw 'Archive restore entry count is invalid' }
+          $entry = $reader.Entries[0]
+           [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $path, $true) 
+          $effectiveWrite = $entry.LastWriteTime.UtcDateTime
+        } finally { $reader.Dispose() }
+      } finally { $memory.Dispose() }
+      }
+      $afterCreation = [IO.File]::GetCreationTimeUtc($path)
+      $afterWrite = [IO.File]::GetLastWriteTimeUtc($path)
+      $afterId = Get-NativeFileId $path
+      $afterHash = Get-ContentHash ([IO.File]::ReadAllBytes($path))
+      if (
+        $beforeCreation.Ticks -ne $afterCreation.Ticks -or
+        $beforeId -cne $afterId -or
+        $beforeHash -cne $afterHash -or
+        $afterWrite.Ticks -ne $effectiveWrite.Ticks -or
+        ($restored -and $afterWrite -ge $beforeCreation) -or
+        (-not $restored -and $afterWrite.Ticks -ne $beforeWrite.Ticks)
+      ) { throw 'Archive restore native postcondition failed' }
+      $row = [ordered]@{
+        path = $path
+        file_id_before = $beforeId
+        file_id_after = $afterId
+        content_sha256_before = $beforeHash
+        content_sha256_after = $afterHash
+        creation_before_utc = $beforeCreation.ToString('o')
+        creation_after_utc = $afterCreation.ToString('o')
+        write_before_utc = $beforeWrite.ToString('o')
+        write_after_utc = $afterWrite.ToString('o')
+        archive_effective_write_utc = $effectiveWrite.ToString('o')
+      }
+      if ($partitioned) { $row["restored"] = $restored }
+      $receipts.Add($row)
+    }
+    [ordered]@{
+      schema_version = $(if ($partitioned) { 'native_archive_restore_receipt.v2' } else { 'native_archive_restore_receipt.v1' })
+      archive_requested_write_utc = $archiveTime.ToString('o')
+      operation = 'ZipFileExtensions.ExtractToFile_overwrite_existing'
+      count = $receipts.Count
+      records = @($receipts)
+      postconditions_verified = $true
+    } | ConvertTo-Json -Depth 5 -Compress
+  args:
+    stdin: >-
+      {{ {'paths': generation_inputs.scenario_inputs.timestomp_01.population_paths,
+          'expected_population_count': generation_inputs.scenario_inputs.timestomp_01.expected_population_count,
+          'restore_paths': generation_inputs.scenario_inputs.timestomp_01.archive_restore_paths
+            | default(generation_inputs.scenario_inputs.timestomp_01.population_paths),
+          'partitioned_control': generation_inputs.scenario_inputs.timestomp_01.require_archive_retention | default(false),
+          'archive_last_write_utc': generation_inputs.scenario_inputs.timestomp_01.archive_last_write_utc
+            | default('2018-06-10T12:00:00+00:00')} | to_json }}
+  register: archive_restore_receipt
+  no_log: true
+
+- name: Emit host-only archive restore receipt
+  ansible.builtin.debug:
+    msg:
+      - "ARCHIVE_RESTORE_CONTROL_BEGIN"
+      - "{{ archive_restore_receipt.stdout | trim }}"
+      - "ARCHIVE_RESTORE_CONTROL_END"
