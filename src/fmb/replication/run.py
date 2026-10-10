@@ -11,7 +11,6 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from fmb.replication import host
 from fmb.replication.setup import log, windows_parsers
@@ -116,10 +115,11 @@ def dependency_lock(root: Path) -> Path:
     return lock
 
 
-def base_clock_wait_seconds(finished_utc: str, bias_minutes: int, now: datetime) -> float:
-    finished = datetime.fromisoformat(finished_utc)
-    pacific = finished.astimezone(ZoneInfo("America/Los_Angeles")).utcoffset() or timedelta(0)
-    ready = finished + max(timedelta(minutes=bias_minutes) + pacific, timedelta(0)) + timedelta(minutes=10)
+def base_clock_wait_seconds(finished_utc: str, bias_minutes: int, now: datetime, provider: str) -> float:
+    from fmb.generation.recipe import base_clock_lag_minutes
+
+    lag = max(base_clock_lag_minutes(bias_minutes, provider), 0)
+    ready = datetime.fromisoformat(finished_utc) + timedelta(minutes=lag + 10)
     return max(0.0, (ready - now).total_seconds())
 
 
@@ -128,9 +128,9 @@ def await_base_clock(recipe: Path) -> None:
     if "finished_utc" not in facts:
         return
     bias = json.loads((recipe / "recipe.json").read_text(encoding="utf-8"))["config"].get("vmware_boot_clock_bias_minutes", 0)
-    wait = base_clock_wait_seconds(facts["finished_utc"], int(bias), datetime.now(timezone.utc))
+    wait = base_clock_wait_seconds(facts["finished_utc"], int(bias), datetime.now(timezone.utc), host.provider())
     if wait:
-        log(f"waiting {wait / 60:.0f} minutes: the generation clock (UTC minus {bias} minutes) must start after "
+        log(f"waiting {wait / 60:.0f} minutes: the generation clock (bias {bias} minutes) must start after "
             "the base build's last logged events")
         time.sleep(wait)
 
@@ -251,6 +251,8 @@ def generate_images(paths: list[Path], attempts: int, root: Path = GENERATED) ->
             raise SystemExit(f"{image.path} changed since {folder} was started; delete {folder} to start again")
         folder.mkdir(exist_ok=True)
         (folder / "image.json").write_bytes(definition)
+        if busy := host.load_warning():
+            log(f"{image.name}: {busy}")
         try:
             done = generate_image(image, lock, folder, attempts)
             log(f"{image.name}: generated {done / 'full_scale.vmdk'}; analyse it with: fmb run {image.name}")

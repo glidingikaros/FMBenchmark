@@ -9,6 +9,11 @@ PROTOCOL = "winrm_bracketed_relative.v1"
 TOLERANCE_SECONDS = 2.0
 HOST_WALL_TOLERANCE_SECONDS = 0.05
 QUANTIZATION_SECONDS = 0.000001
+# A WinRM round trip takes 0.5 to 0.9 s on an idle host. A slower one, on a busy host or guest, bounds the offset too
+# loosely to prove it within TOLERANCE_SECONDS, so the reading is taken again.
+SLOW_ROUNDTRIP_SECONDS = 1.5
+RETAKES = 5
+RETAKE_PAUSE_SECONDS = 2.0
 GUEST_STANDARD_BIAS_MINUTES = 480
 
 SAMPLE_SCRIPT = """$ErrorActionPreference = 'Stop'
@@ -102,6 +107,21 @@ def exchange(execute, *, wall_clock=None, monotonic_clock=None):
     return payload, measurement
 
 
+def measure(execute, *, wall_clock=None, monotonic_clock=None, sleep=time.sleep):
+    """One reading, retaken up to RETAKES times while its round trip is slow or the host's clock jumps during it."""
+    for retake in range(RETAKES + 1):
+        last = retake == RETAKES
+        try:
+            payload, measurement = exchange(execute, wall_clock=wall_clock, monotonic_clock=monotonic_clock)
+        except ValueError as error:
+            if last or str(error) != "clock_host_time_discontinuity":
+                raise
+        else:
+            if last or measurement["monotonic_elapsed_seconds"] <= SLOW_ROUNDTRIP_SECONDS:
+                return payload, measurement
+        sleep(RETAKE_PAUSE_SECONDS)
+
+
 def clock_action(execute, *, policy, stage=None, wall_clock=None, monotonic_clock=None,
                  expected_rtc_bias_minutes=None):
     if policy not in {"host_sync_then_service_stopped", "unmanaged"}:
@@ -128,7 +148,7 @@ def clock_action(execute, *, policy, stage=None, wall_clock=None, monotonic_cloc
         if not isinstance(result, dict) or result.get("rc") != 0:
             raise ValueError("clock_service_stop_failed")
     options = {"wall_clock": wall_clock, "monotonic_clock": monotonic_clock}
-    before, calibration = exchange(execute, **options)
+    before, calibration = measure(execute, **options)
     if stage is not None:
         if policy != "unmanaged":
             require_certain_offset(calibration)
@@ -159,7 +179,7 @@ Set-Date -Date ([DateTime]::UtcNow.AddTicks(%d).ToLocalTime()) | Out-Null
             result = execute(script)
             if not isinstance(result, dict) or result.get("rc") != 0:
                 raise ValueError("clock_relative_correction_failed")
-        after, measurement = exchange(execute, **options)
+        after, measurement = measure(execute, **options)
         require_certain_offset(measurement)
         if after["w32time_status"] not in {"Stopped", "absent"}:
             raise ValueError("clock_service_not_stopped")

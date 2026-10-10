@@ -37,7 +37,7 @@ Without `NAME`, `fmb generate` and `fmb run` show the choices and ask.
 To replicate the paper, generate and run I1, I2 and I3. An image replicates when its admission passes. For
 admission, S3 must be exact on all the questions of the image (nine for the images of the paper).
 
-On Linux and Windows, the first image after a base build waits approximately 70 min. The guest clock must be after the
+The first image after a base build waits until approximately 12 min after the build. The guest clock must be after the
 last event of the base build.
 
 If you stop `fmb generate` (Ctrl-C, closing the terminal or `kill`), it removes its virtual machine first. If a
@@ -88,7 +88,7 @@ To make a new image:
 
 | Generation setting | Function |
 |---|---|
-| `clock_bias_minutes` | The guest's hardware clock starts at UTC minus this value, −840 to 840. Windows reads that clock with the bias it saved when it last shut down: 480 minutes on the Mac (Pacific standard time), and on Linux and Windows Pacific's offset on the day the base was built (420 in summer, 480 in winter). The guest boots behind the true time by this value minus that bias, and the generator then moves the clock forward. It never moves the clock back, so a smaller value is refused. `"auto"` boots 2 minutes behind. The paper uses 480. |
+| `clock_bias_minutes` | The guest boots behind the true time by this value minus 480 minutes, and the generator then moves the clock forward. On Linux and Windows the guest boots at least 2 minutes behind. The guest's hardware clock starts at UTC minus this value on the Mac. On Linux and Windows, FMBenchmark corrects that start for the bias that Windows saved when the base was built (Pacific's offset that day: 420 in summer, 480 in winter). The generator never moves the clock back, so a value below 480 is refused, except on a Mac box built in summer (420). `"auto"` boots 2 minutes behind. The paper uses 480. |
 | `activity_count` | The number of user actions before the manipulations, 1 to 500. The paper uses 12. |
 | `activity_seed`, `hardware_seed` | The seeds of the user actions and of the virtual hardware. The default is `seed`. |
 

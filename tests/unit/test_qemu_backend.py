@@ -17,7 +17,7 @@ def test_the_qemu_vm_mirrors_the_frozen_vmware_definition(tmp_path, monkeypatch)
     hardware = recipe.resolved_hardware(2026091811)
     inputs = {"fmb_hardware": hardware, "fmb_vmware_boot_clock_bias_minutes": 480}
     media = [{"path": tmp_path / f"m{unit}.vmdk", "unit": unit, "port": port} for unit, port in ((8, 5), (9, 3), (10, 2))]
-    command = backend.command(Path("qemu-system-x86_64"), tmp_path, inputs)
+    command = backend.command(Path("qemu-system-x86_64"), tmp_path, inputs, rtc_bias=420)
     text = " ".join(command)
     assert "usb-bot" not in text and "qemu-xhci,id=xhci,p2=8,p3=8" in text
     plugged = "\n".join(backend.media_commands(hardware, media))
@@ -38,7 +38,8 @@ def test_the_qemu_vm_mirrors_the_frozen_vmware_definition(tmp_path, monkeypatch)
     assert all(len(serial) == 32 for *_, serial in serials) and len({serial for *_, serial in serials}) == 3
     rtc = datetime.strptime(command[command.index("-rtc") + 1].split(",")[0].removeprefix("base="),
                             "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
-    assert abs(rtc - (datetime.now(timezone.utc) - timedelta(minutes=480))) < timedelta(seconds=60)
+    # A base built in summer reads the hardware clock with 420: the clock is set so the guest boots 2 minutes behind.
+    assert abs(rtc - (datetime.now(timezone.utc) - timedelta(minutes=2 + 420))) < timedelta(seconds=60)
     assert "restrict=on" in text and "hostfwd=tcp:127.0.0.1:55985-:5985" in text
 
 
@@ -129,3 +130,20 @@ def test_the_uefi_firmware_is_the_first_pair_present_beside_qemu_or_in_a_distrib
     assert qemu_host.uefi_firmware(qemu) == tuple(path.resolve() for path in distribution)
     bundled[1].write_bytes(b"")
     assert qemu_host.uefi_firmware(qemu) == tuple(path.resolve() for path in bundled)
+
+
+def test_the_qemu_rtc_bias_comes_from_the_base_build_date(tmp_path, monkeypatch):
+    import json
+
+    backend = QemuBackend(pipeline=None)
+    base = tmp_path / "fmb-VAGRANTSLASH-windows-11-x64" / "0" / "amd64" / "qemu" / "base.qcow2"
+    base.parent.mkdir(parents=True)
+    monkeypatch.setattr(backend, "base_path", lambda: base)
+    assert backend.base_rtc_bias() == 480
+    facts = base.parents[2] / "guest.json"
+    facts.write_text(json.dumps({"finished_utc": "2026-10-08T20:06:00+00:00"}))
+    assert backend.base_rtc_bias() == 420
+    facts.write_text(json.dumps({"finished_utc": "2026-12-08T20:06:00+00:00"}))
+    assert backend.base_rtc_bias() == 480
+    assert [recipe.base_clock_lag_minutes(bias, "qemu") for bias in (480, 482, 600)] == [2, 2, 120]
+    assert [recipe.base_clock_lag_minutes(bias, "vmware_desktop") for bias in (422, 480, 600)] == [-58, 0, 120]

@@ -89,12 +89,18 @@ def test_generation_waits_until_its_biased_clock_is_past_the_base_builds_last_ev
 
     from fmb.replication.run import base_clock_wait_seconds
 
-    assert base_clock_wait_seconds("2026-10-08T20:06:00+00:00", 480,
-                                   datetime(2026, 10, 8, 20, 30, tzinfo=timezone.utc)) == 46 * 60
-    assert base_clock_wait_seconds("2026-12-08T20:06:00+00:00", 480,
-                                   datetime(2026, 12, 8, 20, 10, tzinfo=timezone.utc)) == 6 * 60
-    assert base_clock_wait_seconds("2026-10-08T18:00:00+00:00", 480,
-                                   datetime(2026, 10, 8, 20, 30, tzinfo=timezone.utc)) == 0
+    def wait(finished, bias, now, provider):
+        return base_clock_wait_seconds(finished, bias, datetime.fromisoformat(now).replace(tzinfo=timezone.utc),
+                                       provider)
+
+    # The paper's bias boots a QEMU guest 2 minutes behind, whatever the season the base was built in.
+    assert wait("2026-10-08T20:06:00+00:00", 480, "2026-10-08T20:10:00", "qemu") == 8 * 60
+    assert wait("2026-12-08T20:06:00+00:00", 480, "2026-12-08T20:10:00", "qemu") == 8 * 60
+    assert wait("2026-10-08T20:06:00+00:00", 600, "2026-10-08T20:10:00", "qemu") == 126 * 60
+    # A VMware box's events carry its build clock, UTC minus 480 minutes: the paper's bias lags them by nothing.
+    assert wait("2026-10-08T20:06:00+00:00", 480, "2026-10-08T20:10:00", "vmware_desktop") == 6 * 60
+    assert wait("2026-10-08T20:06:00+00:00", 422, "2026-10-08T20:10:00", "vmware_desktop") == 6 * 60
+    assert wait("2026-10-08T18:00:00+00:00", 480, "2026-10-08T20:30:00", "qemu") == 0
 
 
 def test_setup_builds_the_base_only_from_the_pinned_iso_unless_told_otherwise(tmp_path, monkeypatch):
@@ -173,7 +179,7 @@ def test_a_box_built_on_the_mac_brings_its_windows_build_and_build_time(tmp_path
     (recipe / "recipe.json").write_text(json.dumps({"config": {"vmware_boot_clock_bias_minutes": 480}}))
     waited = []
     monkeypatch.setattr(run.time, "sleep", waited.append)
-    monkeypatch.setattr(run, "base_clock_wait_seconds", lambda finished, bias, now: 4200.0)
+    monkeypatch.setattr(run, "base_clock_wait_seconds", lambda finished, bias, now, provider: 4200.0)
     run.await_base_clock(recipe)
     assert waited == [4200.0]
 
@@ -200,3 +206,16 @@ def test_setup_names_the_mac_box_it_finds_and_the_pinned_iso_to_build_one(tmp_pa
     (box / "guest.json").write_text(json.dumps({"build": "26300", "iso_sha256": iso["sha256"],
                                                 "finished_utc": "2026-10-10T18:35:22+00:00"}))
     assert mac_box_row(monkeypatch) == (True, "build 26300, from the pinned ISO")
+
+
+def test_a_busy_machine_is_warned_about_before_generation(monkeypatch):
+    monkeypatch.setattr(host.os, "cpu_count", lambda: 8)
+    monkeypatch.setattr(host.os, "getloadavg", lambda: (9.0, 5.5, 3.0), raising=False)
+    assert host.load_warning() is None
+    monkeypatch.setattr(host.os, "getloadavg", lambda: (9.0, 7.5, 3.0), raising=False)
+    assert "load 7.5 on 8 CPUs" in host.load_warning()
+    monkeypatch.setattr(host.os, "cpu_count", lambda: 2)
+    monkeypatch.setattr(host.os, "getloadavg", lambda: (1.0, 1.0, 1.0), raising=False)
+    assert host.load_warning() is None
+    monkeypatch.delattr(host.os, "getloadavg")
+    assert host.load_warning() is None

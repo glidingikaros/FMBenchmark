@@ -82,6 +82,20 @@ def guest_clock_bias(base_finished_utc=None):
     return -int(offset.total_seconds() // 60)
 
 
+def base_clock_lag_minutes(bias, provider):
+    """How far behind the clock that stamped the base's events a generation guest boots.
+
+    A VMware box is built with the hardware clock at UTC minus 480 minutes, so a guest booted with `bias` lags the
+    box's own events by `bias - 480`. A QEMU base is built on the true time; the QEMU backend then sets the
+    hardware clock for the bias Windows saved in the base, so the lag is the same `bias - 480`, and at least
+    AUTO_CLOCK_LAG_MINUTES so that the first clock action only ever moves the clock forward.
+    """
+    from fmb.generation.clock_protocol import GUEST_STANDARD_BIAS_MINUTES
+
+    lag = bias - GUEST_STANDARD_BIAS_MINUTES
+    return max(lag, AUTO_CLOCK_LAG_MINUTES) if provider == 'qemu' else lag
+
+
 def image_config(seed, contract, provider='vmware_desktop', windows_box=None, settings=None, guest_bias=None):
     from fmb.generation.clock_protocol import GUEST_STANDARD_BIAS_MINUTES
 

@@ -439,12 +439,25 @@ class QemuBackend:
 
         return hashlib.sha256(f"fmb-qemu-usb.v1:{hardware['uuid_bios']}:{unit}".encode()).hexdigest()[:32].upper()
 
-    def command(self, qemu: Path, state: Path, inputs: dict) -> list[str]:
+    def base_rtc_bias(self) -> int:
+        """The bias Windows reads the hardware clock with: Pacific's offset on the day the base was built."""
+        import json
+
+        from fmb.generation.recipe import guest_clock_bias
+
+        facts = self.base_path().parents[2] / "guest.json"
+        finished = json.loads(facts.read_text(encoding="utf-8")).get("finished_utc") if facts.is_file() else None
+        return guest_clock_bias(finished)
+
+    def command(self, qemu: Path, state: Path, inputs: dict, rtc_bias: int = 480) -> list[str]:
         from datetime import datetime, timedelta, timezone
+
+        from fmb.generation.recipe import base_clock_lag_minutes
 
         hardware = inputs["fmb_hardware"]
         bias = inputs.get("fmb_vmware_boot_clock_bias_minutes", 0)
-        rtc = (datetime.now(timezone.utc) - timedelta(minutes=bias)).strftime("%Y-%m-%dT%H:%M:%S")
+        lag = base_clock_lag_minutes(bias, "qemu")
+        rtc = (datetime.now(timezone.utc) - timedelta(minutes=lag + rtc_bias)).strftime("%Y-%m-%dT%H:%M:%S")
         mac = hardware["base_mac"]
         second_mac = mac[:-2] + f"{(int(mac[-2:], 16) + 1) % 256:02X}"
         command = qemu_guest_command(qemu, state, winrm_port=self.winrm_port, monitor_port=self.monitor_port)
@@ -477,7 +490,7 @@ class QemuBackend:
                 != [(item["unit"], item["port"], item["source_file"]) for item in frozen]):
             raise ValueError("pilot USB layout differs from its frozen recipe")
         self.winrm_port, self.monitor_port = _free_port(), _free_port()
-        command = self.command(qemu, state, inputs)
+        command = self.command(qemu, state, inputs, rtc_bias=self.base_rtc_bias())
         log = (state / "qemu.log").open("w")
         self.process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
         log.close()
