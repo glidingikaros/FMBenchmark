@@ -44,8 +44,9 @@ def started(process: subprocess.Popen, line: str) -> None:
 
 
 @POSIX
-@pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGHUP])
-def test_a_stop_signal_lets_the_generator_clean_up_before_it_exits(tmp_path, number):
+@pytest.mark.parametrize("name", ["SIGTERM", "SIGHUP"])
+def test_a_stop_signal_lets_the_generator_clean_up_before_it_exits(tmp_path, name):
+    number = getattr(signal, name)
     marker = tmp_path / "marker"
     process = subprocess.Popen([sys.executable, "-c", CLEANING_STEP, str(marker)], stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True)
