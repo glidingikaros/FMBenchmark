@@ -222,7 +222,11 @@ class Machine:
         if not self.relaunch_on_exit or self.process.poll() != 0 or self.relaunches >= 12:
             return False
         self.relaunches += 1
-        log(f"the guest restarted, which ends QEMU under -no-reboot: starting it again ({self.relaunches})")
+        # -rtc base= is the guest's clock when QEMU starts. Started again with the first value, the guest's clock
+        # would go back at each restart, and the base's logs (SetupAPI among them) would run backwards.
+        self.command[self.command.index("-rtc") + 1] = f"base={datetime.now(GUEST_ZONE):%Y-%m-%dT%H:%M:%S}"
+        log(f"the guest restarted, which ends QEMU under -no-reboot: starting it again ({self.relaunches}), "
+            f"-rtc {self.command[self.command.index('-rtc') + 1]}")
         self.process = self.launch("a")
         return True
 
