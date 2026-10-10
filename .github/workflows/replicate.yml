@@ -257,6 +257,13 @@ jobs:
           path: ~/Downloads/${{ env.ISO }}
           key: windows-iso-${{ steps.pin.outputs.sha256 }}
           enableCrossOsArchive: true
+      - name: "runner: the cache keeps paths relative to the workspace, so the ISO a Linux run kept lands in D:\\Downloads; move it to Downloads"
+        if: steps.iso.outputs.cache-hit == 'true'
+        run: |
+          $landed = [IO.Path]::GetFullPath("$env:GITHUB_WORKSPACE\..\..\..\Downloads\$env:ISO")
+          New-Item -ItemType Directory -Force "$HOME\Downloads" | Out-Null
+          if ((Test-Path $landed) -and -not (Test-Path "$HOME\Downloads\$env:ISO")) { Move-Item $landed "$HOME\Downloads" }
+          Get-ChildItem "$HOME\Downloads" | Format-Table Name, Length
       - name: Microsoft's ISO, saved in Downloads as a browser saves it
         if: steps.iso.outputs.cache-hit != 'true'
         run: |
