@@ -171,7 +171,9 @@ def add_factual_population(index: dict, *, evidence: Path, public: dict, output_
     from fmb.profiles import resolve_paper_profile
     from fmb.index.adapters.mft import raw_mft_path_for_root
 
-    prepared = deepcopy(index)
+    # The supplement replaces the parser run list and the top-level keys it changes and shares
+    # the runs it keeps with the base index; _populations edits only its own copies.
+    prepared = dict(index)
     base_populations = deepcopy(index["candidate_populations"])
     original_manifest = deepcopy(index["population_manifest"])
     techniques = {p["technique_id"] for p in base_populations}

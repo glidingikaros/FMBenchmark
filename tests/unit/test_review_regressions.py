@@ -369,6 +369,40 @@ def test_reference_preparation_discovers_the_logfile_without_a_raw_journal(tmp_p
     assert any(run.get("source_module") == "$LogFile#reference-scope" for run in result["parser_runs"])
 
 
+def test_reference_preparation_leaves_its_index_as_it_was(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "positive" / "kape-output"
+    (root / "targets" / "F").mkdir(parents=True)
+    logfile = root / "targets" / "F" / "$LogFile"
+    logfile.write_bytes(b"public synthetic control")
+
+    import fmb.collection.analysis as module
+
+    monkeypatch.setattr(module, "raw_logfile_reference_parser_run", lambda **_: {
+        "parser_kind": "ntfs_logfile", "parser": "dfir_ntfs", "selection_scope": {"kind": "ntfs_file_references"}})
+    monkeypatch.setattr(module, "build_mft_presence_context", lambda kape_root: {"mft_volume_id": "volume:test"})
+    validated: list[str] = []
+    monkeypatch.setattr(module, "validate_payload", lambda payload, schema: validated.append(schema))
+    retained = {"parser_kind": "ntfs_logfile", "raw_outputs": [{"path": str(logfile)}]}
+    index = {
+        "parser_runs": [retained],
+        "collector_runs": [{"collector": "kape"}],
+        "candidate_populations": [
+            {
+                "question_id": "Q-TIME-01", "technique_id": "timestamp_manipulation", "coverage_status": "complete",
+                "subjects": [{"identity": {"object_id": "ntfs:volume:test:42:3"}}],
+            }
+        ],
+    }
+    before = json.dumps(index)
+
+    result = add_reference_scoped_usn(index, output_dir=tmp_path / "out")
+
+    assert json.dumps(index) == before
+    assert result["parser_runs"][0] is retained and len(result["parser_runs"]) == 2
+    assert result["candidate_populations"] is index["candidate_populations"]
+    assert validated == ["evidence_index.schema.json"]
+
+
 def test_last_journal_record_is_decided_by_usn_order_not_by_clock() -> None:
     definition = techniques_for_question("Q-TIME-01")[0]
     index = _timestomp_index(

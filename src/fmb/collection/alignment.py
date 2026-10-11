@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -48,14 +47,17 @@ def add_native_population_surfaces(index: Mapping[str, Any], *, manifest: Mappin
                      scenario["technique_id"] == "usb_volume_activity_gap"
                      for scenario in manifest["scenarios"].values())
     collect_system = bool(wanted) or (system_volume if system_volume is not None else native_usb)
+    # No step that builds the evidence index changes a parser run or population in place: each
+    # replaces what it changes and shares the rest with its input, so this copies only the list
+    # of parser runs it edits.
     if not collect_system and not native_usb:
-        return deepcopy(dict(index))
+        return dict(index)
     collectors = index.get("collector_runs", [])
     if len(collectors) != 1:
         raise ValueError("native NTFS collection requires one KAPE source")
     collector = collectors[0]
-    prepared = deepcopy(dict(index))
-    runs = prepared["parser_runs"]
+    prepared = dict(index)
+    runs = prepared["parser_runs"] = list(prepared["parser_runs"])
     normalized = output_dir / "native-parser-normalized"
     normalized.mkdir(parents=True, exist_ok=True)
     if collect_system:

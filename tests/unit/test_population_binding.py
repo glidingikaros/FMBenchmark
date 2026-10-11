@@ -1095,6 +1095,19 @@ def test_generated_evidence_rejects_a_tampered_population_sidecar(
         load_generated_population_bundle(evidence)
 
 
+def test_binding_leaves_its_index_as_it_was_and_keeps_its_parser_runs() -> None:
+    manifest = _build_public_manifest(experiment="full_scale", seed=20260826)
+    evidence_index = _full_scale_index(manifest)
+    before = json.dumps(evidence_index)
+
+    bound = bind_population_manifest(evidence_index, manifest)
+
+    assert json.dumps(evidence_index) == before
+    assert "candidate_populations" not in evidence_index and "population_manifest" not in evidence_index
+    assert bound["parser_runs"] is evidence_index["parser_runs"]
+    assert bind_population_manifest(bound, manifest) == bound
+
+
 def test_full_scale_manifest_binds_all_generated_candidates_to_ready_inputs() -> None:
     manifest = _build_public_manifest(experiment="full_scale", seed=20260826)
 
