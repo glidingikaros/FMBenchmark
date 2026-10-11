@@ -170,3 +170,16 @@ def test_timestamp_fields_are_checked_as_strptime_checks_them(year):
             ticks = ((moment.toordinal() * 86_400 + moment.hour * 3_600 + moment.minute * 60 + moment.second)
                      * 10_000_000 + 5_000_000)
             assert (parsed.ticks_100ns, parsed.basis, parsed.year) == (ticks, "utc", moment.year)
+
+
+def test_a_repeated_timestamp_text_shares_one_parse_that_nobody_can_change():
+    first = windows_artifacts.parse_csv_timestamp("2024-03-01 10:20:30.1234567")
+    again = windows_artifacts.parse_csv_timestamp("2024-03-01 10:20:30.1234567")
+    other = windows_artifacts.parse_csv_timestamp("2024-03-01T10:20:30.1234567Z")
+
+    assert again is first
+    assert (other.ticks_100ns, other.basis) == (first.ticks_100ns, "utc") and first.basis == "naive"
+    with pytest.raises(AttributeError):
+        first.year = 1999
+    assert windows_artifacts.parse_csv_timestamp(None) is None
+    assert windows_artifacts.parse_csv_timestamp("2024-02-30 00:00:00") is None

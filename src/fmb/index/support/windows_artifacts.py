@@ -5,6 +5,7 @@ import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path, PureWindowsPath
 from typing import Literal
 
@@ -185,6 +186,14 @@ def _timestamp_moment(date: str, time: str) -> datetime:
 def parse_csv_timestamp(value: str | None) -> ForensicTimestamp | None:
     if not isinstance(value, str):
         return None
+    return _parse_timestamp_text(value)
+
+
+# The result depends only on the text and cannot be changed. An MFT row parses each of its
+# timestamps raw and canonical, and a file's $STANDARD_INFORMATION and $FILE_NAME times often
+# agree, so about half the texts parsed are among the last few.
+@lru_cache(maxsize=1024)
+def _parse_timestamp_text(value: str) -> ForensicTimestamp | None:
     match = _TIMESTAMP_RE.fullmatch(value)
     if match is None:
         return None
