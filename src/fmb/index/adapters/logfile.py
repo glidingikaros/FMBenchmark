@@ -35,6 +35,7 @@ from fmb.index.scanners.logfile_runtime import (
 from fmb.index.scanners.logfile_runtime import (
     LogFileRuntimeError,
     logfile_runtime_availability,
+    relocated_logfile_document,
     run_logfile_driver,
 )
 from fmb.index.scanners.usn import ntfs_reference_set_sha256
@@ -237,6 +238,29 @@ def raw_logfile_files(root: Path) -> list[Path]:
     return logs
 
 
+# Where this process wrote the driver document of each $LogFile it parsed, by the file's
+# SHA-256: the factual supplement scopes the same $LogFile again into its own folder.
+_PARSED_LOGFILE_DOCUMENTS: dict[str, Path] = {}
+
+
+def _cached_logfile_document(document_path: Path, expected_sha256: str) -> dict[str, Any] | None:
+    if not document_path.is_file():
+        return None
+    try:
+        cached = json.loads(document_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if (
+        isinstance(cached, dict)
+        and cached.get("schema_version") == LOGFILE_RECORDS_SCHEMA_VERSION
+        and (cached.get("logfile") or {}).get("sha256") == expected_sha256
+        and set(LOGFILE_DEFAULT_OPERATIONS) <= set((cached.get("selection") or {}).get("operations", []))
+        and isinstance(cached.get("runtime"), dict)
+    ):
+        return cached
+    return None
+
+
 def _logfile_driver_document(
     logfile_path: Path,
     *,
@@ -246,22 +270,27 @@ def _logfile_driver_document(
         normalized_output_dir, logfile_path, LOGFILE_DRIVER_DOCUMENT_SUFFIX
     )
     expected_sha256 = sha256_file(logfile_path)
-    if document_path.is_file():
-        try:
-            cached = json.loads(document_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            cached = None
-        if (
-            isinstance(cached, dict)
-            and cached.get("schema_version") == LOGFILE_RECORDS_SCHEMA_VERSION
-            and (cached.get("logfile") or {}).get("sha256") == expected_sha256
-            and set(LOGFILE_DEFAULT_OPERATIONS) <= set((cached.get("selection") or {}).get("operations", []))
-            and isinstance(cached.get("runtime"), dict)
-        ):
-            return cached
-    document = run_logfile_driver(
-        logfile_path, output_path=document_path, operations=LOGFILE_DEFAULT_OPERATIONS
+    cached = _cached_logfile_document(document_path, expected_sha256)
+    if cached is not None:
+        return cached
+    parsed_path = _PARSED_LOGFILE_DOCUMENTS.get(expected_sha256)
+    parsed = (
+        _cached_logfile_document(parsed_path, expected_sha256)
+        if parsed_path is not None
+        else None
     )
+    document = (
+        relocated_logfile_document(
+            parsed, logfile_path, output_path=document_path, operations=LOGFILE_DEFAULT_OPERATIONS
+        )
+        if parsed is not None
+        else None
+    )
+    if document is None:
+        document = run_logfile_driver(
+            logfile_path, output_path=document_path, operations=LOGFILE_DEFAULT_OPERATIONS
+        )
+        _PARSED_LOGFILE_DOCUMENTS[expected_sha256] = document_path
     document_path.write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
     return document
 
