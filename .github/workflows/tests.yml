@@ -20,9 +20,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows takes twice as long as the others, so it runs as three disjoint thirds.
+        # The slower runners take their tests in disjoint slices (tests/conftest.py --shard), so
+        # no one job holds up the run: Windows in thirds, Ubuntu in halves.
         include:
-          - {os: ubuntu-24.04, shard: 1/1}
+          - {os: ubuntu-24.04, shard: 1/2}
+          - {os: ubuntu-24.04, shard: 2/2}
           - {os: macos-15, shard: 1/1}
           - {os: windows-2025, shard: 1/3}
           - {os: windows-2025, shard: 2/3}
