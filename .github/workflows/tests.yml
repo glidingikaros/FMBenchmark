@@ -35,5 +35,4 @@ jobs:
       - name: CLI
         run: uv run --no-sync fmb --help
       - name: Test suite
-        # Twice the runners' cores: much of the suite waits on PowerShell and other subprocesses.
-        run: uv run --no-sync python -m pytest -m "not external" -n 8 -q -p no:cacheprovider --durations=15
+        run: uv run --no-sync python -m pytest -m "not external" -n 4 -q -p no:cacheprovider --durations=15
