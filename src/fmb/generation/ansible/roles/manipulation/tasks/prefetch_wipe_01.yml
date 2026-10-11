@@ -25,7 +25,10 @@
     foreach ($path in $populationPaths) {
        Start-Process -FilePath ([string]$path) -WindowStyle Hidden -Wait 
     }
-    $deadline = (Get-Date).AddSeconds([Math]::Max(30, 3 * $populationPaths.Count))
+    # Windows writes .pf files in the background, and a guest that has only just logged on can take well over 30 s.
+    # The loop ends as soon as every file exists, so a longer deadline changes nothing for a guest that is on time.
+    $waitStarted = Get-Date
+    $deadline = $waitStarted.AddSeconds([Math]::Max(180, 3 * $populationPaths.Count))
     do {
       $prefetchCount = 0
       foreach ($path in $populationPaths) {
@@ -40,11 +43,13 @@
         Start-Sleep -Seconds 2
       }
     } while ($prefetchCount -lt $populationPaths.Count -and (Get-Date) -lt $deadline)
+    $waitedSeconds = [int]((Get-Date) - $waitStarted).TotalSeconds
     if ($case -eq 'positive') {
       foreach ($operationPath in @($paths | ForEach-Object { [string]$_ })) {
         Invoke-PaperOperation ("Remove-Item -LiteralPath " + (ConvertTo-OperationLiteral $operationPath) + " -Force")
       }
       $remaining = @($paths | Where-Object { Test-Path -LiteralPath ([string]$_) }).Count
+      $filesVerified = $remaining -eq 0
       $verified = (
         $prefetchCount -eq $populationPaths.Count -and
         $remaining -eq 0
@@ -56,13 +61,33 @@
           Test-Path -LiteralPath ([string]$_) -PathType Leaf
         }
       ).Count
+      $filesVerified = $retainedCount -eq $populationPaths.Count
       $verified = (
         $prefetchCount -eq $populationPaths.Count -and
         $retainedCount -eq $populationPaths.Count
       )
     }
     if (-not $verified) {
-      throw "Prefetch population postcondition failed"
+      # Counts and guest state only: like the receipt, the reason must not say which files the case touched.
+      $sysMain = Get-Service -Name 'SysMain' -ErrorAction SilentlyContinue
+      $prefetcher = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters' `
+        -Name 'EnablePrefetcher' -ErrorAction SilentlyContinue).EnablePrefetcher
+      try {
+        $uptimeSeconds = [int]((Get-Date) - (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime).TotalSeconds
+      }
+      catch {
+        $uptimeSeconds = $null
+      }
+      [ordered]@{
+        prefetch_count = $prefetchCount
+        population_count = $populationPaths.Count
+        files_verified = $filesVerified
+        waited_seconds = $waitedSeconds
+        sysmain = $(if ($sysMain) { [string]$sysMain.Status } else { 'missing' })
+        enable_prefetcher = $prefetcher
+        uptime_seconds = $uptimeSeconds
+      } | ConvertTo-Json -Compress
+      exit 3
     }
     [ordered]@{
       scenario_id = 'prefetch_wipe_01'
@@ -76,7 +101,23 @@
   args:
     stdin: "{{ generation_inputs.scenario_inputs.prefetch_wipe_01 | to_json }}"
   register: prefetch_receipt
+  # Exit code 3 is the postcondition failure, reported by the next task without the hidden inputs.
+  failed_when: prefetch_receipt.rc | default(1) not in [0, 3]
   no_log: true
+
+- name: Require Windows to write every Prefetch file
+  ansible.builtin.assert:
+    that:
+      - prefetch_receipt.rc == 0
+    fail_msg: >-
+      Prefetch population postcondition failed:
+      {{ (prefetch_receipt.stdout | trim | from_json).prefetch_count | default('unknown') }} of
+      {{ (prefetch_receipt.stdout | trim | from_json).population_count | default('unknown') }} .pf files after
+      {{ (prefetch_receipt.stdout | trim | from_json).waited_seconds | default('unknown') }} s
+      (files verified: {{ (prefetch_receipt.stdout | trim | from_json).files_verified | default('unknown') }},
+      SysMain: {{ (prefetch_receipt.stdout | trim | from_json).sysmain | default('unknown') }},
+      EnablePrefetcher: {{ (prefetch_receipt.stdout | trim | from_json).enable_prefetcher | default('unknown') }},
+      uptime: {{ (prefetch_receipt.stdout | trim | from_json).uptime_seconds | default('unknown') }} s)
 
 - name: Emit host-captured Prefetch receipt
   ansible.builtin.debug:
