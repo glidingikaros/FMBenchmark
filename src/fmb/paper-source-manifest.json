@@ -211,7 +211,7 @@
     "package/index/adapters/logfile.py": "c81197d34013d4d0732ec83c0f885ecf1ec3353170ed18396d3b0e94a4e169e7",
     "package/index/adapters/mft.py": "59fc90e9ffa1a5f35eb1c422d14c37a4ae59d004ab7a4632b802f1c49ce4e0e5",
     "package/index/adapters/ntfs_allocation.py": "0e5848ab9bf9c115fea5e9e854c08a6912a328e33218e0568cc6613396e0869b",
-    "package/index/adapters/ntfs_files.py": "c035d420f27334f210e2721d6747e21767a9925958d60649a5f224cf3328bde2",
+    "package/index/adapters/ntfs_files.py": "fe2f331cc3900f45197af459622633b1010091b10f919fa40596bb8cf403663b",
     "package/index/adapters/parser_output.py": "b194a4554c48d32fa6a9949a33b658c9ed9d4787c317c7dbe59e48f5ca209bf4",
     "package/index/adapters/registry.py": "127f7f820277258901e3bfd04600fd14af519a431eb53e7794810ce162668714",
     "package/index/adapters/stream_content.py": "bacbdc3bb0c256e583094fd7f27c1286d1900a921c447deadd39e0f32ae24584",
