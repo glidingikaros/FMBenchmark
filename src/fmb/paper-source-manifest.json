@@ -208,7 +208,7 @@
     "package/index/adapters/execution.py": "03fdaf848c00be17731579cc94be15447df6af68f60630dd2371865d4836297e",
     "package/index/adapters/file_content.py": "be8c73cc1bc9d41729ff538965c821485b010d9d52709f33e699b8ec398e7cd6",
     "package/index/adapters/i30.py": "5c7f7964cc0fec778e0bf398e0964ae95ffbf9d28bfe4e39d685b7e7bec2f494",
-    "package/index/adapters/logfile.py": "dd1e608e24376c4cc8cf6d9e2a06a3e40f6d005db1df2855443aa6924a9d39a7",
+    "package/index/adapters/logfile.py": "c81197d34013d4d0732ec83c0f885ecf1ec3353170ed18396d3b0e94a4e169e7",
     "package/index/adapters/mft.py": "9cb6d9ed1bc297ec1a5d9a600eaea70728273e508ccecef0fc58f35f917d1f69",
     "package/index/adapters/ntfs_allocation.py": "0e5848ab9bf9c115fea5e9e854c08a6912a328e33218e0568cc6613396e0869b",
     "package/index/adapters/ntfs_files.py": "c035d420f27334f210e2721d6747e21767a9925958d60649a5f224cf3328bde2",

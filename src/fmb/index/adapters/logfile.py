@@ -291,8 +291,12 @@ def _logfile_driver_document(
             logfile_path, output_path=document_path, operations=LOGFILE_DEFAULT_OPERATIONS
         )
         _PARSED_LOGFILE_DOCUMENTS[expected_sha256] = document_path
+        document_path.write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
+        return document
     document_path.write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
-    return document
+    # run_logfile_driver reads back the document the driver wrote here, and a pipeline step
+    # records every file it reads; this reads the relocated document back the same way.
+    return json.loads(document_path.read_text(encoding="utf-8"))
 
 
 def _logfile_document(

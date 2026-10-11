@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import venv
 from pathlib import Path
@@ -318,3 +319,36 @@ def test_adapter_parses_one_logfile_once_for_two_output_folders(tmp_path: Path, 
     written = sorted((tmp_path / "supplement").glob("*" + logfile_adapters.LOGFILE_DRIVER_DOCUMENT_SUFFIX))
     assert [json.loads(path.read_text(encoding="utf-8")) for path in written] == [second]
     assert changed["records"] != first["records"]
+
+
+def test_a_relocated_document_is_read_as_a_driver_run_reads_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from functools import partial
+
+    from fmb.index.adapters import logfile as logfile_adapters
+    from fmb.pipeline import reads
+
+    toolchain = timed_toolchain(tmp_path)
+    monkeypatch.setattr(logfile_adapters, "run_logfile_driver", partial(
+        run_logfile_driver, toolchain=toolchain, timeout_seconds=60))
+    relocate = partial(logfile_runtime.relocated_logfile_document, toolchain=toolchain, timeout_seconds=60)
+
+    root = tmp_path / "case"
+
+    def files_read(relocation) -> set[str]:
+        # A pipeline step records every file it reads, so a relocation must read what a run reads.
+        monkeypatch.setattr(logfile_adapters, "relocated_logfile_document", relocation)
+        monkeypatch.setattr(logfile_adapters, "_PARSED_LOGFILE_DOCUMENTS", {})
+        shutil.rmtree(root, ignore_errors=True)
+        logfile = root / "kape" / "$LogFile"
+        logfile.parent.mkdir(parents=True)
+        logfile.write_bytes(b"\x05\x06")
+        with reads.measured() as opened:
+            for folder in ("normalized", "supplement"):
+                logfile_adapters._logfile_driver_document(logfile, normalized_output_dir=root / folder)
+        return opened
+
+    parsed_twice = files_read(lambda *args, **options: None)
+    relocated = files_read(relocate)
+
+    assert relocated == parsed_twice
+    assert any(path.startswith(str(root / "supplement")) for path in relocated)
