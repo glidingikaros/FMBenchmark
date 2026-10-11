@@ -32,7 +32,7 @@ from fmb.index.support.windows_artifacts import (
     parse_int,
     row_first,
     score_candidate_name,
-    stream_csv_rows,
+    stream_folded_csv_rows,
 )
 from fmb.index.support.windows_identity import ntfs_reference_from_row
 
@@ -135,7 +135,7 @@ def mftecmd_ads_parser_run(
     malformed_identity_row_count = 0
     base_row_count = 0
     candidate_count = 0
-    for row_index, row in enumerate(stream_csv_rows(csv_path), start=1):
+    for row_index, row in enumerate(stream_folded_csv_rows(csv_path), start=1):
         parsed_subject = mft_path(row)
         stream_name = row_first(row, *ADS_STREAM_NAME_HEADERS)
         if not stream_name:
@@ -323,7 +323,7 @@ def mftecmd_ads_reference_parser_run(
     duplicate_stream_count = 0
     stream_population_overflow = False
 
-    for row_index, row in enumerate(stream_csv_rows(csv_path), start=1):
+    for row_index, row in enumerate(stream_folded_csv_rows(csv_path), start=1):
         reference = ntfs_reference_from_row(
             row,
             entry_keys=("EntryNumber",),
@@ -516,7 +516,7 @@ def mftecmd_size_parser_run(
         ("LogicalSize", "Logical Size", "FileSize", "File Size", "Size"),
         ("AllocatedSize", "Allocated Size", "Allocated", "PhysicalSize"),
     )
-    for row_index, row in enumerate(stream_csv_rows(csv_path), start=1):
+    for row_index, row in enumerate(stream_folded_csv_rows(csv_path), start=1):
         source_row_count = row_index
         logical_size = parse_int(
             row_first(

@@ -171,7 +171,9 @@ def add_factual_population(index: dict, *, evidence: Path, public: dict, output_
     from fmb.profiles import resolve_paper_profile
     from fmb.index.adapters.mft import raw_mft_path_for_root
 
-    prepared = deepcopy(index)
+    # The supplement replaces the parser run list and the top-level keys it changes and shares
+    # the runs it keeps with the base index; _populations edits only its own copies.
+    prepared = dict(index)
     base_populations = deepcopy(index["candidate_populations"])
     original_manifest = deepcopy(index["population_manifest"])
     techniques = {p["technique_id"] for p in base_populations}
@@ -240,7 +242,9 @@ def add_factual_population(index: dict, *, evidence: Path, public: dict, output_
     prepared.pop("population_manifest", None)
     prepared["candidate_populations"] = _populations(prepared, base_populations, public)
     write_json(output_dir / "pre-reference-index.json", prepared)
-    prepared = add_reference_scoped_usn(prepared, output_dir=output_dir, include_timestamp_fragments=True)
+    # The index is validated once, with its final populations, before it is written below.
+    prepared = add_reference_scoped_usn(prepared, output_dir=output_dir, include_timestamp_fragments=True,
+                                        defer_validation=True)
     prepared = add_reference_scoped_ads(prepared, output_dir=output_dir, defer_population_binding=True)
     prepared["candidate_populations"] = _populations(prepared, base_populations, public)
     from fmb.core.schemas import validate_payload

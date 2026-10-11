@@ -203,7 +203,7 @@ def prepare_cases(
     from fmb.analysis.catalog import TECHNIQUES
     from fmb.analysis.factual_contract import upgrade_factual_bundle
     from fmb.analysis.factual_presentation import present_bundle
-    from fmb.analysis.inputs import build_analysis_input
+    from fmb.analysis.inputs import build_analysis_inputs
     from fmb.analysis.mft_comparison import (
         POOL_QUESTIONS,
         build_comparison_pool,
@@ -277,8 +277,8 @@ def prepare_cases(
             source_paths.add(drive_binding)
         source_paths |= _verified_parser_outputs({"parser_runs": [*verified_index["parser_runs"],
             *(r for r in base_data["parser_runs"] if r["parser_kind"] in profile["parser_outputs"])]}, locate)
-        inputs = tuple(
-            build_analysis_input(index, definition) for definition in TECHNIQUES if definition.technique_id in techniques
+        inputs = build_analysis_inputs(
+            index, (definition for definition in TECHNIQUES if definition.technique_id in techniques)
         )
         by_question = {
             bundle.question_id: bundle for bundle in prepare_evidence_bundles(inputs)

@@ -1095,6 +1095,37 @@ def test_generated_evidence_rejects_a_tampered_population_sidecar(
         load_generated_population_bundle(evidence)
 
 
+def test_binding_leaves_its_index_as_it_was_and_keeps_its_parser_runs() -> None:
+    manifest = _build_public_manifest(experiment="full_scale", seed=20260826)
+    evidence_index = _full_scale_index(manifest)
+    before = json.dumps(evidence_index)
+
+    bound = bind_population_manifest(evidence_index, manifest)
+
+    assert json.dumps(evidence_index) == before
+    assert "candidate_populations" not in evidence_index and "population_manifest" not in evidence_index
+    assert bound["parser_runs"] is evidence_index["parser_runs"]
+    assert bind_population_manifest(bound, manifest) == bound
+
+
+def test_analysis_inputs_of_one_index_check_and_hash_it_once(monkeypatch) -> None:
+    from fmb.analysis import inputs as analysis_inputs
+    from fmb.analysis.catalog import TECHNIQUES
+
+    manifest = _build_public_manifest(experiment="full_scale", seed=20260826)
+    bound = bind_population_manifest(_full_scale_index(manifest), manifest)
+    one_by_one = [analysis_inputs.build_analysis_input(bound, definition) for definition in TECHNIQUES]
+    hashed = []
+    index_sha256 = analysis_inputs.evidence_index_sha256
+    monkeypatch.setattr(analysis_inputs, "evidence_index_sha256", lambda value: hashed.append(1) or index_sha256(value))
+
+    together = analysis_inputs.build_analysis_inputs(bound, iter(TECHNIQUES))
+
+    assert list(together) == one_by_one
+    assert len(hashed) == 1
+    assert analysis_inputs.build_analysis_inputs({"ground_truth": True}, ()) == ()
+
+
 def test_full_scale_manifest_binds_all_generated_candidates_to_ready_inputs() -> None:
     manifest = _build_public_manifest(experiment="full_scale", seed=20260826)
 

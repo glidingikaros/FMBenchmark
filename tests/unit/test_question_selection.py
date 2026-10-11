@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from copy import deepcopy
 from pathlib import Path
@@ -305,6 +307,29 @@ def test_usb_selection_does_not_collect_system_mft_or_other_native_populations(t
     assert wanted[0]["binding_files"] == ["media.json"]
     assert actual["parser_runs"] == [{"parser_kind": "native_usb_volume"}]
     assert not (tmp_path / "analysis/native-surface-preparation.json").exists()
+
+
+def test_native_surfaces_add_their_runs_to_a_new_list_and_keep_the_others(tmp_path, monkeypatch):
+    from fmb.collection import alignment
+
+    monkeypatch.setattr(alignment, "collect_usb_volumes", lambda **_: tmp_path / "usb.json")
+    monkeypatch.setattr(alignment, "usb_volume_source_manifests", lambda p: [p])
+    monkeypatch.setattr(alignment, "usb_volume_parser_run", lambda **_: {"parser_kind": "native_usb_volume"})
+    kept = {"parser_kind": "windows_setupapi", "observations": [{"observation_id": "obs:setupapi"}]}
+    runs = [kept]
+    index = {"collector_runs": [{"output_root": str(tmp_path / "kape-output")}], "parser_runs": runs}
+    manifest = {"scenarios": {"usb": {"technique_id": "usb_volume_activity_gap",
+                                      "members": [{"identity_hint": {"binding_file": "media.json"}}]}}}
+    before = json.dumps(index)
+    actual = alignment.add_native_population_surfaces(index, manifest=manifest, evidence_image=tmp_path / "full_scale.vmdk",
+        evidence_sha256="1" * 64, output_dir=tmp_path / "analysis", system_volume=False)
+    unchanged = alignment.add_native_population_surfaces(index, manifest={"scenarios": {}},
+        evidence_image=tmp_path / "full_scale.vmdk", evidence_sha256="1" * 64, output_dir=tmp_path / "analysis")
+
+    assert json.dumps(index) == before and index["parser_runs"] is runs
+    assert actual["parser_runs"] == [kept, {"parser_kind": "native_usb_volume"}]
+    assert actual["parser_runs"][0] is kept
+    assert unchanged == index and unchanged is not index
 
 
 @pytest.mark.parametrize("qid,required", [("BQ-LOG-01", False), ("BQ-TIME-01", True)])

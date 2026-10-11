@@ -331,15 +331,15 @@ def build_lock_document(
     }
 
 
-def run_logfile_driver(
+def _driver_invocation(
     logfile_path: Path,
     *,
     output_path: Path,
-    toolchain: LogFileToolchain | None = None,
-    operations: tuple[str, ...] = DEFAULT_OPERATIONS,
-    max_records: int = 500_000,
-    timeout_seconds: float | None = None,
-) -> dict[str, Any]:
+    toolchain: LogFileToolchain | None,
+    operations: tuple[str, ...],
+    max_records: int,
+    timeout_seconds: float | None,
+) -> tuple[LogFileToolchain, dict[str, Any], float, list[str]]:
     toolchain = toolchain or LogFileToolchain.load()
     verification = toolchain.verify()
     if verification["status"] != "verified":
@@ -366,6 +366,26 @@ def run_logfile_driver(
         "--max-records",
         str(int(max_records)),
     ]
+    return toolchain, verification, timeout, command
+
+
+def run_logfile_driver(
+    logfile_path: Path,
+    *,
+    output_path: Path,
+    toolchain: LogFileToolchain | None = None,
+    operations: tuple[str, ...] = DEFAULT_OPERATIONS,
+    max_records: int = 500_000,
+    timeout_seconds: float | None = None,
+) -> dict[str, Any]:
+    toolchain, verification, timeout, command = _driver_invocation(
+        logfile_path,
+        output_path=output_path,
+        toolchain=toolchain,
+        operations=operations,
+        max_records=max_records,
+        timeout_seconds=timeout_seconds,
+    )
     kept = {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"}
     if os.name == "nt":
         kept |= {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "PYTHONUTF8", "COMSPEC", "PATHEXT"}
@@ -401,6 +421,58 @@ def run_logfile_driver(
         "command_line": command_line_text(command),
         "timeout_seconds": timeout,
         "stdout_excerpt": process_output_excerpt(completed.stdout, None),
+        "tool_identity": toolchain.describe(verification),
+    }
+    return document
+
+
+def relocated_logfile_document(
+    parsed: dict[str, Any],
+    logfile_path: Path,
+    *,
+    output_path: Path,
+    toolchain: LogFileToolchain | None = None,
+    operations: tuple[str, ...] = DEFAULT_OPERATIONS,
+    max_records: int = 500_000,
+    timeout_seconds: float | None = None,
+) -> dict[str, Any] | None:
+    # What run_logfile_driver returns for these arguments, from a document it returned for the
+    # same $LogFile bytes and selection, without parsing the $LogFile again. The driver's parse
+    # depends only on those; the values naming this invocation (the $LogFile path, the command
+    # line, the timeout and the tool identity) are made again as run_logfile_driver makes them,
+    # and the driver's own timing in "parse" and in the stdout excerpt stays that of the run
+    # that parsed it. None when parsed is not such a document.
+    toolchain, verification, timeout, command = _driver_invocation(
+        logfile_path,
+        output_path=output_path,
+        toolchain=toolchain,
+        operations=operations,
+        max_records=max_records,
+        timeout_seconds=timeout_seconds,
+    )
+    selection = {
+        "operations": [name for name in ",".join(operations).split(",") if name.strip()],
+        "usn_pages": False,
+        "max_records": int(max_records),
+        "recover_log_data": True,
+    }
+    if (
+        parsed.get("schema_version") != RECORDS_SCHEMA_VERSION
+        or parsed.get("selection") != selection
+        or not isinstance(parsed.get("logfile"), dict)
+        or parsed["logfile"].get("sha256") != sha256_file(logfile_path)
+        or not isinstance((parsed.get("runtime") or {}).get("stdout_excerpt"), str)
+    ):
+        return None
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    document = {
+        **parsed,
+        "logfile": {**parsed["logfile"], "path": os.path.abspath(str(logfile_path))},
+    }
+    document["runtime"] = {
+        "command_line": command_line_text(command),
+        "timeout_seconds": timeout,
+        "stdout_excerpt": parsed["runtime"]["stdout_excerpt"],
         "tool_identity": toolchain.describe(verification),
     }
     return document

@@ -5,6 +5,7 @@ import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path, PureWindowsPath
 from typing import Literal
 
@@ -85,6 +86,17 @@ def stream_csv_rows(path: Path) -> Iterator[dict[str, str]]:
             yield sanitize_csv_row(row)
 
 
+class FoldedRow(dict):
+    """A CSV row whose keys are already case-folded: folded_row returns it as it is."""
+
+
+def stream_folded_csv_rows(path: Path) -> Iterator[FoldedRow]:
+    # For loops that read every row only through row_value, row_first and the other helpers
+    # that fold the row: each row is folded once instead of once per lookup.
+    for row in stream_csv_rows(path):
+        yield FoldedRow(folded_row(row))
+
+
 def first_nonempty(*values: str | None) -> str:
     for value in values:
         if isinstance(value, str) and value.strip():
@@ -112,6 +124,8 @@ def _folded_row_value(folded: Mapping[str, str], *keys: str) -> str | None:
 
 
 def folded_row(row: dict[str, str]) -> dict[str, str]:
+    if type(row) is FoldedRow:
+        return row
     return {key.casefold(): value for key, value in row.items()}
 
 
@@ -158,17 +172,33 @@ class ForensicTimestamp:
     year: int
 
 
+def _timestamp_moment(date: str, time: str) -> datetime:
+    if date.isascii() and time.isascii():
+        # The fields and range checks of strptime's "%Y-%m-%d %H:%M:%S" on ASCII digits,
+        # without its per-call format and locale work; strptime reads other digits itself.
+        return datetime(
+            int(date[:4]), int(date[5:7]), int(date[8:]),
+            int(time[:2]), int(time[3:5]), int(time[6:]),
+        )
+    return datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M:%S")
+
+
 def parse_csv_timestamp(value: str | None) -> ForensicTimestamp | None:
     if not isinstance(value, str):
         return None
+    return _parse_timestamp_text(value)
+
+
+# The result depends only on the text and cannot be changed. An MFT row parses each of its
+# timestamps raw and canonical, and a file's $STANDARD_INFORMATION and $FILE_NAME times often
+# agree, so about half the texts parsed are among the last few.
+@lru_cache(maxsize=1024)
+def _parse_timestamp_text(value: str) -> ForensicTimestamp | None:
     match = _TIMESTAMP_RE.fullmatch(value)
     if match is None:
         return None
     try:
-        moment = datetime.strptime(
-            f"{match.group('date')} {match.group('time')}",
-            "%Y-%m-%d %H:%M:%S",
-        )
+        moment = _timestamp_moment(match.group("date"), match.group("time"))
     except ValueError:
         return None
     fraction = match.group("fraction") or ""

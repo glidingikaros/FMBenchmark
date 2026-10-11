@@ -416,6 +416,15 @@ def test_usn_record_normalization_path() -> None:
     assert [label for item in records for label in item["reason_labels"]].count("FILE_DELETE") == 1
 
 
+def test_usn_reason_labels_follow_the_flag_order_and_are_each_callers_own() -> None:
+    for reason in (0, 1, 0x80000000, 0x80000201, 0xFFFFFFFF, 0x00402000, 0x7FFFFFFF):
+        expected = [label for flag, label in sorted(usn.USN_REASON_LABELS.items()) if reason & flag]
+        first, again = usn.reason_labels(reason), usn.reason_labels(reason)
+        assert first == again == expected and first is not again
+        first.append("changed by the first caller")
+        assert usn.reason_labels(reason) == expected
+
+
 def test_parser_integer_parsers_keep_decimal_truncation_policy() -> None:
     assert windows_artifacts.parse_int("10.5") == 10
 

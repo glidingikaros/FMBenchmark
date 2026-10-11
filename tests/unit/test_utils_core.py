@@ -157,6 +157,14 @@ def test_ntfs_filetime_conversion_handles_epoch_fraction_and_invalid_values() ->
     assert ntfs_time.filetime_to_utc_iso(10**30) is None
 
 
+def test_ntfs_filetime_text_has_the_fields_strftime_writes() -> None:
+    step = 2_650_467_743_999_999_990 // 4999
+    for filetime in [*range(1, 2_650_467_743_999_999_990, step), 2_650_467_743_999_999_990, 864_000_000_000 * 365]:
+        utc = ntfs_time._datetime_from_filetime(filetime)
+        text = ntfs_time.filetime_to_utc_iso(filetime)
+        assert text.startswith(f"{utc:%Y-%m-%dT%H:%M:%S}") and text.endswith("Z"), filetime
+
+
 def test_env_lookup_helpers_prepare_names_and_read_first_nonblank() -> None:
     assert env_lookup.unique_env_names(("A", "B", "A")) == ("A", "B")
     assert env_lookup.read_env_value(environ={}) == (None, None)
