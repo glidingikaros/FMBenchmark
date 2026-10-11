@@ -125,7 +125,7 @@ puts JSON.generate($machine.vmx.select{|k,v| k.start_with?('rtc.')})
         [ruby, str(script), str(SOURCE / "Vagrantfile"), str(inputs), json.dumps(layout)],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=120,
     )
     if (
         type(bias) is not int
