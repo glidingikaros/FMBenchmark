@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -33,12 +34,13 @@ def empty_caches(monkeypatch: pytest.MonkeyPatch) -> None:
     # Other tests in the same worker may have read a CSV with these bytes already.
     monkeypatch.setattr(mft_adapters, "_MFT_PRESENCE_CONTEXT_CACHE", {})
     monkeypatch.setattr(mft_comparison, "_IDENTIFIED_MFT_ROWS", {})
+    monkeypatch.setattr(mft_adapters, "_MFT_ROW_SCANS", {})
 
 
-def mft_root(tmp_path: Path, name: str = "kape", rows: str = ROWS) -> Path:
+def mft_root(tmp_path: Path, name: str = "kape", rows: str = ROWS, header: str = HEADER) -> Path:
     root = tmp_path / name
     (root / "modules").mkdir(parents=True)
-    (root / "modules" / "MFTECmd_$MFT_Output.csv").write_text(HEADER + rows, encoding="utf-8")
+    (root / "modules" / "MFTECmd_$MFT_Output.csv").write_text(header + rows, encoding="utf-8")
     return root
 
 
@@ -182,3 +184,107 @@ def test_folded_rows_answer_every_row_helper_as_the_raw_row_does(tmp_path):
         assert mft_row_is_directory(folded) == mft_row_is_directory(raw)
         assert ntfs_reference_from_row(folded, entry_keys=("EntryNumber",), sequence_keys=("SequenceNumber",)) == \
             ntfs_reference_from_row(raw, entry_keys=("EntryNumber",), sequence_keys=("SequenceNumber",))
+
+
+MFT_HEADER = (
+    "EntryNumber,SequenceNumber,InUse,ParentEntryNumber,ParentSequenceNumber,ParentPath,FileName,IsDirectory,"
+    "Created0x10,Created0x30,LastModified0x10,LastModified0x30,LastRecordChange0x10,LastRecordChange0x30,"
+    "LastAccess0x10,LastAccess0x30\n"
+)
+STAMP, EARLIER = "2024-01-02 03:04:05.1234567", "2023-01-02 03:04:05.1234567"
+
+
+def mft_row(entry: int, parent: str, name: str, *, created_fn: str = STAMP, in_use: str = "True",
+            directory: str = "False") -> str:
+    return (f"{entry},2,{in_use},5,5,{parent},{name},{directory},{STAMP},{created_fn},"
+            + ",".join([STAMP] * 6) + "\n")
+
+
+# Timestamp-candidate scores 160, 125, -150, -150 and 160; rows 1 to 3 have an SI/FN mismatch.
+RANKED_ROWS = "".join((
+    mft_row(41, ".\\Users\\alice\\Desktop", "report.docx", created_fn=EARLIER),
+    mft_row(42, ".\\Users\\alice", "notes.txt", created_fn=EARLIER),
+    mft_row(43, ".\\Windows\\System32", "a.dll", created_fn=EARLIER),
+    mft_row(44, ".\\Windows\\System32", "b.dll"),
+    mft_row(45, ".\\Users\\alice\\Desktop", "c.txt"),
+    mft_row(46, ".\\Users\\alice\\Desktop", "folder", directory="True"),
+    mft_row(47, ".\\Users\\alice", "gone.txt", in_use="False"),
+))
+PUBLIC = frozenset({
+    "C:\\Users\\alice\\Desktop\\report.docx", "C:\\Users\\alice\\notes.txt", "C:\\Windows\\System32\\a.dll",
+    "C:\\Windows\\System32\\b.dll", "C:\\Users\\alice\\Desktop\\c.txt", "C:\\Users\\alice\\Desktop\\folder",
+    "C:\\Users\\alice\\gone.txt",
+})
+
+
+def mft_parser_run(tmp_path: Path, csv_path: Path, folder: str, public: frozenset[str] = frozenset()) -> dict:
+    raw_mft = tmp_path / "$MFT"
+    if not raw_mft.exists():
+        raw_mft.write_bytes(bytes(64 * 1024))
+    return mft_adapters.mftecmd_mft_parser_run(
+        csv_path=csv_path, raw_mft_path=raw_mft, normalized_output_dir=tmp_path / folder,
+        collector_run={"collector": "kape", "modules": []}, public_paths=public)
+
+
+def counted_row_scans(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    scans: list[Path] = []
+    original = mft_adapters._scan_mft_rows
+
+    def counting(csv_path: Path, **options):
+        scans.append(csv_path)
+        return original(csv_path, **options)
+
+    monkeypatch.setattr(mft_adapters, "_scan_mft_rows", counting)
+    return scans
+
+
+def rows_of(run: dict, observation_type: str) -> set[int]:
+    return {item["fields"]["row_index"] for item in run["observations"] if item["observation_type"] == observation_type}
+
+
+@pytest.mark.parametrize("limits", [(3, 1), (1, 3)])
+def test_public_rows_are_observed_as_the_one_read_of_the_csv_observed_them(tmp_path, monkeypatch, limits):
+    monkeypatch.setattr(mft_adapters, "MAX_MFT_IDENTITY_OBSERVATIONS", limits[0])
+    monkeypatch.setattr(mft_adapters, "MAX_MFT_TIMESTAMP_OBSERVATIONS", limits[1])
+    csv_path = mft_adapters.mftecmd_mft_context_csv_files(mft_root(tmp_path, rows=RANKED_ROWS, header=MFT_HEADER))[0]
+    scans = counted_row_scans(monkeypatch)
+
+    plain = mft_parser_run(tmp_path, csv_path, "plain")
+    public = mft_parser_run(tmp_path, csv_path, "public", PUBLIC)
+    monkeypatch.setattr(mft_adapters, "_MFT_ROW_SCANS", {})
+    fresh = mft_parser_run(tmp_path, csv_path, "fresh", PUBLIC)
+
+    assert len(scans) == 2
+    ranked, ranked_times = rows_of(plain, "mft_file_record"), rows_of(plain, "si_fn_timestamp_difference")
+    # Ranked in one list but not the other with a mismatch, and in neither list.
+    assert ranked - ranked_times & {1, 2, 3} if limits == (3, 1) else ranked_times - ranked
+    assert {1, 2, 3, 4, 5} - ranked - ranked_times
+    assert rows_of(public, "mft_file_record") == {1, 2, 3, 4, 5}
+    assert rows_of(public, "si_fn_timestamp_difference") == {1, 2, 3}
+    for row_index in (1, 2, 3, 4, 5):
+        observations = [item for item in public["observations"] if item["fields"]["row_index"] == row_index]
+        # Both observations of a row share their fields, so the raw $MFT check reaches both.
+        assert len({id(item["fields"]) for item in observations}) == 1
+        assert observations[0]["fields"]["raw_mft_timestamp_validation"] == "failed"
+    assert public["observations"] == fresh["observations"]
+    assert public["candidate_populations"] == fresh["candidate_populations"]
+
+
+def test_parser_run_ranks_again_when_the_csv_changes_and_keeps_callers_apart(tmp_path, monkeypatch):
+    csv_path = mft_adapters.mftecmd_mft_context_csv_files(mft_root(tmp_path, rows=RANKED_ROWS, header=MFT_HEADER))[0]
+    first = mft_parser_run(tmp_path, csv_path, "first", PUBLIC)
+    expected = json.dumps(first["observations"])
+    for observation in first["observations"]:
+        observation["fields"]["mismatches"].append({"field": "changed by the first caller"})
+        observation["fields"]["subject"] = "changed by the first caller"
+    status = csv_path.stat()
+    scans = counted_row_scans(monkeypatch)
+
+    again = mft_parser_run(tmp_path, csv_path, "again", PUBLIC)
+    csv_path.write_text(MFT_HEADER + RANKED_ROWS.replace("notes.txt", "nopes.txt"), encoding="utf-8")
+    os.utime(csv_path, ns=(status.st_atime_ns, status.st_mtime_ns))
+    changed = mft_parser_run(tmp_path, csv_path, "changed", PUBLIC)
+
+    assert json.dumps(again["observations"]) == expected
+    assert len(scans) == 1 and csv_path.stat().st_size == status.st_size
+    assert "nopes.txt" in json.dumps(changed["observations"]) and "notes.txt" not in json.dumps(changed["observations"])
