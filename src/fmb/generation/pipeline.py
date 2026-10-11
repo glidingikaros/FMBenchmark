@@ -528,9 +528,6 @@ class GenerationPipeline:
             delete=False,
         )
         try:
-            # The QEMU guest's network is restricted, so Windows' boot-time time sync never arrives there, but the
-            # 120 s wait for it also lets Windows finish starting: without it, prefetch_wipe_01 sometimes finds its
-            # .pf files missing and the whole generation is retried.
             payload = {"generation_inputs": guest_plan}
             if recipe_bundle is not None:
                 private = recipe_bundle["private"]

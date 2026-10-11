@@ -3,15 +3,13 @@
   hosts: all
   gather_facts: no
   tasks:
-    - name: Wait for Windows' own boot-time time synchronization
+    # Look once: the sync never arrived on any host (QEMU's network is restricted, and VMware's time sync is off), so
+    # waiting for it only paused every generation for 2 minutes.
+    - name: Look for Windows' own boot-time time synchronization
       ansible.windows.win_shell: |
         $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
         $started = [DateTime]::UtcNow
-        do {
-          $sync = Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-Time-Service'; Id=37; StartTime=$boot} -MaxEvents 1 -ErrorAction SilentlyContinue
-          if ($sync) { break }
-          Start-Sleep -Seconds 2
-        } while (([DateTime]::UtcNow - $started).TotalSeconds -lt 120)
+        $sync = Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-Time-Service'; Id=37; StartTime=$boot} -MaxEvents 1 -ErrorAction SilentlyContinue
         [ordered]@{observed=[bool]$sync; waited_seconds=[Math]::Round(([DateTime]::UtcNow - $started).TotalSeconds, 1)} | ConvertTo-Json -Compress
       register: fmb_boot_sync_result
       changed_when: false
