@@ -14,13 +14,18 @@ concurrency:
 
 jobs:
   pipeline:
-    name: ${{ matrix.os }}
+    name: ${{ matrix.os }}${{ matrix.shard != '1/1' && format(' {0}', matrix.shard) || '' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025, macos-15]
+        # Windows takes twice as long as the others, so it runs as two disjoint halves.
+        include:
+          - {os: ubuntu-24.04, shard: 1/1}
+          - {os: macos-15, shard: 1/1}
+          - {os: windows-2025, shard: 1/2}
+          - {os: windows-2025, shard: 2/2}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -35,4 +40,4 @@ jobs:
       - name: CLI
         run: uv run --no-sync fmb --help
       - name: Test suite
-        run: uv run --no-sync python -m pytest -m "not external" -n 4 -q -p no:cacheprovider --durations=15
+        run: uv run --no-sync python -m pytest -m "not external" -n 4 -q -p no:cacheprovider --durations=15 --shard ${{ matrix.shard }}
