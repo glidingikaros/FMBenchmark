@@ -22,6 +22,13 @@ from fmb.core.paths import default_current_root
 from fmb.core.sealed_records import write_json, now
 
 
+def file_identity(path: Path) -> tuple[int, ...]:
+    # Any write through the file system changes the size, the modification time or the change time, so a second
+    # full hash of a multi-GB image is not needed to see that it changed during collection.
+    status = path.stat()
+    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns)
+
+
 def collection_args(
     *,
     profile: dict,
@@ -118,6 +125,7 @@ def collect_host(
                     "paper collection prerequisites are unavailable: "
                     + str(checks["host"]["missing"])
                 )
+            identity = file_identity(evidence)
             observed = sha256_file(evidence)
             if observed != expected_sha256:
                 raise FmbInputError(
@@ -136,7 +144,7 @@ def collect_host(
                 evidence_sha256=observed,
                 run_id=run_id,
             )
-            if sha256_file(evidence) != observed:
+            if file_identity(evidence) != identity:
                 raise FmbInputError("evidence image changed during collection")
             inputs = dict(
                 request_path=stage / "tool_run_request.json",

@@ -102,13 +102,21 @@ def test_final_record_failure_after_success_is_still_failure(collection_boundary
     assert case.writes[1]["status"] == "completed"
 
 
-def test_image_that_changes_during_collection_is_refused(collection_boundary, monkeypatch):
+def test_image_that_changes_during_collection_is_refused(collection_boundary, monkeypatch, tmp_path):
     case = collection_boundary.setup("host")
-    digests = iter(["b" * 64, "c" * 64])
-    monkeypatch.setattr(paper_host, "sha256_file", lambda path: next(digests, "c" * 64))
+    hashed = []
+    monkeypatch.setattr(paper_host, "sha256_file", lambda path: hashed.append(path) or "b" * 64)
+
+    def collected(*args, **kwargs):
+        with (tmp_path / "evidence.vmdk").open("ab") as evidence:
+            evidence.write(b"appended during collection")
+        return {"test": True}
+
+    monkeypatch.setattr(paper_host, "run_host_collector_extraction", collected)
     with pytest.raises(FmbInputError, match="changed during collection"):
         case.invoke()
     assert case.writes[1]["status"] == "failed"
+    assert hashed == [tmp_path / "evidence.vmdk"]
 
 
 def test_suppressed_private_read_is_not_masked_by_final_record_failure(collection_boundary):
