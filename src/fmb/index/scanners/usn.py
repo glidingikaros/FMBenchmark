@@ -4,6 +4,7 @@ import heapq
 import json
 import struct
 from collections.abc import Callable, Iterator
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -61,7 +62,13 @@ USN_REASON_LABELS = {
 
 
 def reason_labels(reason: int) -> list[str]:
-    return [label for flag, label in sorted(USN_REASON_LABELS.items()) if reason & flag]
+    return list(_reason_labels(reason))
+
+
+# A journal repeats a few reason masks over all its records; each caller gets its own list.
+@lru_cache(maxsize=4096)
+def _reason_labels(reason: int) -> tuple[str, ...]:
+    return tuple(label for flag, label in sorted(USN_REASON_LABELS.items()) if reason & flag)
 
 
 def usn_record_v2_length(data: bytes, offset: int) -> int | None:

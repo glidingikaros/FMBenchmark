@@ -23,4 +23,9 @@ def filetime_to_utc_iso(filetime: int) -> str | None:
         return None
     fraction_ticks = utc.microsecond * FILETIME_TICKS_PER_MICROSECOND + remaining_ticks
     fraction = f".{fraction_ticks:07d}".rstrip("0") if fraction_ticks else ""
-    return f"{utc:%Y-%m-%dT%H:%M:%S}{fraction}Z"
+    # The fields of strftime's "%Y-%m-%dT%H:%M:%S" without its per-call formatting work; every
+    # FILETIME this returns falls in the years 1601 to 9999, which %Y writes with four digits.
+    return (
+        f"{utc.year:04d}-{utc.month:02d}-{utc.day:02d}T"
+        f"{utc.hour:02d}:{utc.minute:02d}:{utc.second:02d}{fraction}Z"
+    )
