@@ -16,7 +16,7 @@ def _card(card: dict, question_id: str) -> dict:
 
 def binding_table(*, base_index: dict, bundles: list, native_volume_serial_number: str | None) -> dict:
     from fmb.analysis.catalog import TECHNIQUES
-    from fmb.analysis.inputs import build_analysis_input
+    from fmb.analysis.inputs import build_analysis_inputs
     from fmb.analysis.population_binding import bind_population_manifest, verify_population_manifest
     from fmb.analysis.shared_evidence import prepare_evidence_bundles
     from fmb.analysis.questions import broad_question
@@ -27,8 +27,8 @@ def binding_table(*, base_index: dict, bundles: list, native_volume_serial_numbe
     selected_populations = [p for p in base_index["candidate_populations"] if p["technique_id"] in techniques]
     if rebound["candidate_populations"] != selected_populations:
         raise ValueError("base population membership differs from its public source binding")
-    base_inputs = tuple(build_analysis_input(base_index, definition) for definition in TECHNIQUES
-                        if definition.technique_id in techniques)
+    base_inputs = build_analysis_inputs(base_index, (definition for definition in TECHNIQUES
+                                                     if definition.technique_id in techniques))
     base_bundles = prepare_evidence_bundles(base_inputs)
     population = verify_population_manifest(base_index["population_manifest"])
     candidates = _population_candidate_subject_ids(base_inputs, base_index, base_index["population_manifest"])
