@@ -201,7 +201,7 @@
     "package/generation/populations.pilot-i2-20260918.json": "16cdb73359b26f6bc31615a74483ffe7bef4aa437b47fc3d668abab725d5900b",
     "package/generation/populations.pilot-i3-20260918.json": "e5e56ef739d99e33d7793bb8532b6cbe7954c30903695b7dd5e9d4f8d71bc679",
     "package/generation/qemu_host.py": "ee51fca22bb7ed98bb4a99d743086e1c4b63177acf51a79d712f4daeb119e6a1",
-    "package/generation/qemu_image.py": "4a980283ded12f86c6912529246f0684fe42409be9a1465cfeea541d99e2bc7c",
+    "package/generation/qemu_image.py": "82b5d7cfbe42da0be08f230571e1456979738e9dd6e5c5981371324ca5793f1d",
     "package/generation/recipe.py": "2863b551591bc6c439fde179a205508fa1b242b749183f3ae92b8cccfcb2a0e5",
     "package/generation/vmware_clone.py": "2f88ac3490fc27e80fd931c16ab36718ec0a6fc9c3172e9e41ecba82772a5743",
     "package/index/adapters/event_log.py": "b2652ca7e543c50b7cbac910cf116ac35a96f74d9eee48017d4237156e96f038",
