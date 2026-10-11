@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from fmb.analysis import mft_comparison
 from fmb.index.adapters import mft as mft_adapters
 from fmb.index.adapters.mft import build_mft_presence_context, mft_row_full_path, mft_row_is_directory
+from fmb.index.adapters.volume_binding import bind_native_volume
 from fmb.index.support.windows_artifacts import (
     FoldedRow,
     folded_row,
@@ -30,6 +32,7 @@ ROWS = (
 def empty_caches(monkeypatch: pytest.MonkeyPatch) -> None:
     # Other tests in the same worker may have read a CSV with these bytes already.
     monkeypatch.setattr(mft_adapters, "_MFT_PRESENCE_CONTEXT_CACHE", {})
+    monkeypatch.setattr(mft_comparison, "_IDENTIFIED_MFT_ROWS", {})
 
 
 def mft_root(tmp_path: Path, name: str = "kape", rows: str = ROWS) -> Path:
@@ -117,6 +120,48 @@ def test_presence_context_without_a_unique_csv_is_empty(tmp_path):
     context = build_mft_presence_context(tmp_path)
 
     assert context["row_count"] == 0 and context["source_paths"] == [] and context["mft_volume_id"] is None
+
+
+def test_native_volume_binding_leaves_the_callers_context_unchanged(tmp_path, monkeypatch):
+    import fmb.index.adapters.volume_binding as volume_binding
+
+    geometry = {"mft_record_size": 1024, "volume_serial_number": "0000000012345678"}
+    monkeypatch.setattr(volume_binding, "load_native_surfaces", lambda manifest, raw: {
+        "geometry": geometry, "boot_sector_sha256": "a" * 64, "raw_mft_sha256": "b" * 64, "boot_sector_file": "boot"})
+    monkeypatch.setattr(volume_binding, "parse_mft_record", lambda raw, **_: {
+        "file_name_attributes": [{"name": "$Volume"}], "metadata_timestamps": {"created": {"ntfs_filetime": 7}}})
+    monkeypatch.setattr(volume_binding, "mft_record_is_in_use", lambda record: True)
+    monkeypatch.setattr(volume_binding, "sha256_file", lambda path: "c" * 64)
+    raw_mft = tmp_path / "$MFT"
+    raw_mft.write_bytes(bytes(4096))
+    context = build_mft_presence_context(mft_root(tmp_path))
+    before = {key: type(value)(value) if isinstance(value, (set, dict, list)) else value for key, value in context.items()}
+
+    bound = bind_native_volume(context, tmp_path / "native.json", raw_mft)
+    bound["indexed_volumes"].add("d")
+
+    assert context == before
+    assert bound["indexed_volumes"] == {"volume{0000000000000007-12345678}", "d"}
+    assert bound["native_volume_bindings"]["volume{0000000000000007-12345678}"]["native_volume_creation_filetime"] == 7
+
+
+def test_comparison_pool_rows_are_read_once_per_csv_content(tmp_path, monkeypatch):
+    root = mft_root(tmp_path)
+    csv_path = mft_adapters.mftecmd_mft_context_csv_files(root)[0]
+    scans = counted_scans(monkeypatch, mft_comparison)
+
+    first = mft_comparison._identified_mft_rows(csv_path, "digest-1")
+    again = mft_comparison._identified_mft_rows(csv_path, "digest-1")
+    other = mft_comparison._identified_mft_rows(csv_path, "digest-2")
+
+    assert len(scans) == 2
+    assert first is again and first == other
+    assert first == (
+        (1, 5, 5, True, ".\\.", "."),
+        (2, 41, 3, True, ".\\Users\\alice\\report.txt", "users\\alice\\report.txt"),
+        (3, 42, 7, False, ".\\Users\\alice\\gone.txt", "users\\alice\\gone.txt"),
+        (4, 43, 2, True, ".\\Users\\alice", "users\\alice"),
+    )
 
 
 def test_folded_rows_answer_every_row_helper_as_the_raw_row_does(tmp_path):

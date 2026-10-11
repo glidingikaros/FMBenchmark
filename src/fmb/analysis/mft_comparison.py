@@ -10,7 +10,7 @@ from fmb.index.adapters.mft import (
     build_mft_presence_context,
     mft_row_full_path,
 )
-from fmb.index.support.windows_artifacts import parse_explicit_bool, row_value, stream_csv_rows
+from fmb.index.support.windows_artifacts import parse_explicit_bool, row_value, stream_folded_csv_rows
 from fmb.index.support.windows_identity import (
     ntfs_reference_from_row,
     windows_compare_path_parts,
@@ -94,6 +94,29 @@ def validate_pool(pool: dict) -> None:
             raise ValueError("invalid native MFT row")
 
 
+# The rows of the last MFT CSV read for a pool, keyed on its SHA-256: preparation builds one pool
+# per absence question from the same CSV, and each pool needs the same per-row values.
+_IDENTIFIED_MFT_ROWS: dict[str, tuple[tuple[int, int, int, bool, str, str], ...]] = {}
+
+
+def _identified_mft_rows(csv_path: Path, digest: str) -> tuple[tuple[int, int, int, bool, str, str], ...]:
+    rows = _IDENTIFIED_MFT_ROWS.get(digest)
+    if rows is None:
+        found = []
+        for number, row in enumerate(stream_folded_csv_rows(csv_path), 1):
+            identity = ntfs_reference_from_row(row, entry_keys=("EntryNumber", "Entry Number"), sequence_keys=("SequenceNumber", "Sequence Number"))
+            path = mft_row_full_path(row)
+            normalized = windows_compare_path_parts(path)[1]
+            state = parse_explicit_bool(row_value(row, "InUse", "In Use"))
+            if identity is None or state is None:
+                continue
+            found.append((number, identity[0], identity[1], state, path, normalized))
+        rows = tuple(found)
+        _IDENTIFIED_MFT_ROWS.clear()
+        _IDENTIFIED_MFT_ROWS[digest] = rows
+    return rows
+
+
 def build_comparison_pool(*, csv_path: Path, kape_root: Path, cards: list[dict],
                           native_manifest_path: Path, raw_mft_path: Path,
                           drive_binding_path: Path | None = None, locate=Path) -> dict:
@@ -127,15 +150,13 @@ def build_comparison_pool(*, csv_path: Path, kape_root: Path, cards: list[dict],
     rows = []
     reference_complete = context["reference_absence_check_supported"]
     path_complete = context["path_absence_check_supported"]
-    for number, row in enumerate(stream_csv_rows(csv_path), 1):
-        identity = ntfs_reference_from_row(row, entry_keys=("EntryNumber", "Entry Number"), sequence_keys=("SequenceNumber", "Sequence Number"))
-        path = mft_row_full_path(row)
-        normalized = windows_compare_path_parts(path)[1]
-        state = parse_explicit_bool(row_value(row, "InUse", "In Use"))
-        if identity is None or state is None:
-            continue
-        if any(first <= identity[0] <= last for first, last in intervals) or any(normalized.startswith(p) for p in prefixes):
-            rows.append({"entry": identity[0], "sequence": identity[1], "in_use": state, "path": path,
+    # Every interval is one whole entry bucket, so an entry is inside one exactly when its own
+    # bucket is among them.
+    buckets = {first for first, _last in intervals}
+    scoped_prefixes = tuple(prefixes)
+    for number, entry, sequence, state, path, normalized in _identified_mft_rows(csv_path, digest):
+        if entry // _ENTRY_BUCKET_SIZE * _ENTRY_BUCKET_SIZE in buckets or normalized.startswith(scoped_prefixes):
+            rows.append({"entry": entry, "sequence": sequence, "in_use": state, "path": path,
                          "source_record_ref": f"source:{digest[:16]}:row={number}"})
     result = {"mft_volume_id": context["mft_volume_id"], "source_record_ref": f"source:{digest[:16]}:declared-scan",
               "source_sha256": digest, "reference_complete": reference_complete, "path_complete": path_complete,

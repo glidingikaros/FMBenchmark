@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from pathlib import Path
 import re
 import struct
@@ -34,7 +33,9 @@ def bind_native_volume(context: dict, manifest_path: Path, raw_mft_path: Path) -
              "native_volume_boot_source_ref": "source:" + manifest["boot_sector_sha256"][:16] + ":boot",
              "native_volume_mft_source_ref": "source:" + manifest["raw_mft_sha256"][:16] + ":entry=3",
              "native_volume_manifest_sha256": sha256_file(manifest_path)}
-    result = deepcopy(context)
+    # A new mapping, not a deep copy: the three entries below are new objects, and nothing changes
+    # the context's other entries in place (an MFT context's sets alone take a second to copy deeply).
+    result = dict(context)
     result["indexed_volumes"] = set(result.get("indexed_volumes", set())) | {alias}
     result["native_volume_bindings"] = {alias: proof}
     result["native_volume_source_paths"] = [str(manifest_path), str(raw_mft_path),
