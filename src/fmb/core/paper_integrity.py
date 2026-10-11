@@ -32,32 +32,42 @@ def source_files(roots=None):
     excluded = {"__pycache__", ".vagrant", "outputs", "private", ".fmb", ".git"}
 
     def visit(start):
+        # os.scandir reports symlinks from the directory listing, without one more system
+        # call per entry, which is most of an inventory's cost on Windows.
         count = 0
-        for directory, directories, names in os.walk(start, followlinks=False):
-            directory = Path(directory)
+        pending = [(start, ())]
+        while pending:
+            directory, relative = pending.pop()
             if (
-                len(directory.relative_to(start).parts) > 20
+                len(relative) > 20
                 or time.monotonic() > deadline
             ):
                 raise ValueError(
                     "paper source inventory exceeded its depth/time budget"
                 )
-            for name in directories + names:
-                if (directory / name).is_symlink():
-                    raise ValueError("symlinked implementation asset")
-            directories[:] = [name for name in directories if name not in excluded]
-            for name in sorted(names):
+            try:
+                with os.scandir(directory) as listing:
+                    entries = sorted(listing, key=lambda entry: entry.name)
+            except OSError:
+                continue
+            if any(entry.is_symlink() for entry in entries):
+                raise ValueError("symlinked implementation asset")
+            directories = [entry for entry in entries if entry.is_dir() and entry.name not in excluded]
+            for entry in entries:
+                if entry.is_dir():
+                    continue
                 count += 1
                 if count > 10000:
                     raise ValueError("paper source inventory exceeded its file budget")
-                yield directory / name
+                yield relative + (entry.name,), Path(entry.path)
+            pending.extend((entry.path, relative + (entry.name,)) for entry in reversed(directories))
 
     package = roots["package"]
-    for path in visit(package):
-        if path.name == "paper-source-manifest.json":
+    for parts, path in visit(package):
+        if parts[-1] == "paper-source-manifest.json":
             continue
-        if not path.is_relative_to(package / "fixtures") and path.suffix not in {".pyc", ".pyo"}:
-            files["package/" + path.relative_to(package).as_posix()] = path
+        if parts[0] != "fixtures" and path.suffix not in {".pyc", ".pyo"}:
+            files["package/" + "/".join(parts)] = path
     return dict(sorted(files.items()))
 
 
