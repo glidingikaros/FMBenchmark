@@ -704,7 +704,9 @@ def vmrun_start_and_wait(
     )
 
 
-def cleanup_disposable_appliance_vm(*, vmx_path: Path, provider: str) -> dict[str, Any]:
+def cleanup_disposable_appliance_vm(
+    *, vmx_path: Path, provider: str, graceful: bool = True
+) -> dict[str, Any]:
     vmx_path = vmx_path.expanduser().resolve()
     appliance_dir = vmx_path.parent
     if appliance_dir.name != ".vmrun-appliance":
@@ -713,10 +715,13 @@ def cleanup_disposable_appliance_vm(*, vmx_path: Path, provider: str) -> dict[st
         )
     if appliance_dir.exists():
         if vmrun_is_running(vmx_path=vmx_path, provider=provider):
-            try:
-                vmrun_stop(vmx_path=vmx_path, provider=provider)
-            except KapeApplianceError:
+            if not graceful:
                 vmrun_hard_stop(vmx_path=vmx_path, provider=provider)
+            else:
+                try:
+                    vmrun_stop(vmx_path=vmx_path, provider=provider)
+                except KapeApplianceError:
+                    vmrun_hard_stop(vmx_path=vmx_path, provider=provider)
             if vmrun_is_running(vmx_path=vmx_path, provider=provider):
                 raise KapeApplianceError(
                     f"VMware worker remains running after stop; refusing cleanup: {vmx_path}"
