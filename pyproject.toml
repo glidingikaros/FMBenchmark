@@ -46,6 +46,9 @@ fmb = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# With -n, hand queued tests to whichever worker is idle: many tests wait on PowerShell
+# subprocesses, so fixed up-front batches leave workers idle behind a slow batch.
+addopts = "--dist worksteal"
 pythonpath = ["src", "."]
 markers = [
     "integration: local multi-module integration tests that do not run external forensic tools",
