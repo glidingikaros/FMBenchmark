@@ -39,7 +39,14 @@ jobs:
           python-version: "3.13.5"
           enable-cache: false
       - name: Install
-        run: uv sync --locked --extra dev --extra generation --extra factual --extra collection
+        # Retried: a 500 from the Python download host once failed a Windows job here.
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            uv sync --locked --extra dev --extra generation --extra factual --extra collection && exit 0
+            sleep $((attempt * 10))
+          done
+          exit 1
       - name: CLI
         run: uv run --no-sync fmb --help
       - name: Test suite
