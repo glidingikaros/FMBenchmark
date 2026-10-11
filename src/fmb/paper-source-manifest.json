@@ -176,7 +176,7 @@
     "package/generation/ansible/roles/manipulation/tasks/pilot_typed_path_residue_01.yml": "73c270223fbb627335fde412bce09f536699b6ab522888011087cfe5b9a4a9ef",
     "package/generation/ansible/roles/manipulation/tasks/pilot_usb_volume_activity_gap_01.yml": "9e1dd61d135b1cd96df4479e10700a4fa17fa313ce7a5d19a7f851e875fa1923",
     "package/generation/ansible/roles/manipulation/tasks/pilot_usbstor_setupapi_discrepancy_01.yml": "95107043758a6c9bb21fe8c5db4f32215abec35175890c7c70070778d53808cd",
-    "package/generation/ansible/roles/manipulation/tasks/prefetch_wipe_01.yml": "da4ca07054697043ed9a96d9142c4ba12c49cfcb970c95719ab5281501b2d376",
+    "package/generation/ansible/roles/manipulation/tasks/prefetch_wipe_01.yml": "6f4a08c348cdc535ffcfa618ad2b08fada37a4df63bb5aa0036cb88d1b6d8755",
     "package/generation/ansible/roles/manipulation/tasks/security_log_clear_event_01.yml": "99312bcebe983470aa9aafa0a0c36c2dbd07f9a5d1c82648c4e78bc7a6567231",
     "package/generation/ansible/roles/manipulation/tasks/shellbag_path_residue_01.yml": "83caf6377bcf43447eb39c031c1101ee304e42335b5d4566f0bd1d47e500e27b",
     "package/generation/ansible/roles/manipulation/tasks/shimcache_path_residue_01.yml": "2d8bf7483c3a7038c80074048f30d8ca63b243848de6cbdc2368bd362d5ed137",

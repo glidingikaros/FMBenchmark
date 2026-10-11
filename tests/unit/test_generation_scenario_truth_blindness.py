@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -250,6 +251,73 @@ def test_prefetch_benign_case_generates_residue_and_retains_every_executable() -
     assert "$paths.Count -ne $expectedOperationCount" in source
     assert "$retainedCount -eq $populationPaths.Count" in source
     assert "$prefetchCount -eq $populationPaths.Count" in source
+
+
+def test_prefetch_waits_for_slow_prefetch_files_and_reports_failure_with_counts_only() -> None:
+    yaml = pytest.importorskip("yaml")
+    tasks = yaml.safe_load(scenario_source("prefetch_wipe_01.yml"))
+    source = tasks[0]["ansible.windows.win_shell"]
+
+    assert "[Math]::Max(180, 3 * $populationPaths.Count)" in source
+    assert "[Math]::Max(30," not in source
+    failure = source[source.index("if (-not $verified) {"):source.index("exit 3")]
+    assert "$path" not in failure
+    assert "$case" not in failure
+    assert tasks[0]["no_log"] is True
+    assert tasks[0]["failed_when"] == "prefetch_receipt.rc | default(1) not in [0, 3]"
+    assertion = tasks[1]["ansible.builtin.assert"]
+    assert assertion["that"] == ["prefetch_receipt.rc == 0"]
+    assert "stderr" not in assertion["fail_msg"]
+    assert tasks[2]["ansible.builtin.debug"]["msg"][1] == "{{ prefetch_receipt.stdout | trim }}"
+
+
+@pytest.mark.pwsh
+@pytest.mark.parametrize("prefetch_written", [True, False])
+def test_prefetch_receipt_is_unchanged_and_failure_names_no_paths(tmp_path, prefetch_written) -> None:
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell is not installed")
+    yaml = pytest.importorskip("yaml")
+    tasks = yaml.safe_load(scenario_source("prefetch_wipe_01.yml"))
+    # Stand-ins for the guest: programs exit at once, the clock moves 2 s per reading, and Windows has (or has
+    # not) written every .pf file.
+    stubs = """
+function Start-Process { }
+function Start-Sleep { }
+$script:fakeClock = [DateTime]::new(2026, 1, 1)
+function Get-Date { $script:fakeClock = $script:fakeClock.AddSeconds(2); $script:fakeClock }
+function Get-ChildItem { if ($env:FMB_TEST_PREFETCH_WRITTEN -eq '1') { 'written.pf' } }
+function Get-Service { [pscustomobject]@{ Status = 'Running' } }
+function Get-ItemProperty { [pscustomobject]@{ EnablePrefetcher = 3 } }
+function Get-CimInstance { [pscustomobject]@{ LastBootUpTime = $script:fakeClock.AddSeconds(-300) } }
+"""
+    path = tmp_path / "prefetch-probe.ps1"
+    path.write_text(stubs + render_public_helper_lookups(tasks[0]["ansible.windows.win_shell"]))
+    population = [str(tmp_path / f"PRIVATE_DO_NOT_EMIT_{index}.exe") for index in range(4)]
+    for executable in population:
+        Path(executable).write_bytes(b"MZ")
+    stdin = {"case": "benign", "population_paths": population, "operation_refs": [],
+             "expected_population_count": 4, "expected_operation_count": 0}
+    result = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(path)],
+                            input=json.dumps(stdin), text=True, capture_output=True, check=False,
+                            env={**os.environ, "FMB_TEST_PREFETCH_WRITTEN": "1" if prefetch_written else "0"})
+
+    assert not result.stderr.strip()
+    assert "PRIVATE_DO_NOT_EMIT" not in result.stdout
+    output = json.loads(result.stdout)
+    if prefetch_written:
+        assert result.returncode == 0
+        assert list(output) == ["scenario_id", "case", "operation_count", "operation_refs_sha256",
+                                "postcondition_verified", "population_count", "prefetch_count"]
+        assert output["postcondition_verified"] is True
+        assert output["prefetch_count"] == 4
+    else:
+        assert result.returncode == 3
+        assert output == {"prefetch_count": 0, "population_count": 4, "files_verified": True,
+                          "waited_seconds": output["waited_seconds"], "sysmain": "Running",
+                          "enable_prefetcher": 3, "uptime_seconds": output["uptime_seconds"]}
+        assert 180 <= output["waited_seconds"] <= 184
+        assert output["uptime_seconds"] in {300, 302}
 
 
 def test_timestomp_postcondition_verifies_every_assigned_si_timestamp() -> None:
