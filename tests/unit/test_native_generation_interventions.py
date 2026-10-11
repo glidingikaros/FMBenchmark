@@ -50,6 +50,59 @@ def test_sequence_refuses_partial_or_crc_damaged_native_input():
         mutation.mutate_evtx_bytes(bytes(damaged))
 
 
+def repeated_chunks(data, copies):
+    import struct
+    import zlib
+    result = bytearray(data[:4096] + data[4096:4096 + 65536] * copies)
+    struct.pack_into('<Q', result, 8, 0)
+    struct.pack_into('<Q', result, 16, copies - 1)
+    struct.pack_into('<H', result, 42, copies)
+    struct.pack_into('<I', result, 124, zlib.crc32(bytes(result[:120])))
+    return bytes(result)
+
+
+def test_records_rendered_in_worker_processes_match_inline_rendering(monkeypatch):
+    from fmb.generation import event_sequence_injection as mutation
+    data = repeated_chunks(native_evtx(), 3)
+    chunks = list(mutation._active_chunks(data))
+    monkeypatch.setattr(mutation, '_render_workers', lambda: 2)
+    monkeypatch.setattr(mutation, 'PARALLEL_RENDER_MIN_CHUNKS', 10 ** 9)
+    inline = mutation.rendered_xml((data, chunks), (data, chunks[:1]))
+    monkeypatch.setattr(mutation, 'PARALLEL_RENDER_MIN_CHUNKS', 2)
+    pooled = mutation.rendered_xml((data, chunks), (data, chunks[:1]))
+    assert pooled == inline
+    assert [len(part) for part in pooled] == [3 * 47, 47]
+
+
+def test_sequence_mutation_is_identical_with_reused_or_pooled_rendering(monkeypatch):
+    from fmb.generation import event_sequence_injection as mutation
+    original = native_evtx()
+    expected = mutation.mutate_evtx_bytes(original)
+    [source_xml] = mutation.rendered_xml((original, list(mutation._active_chunks(original))))
+    assert mutation.mutate_evtx_bytes(original, source_xml=source_xml) == expected
+    monkeypatch.setattr(mutation, '_render_workers', lambda: 2)
+    monkeypatch.setattr(mutation, 'PARALLEL_RENDER_MIN_CHUNKS', 1)
+    assert mutation.mutate_evtx_bytes(original) == expected
+    with pytest.raises(ValueError, match='does not cover'):
+        mutation.mutate_evtx_bytes(original, source_xml=source_xml[:-1])
+
+
+def test_rendering_falls_back_inline_when_worker_processes_fail(monkeypatch):
+    from concurrent.futures.process import BrokenProcessPool
+    from fmb.generation import event_sequence_injection as mutation
+    data = native_evtx()
+    chunks = list(mutation._active_chunks(data))
+    expected = mutation.rendered_xml((data, chunks))
+
+    def broken(*args, **kwargs):
+        raise BrokenProcessPool('worker exited')
+
+    monkeypatch.setattr(mutation, 'ProcessPoolExecutor', broken)
+    monkeypatch.setattr(mutation, '_render_workers', lambda: 2)
+    monkeypatch.setattr(mutation, 'PARALLEL_RENDER_MIN_CHUNKS', 1)
+    assert mutation.rendered_xml((data, chunks), (data, chunks)) == expected * 2
+
+
 def test_post_export_mutation_requires_bound_guest_preparation(tmp_path):
     pipeline = module('pipeline')
     instance = pipeline.GenerationPipeline.__new__(pipeline.GenerationPipeline)
