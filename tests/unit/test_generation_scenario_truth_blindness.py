@@ -526,15 +526,21 @@ def test_generation_powershell_blocks_parse_when_pwsh_is_available() -> None:
     if pwsh is None:
         pytest.skip("PowerShell is not installed")
     yaml = pytest.importorskip("yaml")
+    # One PowerShell process parses every block separately; starting one per block dominated
+    # this test's run time, most of all on Windows.
     parser = (
-        "$code=[Text.Encoding]::UTF8.GetString("
-        "[Convert]::FromBase64String($args[0]));"
+        "$failed=$false;"
+        "foreach($block in ([Console]::In.ReadToEnd()|ConvertFrom-Json)){"
+        "$code=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($block.code));"
         "$tokens=$null;$errors=$null;"
         "[Management.Automation.Language.Parser]::ParseInput("
         "$code,[ref]$tokens,[ref]$errors)|Out-Null;"
-        "if($errors.Count){$errors|ForEach-Object{Write-Error $_.Message};exit 1}"
+        "if($errors.Count){$failed=$true;"
+        "$errors|ForEach-Object{[Console]::Error.WriteLine($block.name+': '+$_.Message)}}};"
+        "if($failed){exit 1}"
     )
     parsed_scenarios: set[str] = set()
+    blocks = []
 
     for path in sorted(SCENARIO_ROOT.glob("*.yml")):
         for task in yaml.safe_load(path.read_text(encoding="utf-8")):
@@ -548,21 +554,16 @@ def test_generation_powershell_blocks_parse_when_pwsh_is_available() -> None:
                 "{}",
             )
             source = render_public_helper_lookups(source)
-            encoded = base64.b64encode(source.encode()).decode()
-            result = subprocess.run(
-                [
-                    pwsh,
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-CommandWithArgs",
-                    parser,
-                    encoded,
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            assert result.returncode == 0, f"{path.name}: {result.stderr}"
+            blocks.append({"name": path.name, "code": base64.b64encode(source.encode()).decode()})
+
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", parser],
+        input=json.dumps(blocks),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
     assert {
         "timestomp_01",
