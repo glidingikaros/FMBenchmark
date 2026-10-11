@@ -146,4 +146,6 @@ def test_the_qemu_rtc_bias_comes_from_the_base_build_date(tmp_path, monkeypatch)
     facts.write_text(json.dumps({"finished_utc": "2026-12-08T20:06:00+00:00"}))
     assert backend.base_rtc_bias() == 480
     assert [recipe.base_clock_lag_minutes(bias, "qemu") for bias in (480, 482, 600)] == [2, 2, 120]
-    assert [recipe.base_clock_lag_minutes(bias, "vmware_desktop") for bias in (422, 480, 600)] == [-58, 0, 120]
+    summer, winter = "2026-10-08T20:06:00+00:00", "2026-12-08T20:06:00+00:00"
+    assert [recipe.base_clock_lag_minutes(bias, "vmware_desktop", summer) for bias in (422, 480, 600)] == [2, 60, 180]
+    assert [recipe.base_clock_lag_minutes(bias, "vmware_desktop", winter) for bias in (482, 480, 600)] == [2, 0, 120]

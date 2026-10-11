@@ -194,7 +194,8 @@ def load_warning() -> str | None:
         return None
     return (f"the machine is busy: load {load:.1f} on {cpus} CPUs over the last 5 minutes. The guest needs 2 of them; "
             "on a busy host its clock readings and Windows' own timing get slow, and generation can fail or be "
-            "retried. Close other work or wait for it to finish.")
+            "retried. If fmb has just built or compressed the base on this machine, the load settles within a few "
+            "minutes; otherwise close other work or wait for it to finish.")
 
 
 def check(rows: list, name: str, found, fix: str) -> None:

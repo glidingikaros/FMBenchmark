@@ -529,15 +529,15 @@ def test_generation_powershell_blocks_parse_when_pwsh_is_available() -> None:
     # One PowerShell process parses every block separately; starting one per block dominated
     # this test's run time, most of all on Windows.
     parser = (
-        "$failed=$false;"
-        "foreach($block in ([Console]::In.ReadToEnd()|ConvertFrom-Json)){"
+        "$failed=$false;$parsed=0;"
+        "foreach($block in ([Console]::In.ReadToEnd()|ConvertFrom-Json)){$parsed++;"
         "$code=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($block.code));"
         "$tokens=$null;$errors=$null;"
         "[Management.Automation.Language.Parser]::ParseInput("
         "$code,[ref]$tokens,[ref]$errors)|Out-Null;"
         "if($errors.Count){$failed=$true;"
         "$errors|ForEach-Object{[Console]::Error.WriteLine($block.name+': '+$_.Message)}}};"
-        "if($failed){exit 1}"
+        "[Console]::Out.Write($parsed);if($failed){exit 1}"
     )
     parsed_scenarios: set[str] = set()
     blocks = []
@@ -564,6 +564,8 @@ def test_generation_powershell_blocks_parse_when_pwsh_is_available() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+    # An empty or unread stdin parses nothing and exits 0, so count what PowerShell parsed.
+    assert result.stdout.strip() == str(len(blocks)), result.stdout + result.stderr
 
     assert {
         "timestomp_01",

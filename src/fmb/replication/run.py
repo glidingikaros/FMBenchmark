@@ -123,7 +123,7 @@ BASE_CLOCK_MARGIN_MINUTES = 3
 def base_clock_wait_seconds(finished_utc: str, bias_minutes: int, now: datetime, provider: str) -> float:
     from fmb.generation.recipe import base_clock_lag_minutes
 
-    lag = max(base_clock_lag_minutes(bias_minutes, provider), 0)
+    lag = max(base_clock_lag_minutes(bias_minutes, provider, finished_utc), 0)
     ready = datetime.fromisoformat(finished_utc) + timedelta(minutes=lag + BASE_CLOCK_MARGIN_MINUTES)
     return max(0.0, (ready - now).total_seconds())
 
