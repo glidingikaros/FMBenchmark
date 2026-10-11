@@ -511,7 +511,7 @@ class QemuBackend:
                             f"{len(media)} virtual USB disks plugged in)\n")
             except subprocess.TimeoutExpired:
                 pass
-            time.sleep(15)
+            time.sleep(5)
         try:
             self._monitor(f"screendump {p.output_dir / 'qemu-boot-timeout.png'} -f png")
         except OSError:

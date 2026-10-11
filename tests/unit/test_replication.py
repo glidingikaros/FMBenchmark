@@ -94,12 +94,12 @@ def test_generation_waits_until_its_biased_clock_is_past_the_base_builds_last_ev
                                        provider)
 
     # The paper's bias boots a QEMU guest 2 minutes behind, whatever the season the base was built in.
-    assert wait("2026-10-08T20:06:00+00:00", 480, "2026-10-08T20:10:00", "qemu") == 8 * 60
-    assert wait("2026-12-08T20:06:00+00:00", 480, "2026-12-08T20:10:00", "qemu") == 8 * 60
-    assert wait("2026-10-08T20:06:00+00:00", 600, "2026-10-08T20:10:00", "qemu") == 126 * 60
+    assert wait("2026-10-08T20:06:00+00:00", 480, "2026-10-08T20:10:00", "qemu") == 1 * 60
+    assert wait("2026-12-08T20:06:00+00:00", 480, "2026-12-08T20:10:00", "qemu") == 1 * 60
+    assert wait("2026-10-08T20:06:00+00:00", 600, "2026-10-08T20:10:00", "qemu") == 119 * 60
     # A VMware box's events carry its build clock, UTC minus 480 minutes: the paper's bias lags them by nothing.
-    assert wait("2026-10-08T20:06:00+00:00", 480, "2026-10-08T20:10:00", "vmware_desktop") == 6 * 60
-    assert wait("2026-10-08T20:06:00+00:00", 422, "2026-10-08T20:10:00", "vmware_desktop") == 6 * 60
+    assert wait("2026-10-08T20:06:00+00:00", 480, "2026-10-08T20:10:00", "vmware_desktop") == 0
+    assert wait("2026-10-08T20:06:00+00:00", 422, "2026-10-08T20:08:00", "vmware_desktop") == 1 * 60
     assert wait("2026-10-08T18:00:00+00:00", 480, "2026-10-08T20:30:00", "qemu") == 0
 
 

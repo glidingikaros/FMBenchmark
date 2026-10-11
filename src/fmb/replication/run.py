@@ -115,11 +115,16 @@ def dependency_lock(root: Path) -> Path:
     return lock
 
 
+# finished_utc is taken after the base's guest powered off, and the verify boot writes only to a throwaway
+# overlay, so the base's last event is before it; the margin covers the guest clock's drift during the build.
+BASE_CLOCK_MARGIN_MINUTES = 3
+
+
 def base_clock_wait_seconds(finished_utc: str, bias_minutes: int, now: datetime, provider: str) -> float:
     from fmb.generation.recipe import base_clock_lag_minutes
 
     lag = max(base_clock_lag_minutes(bias_minutes, provider), 0)
-    ready = datetime.fromisoformat(finished_utc) + timedelta(minutes=lag + 10)
+    ready = datetime.fromisoformat(finished_utc) + timedelta(minutes=lag + BASE_CLOCK_MARGIN_MINUTES)
     return max(0.0, (ready - now).total_seconds())
 
 
