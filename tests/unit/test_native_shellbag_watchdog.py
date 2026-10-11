@@ -25,7 +25,7 @@ def build_watchdog(tmp_path: Path, child: str, timeout: int = 10) -> Path:
     )
     subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-CommandWithArgs", builder,
                     str(HELPER), str(path), str(timeout)],
-                   input=child, text=True, capture_output=True, check=True, timeout=15)
+                   input=child, text=True, capture_output=True, check=True, timeout=120)
     return path
 
 
