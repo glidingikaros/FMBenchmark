@@ -22,7 +22,7 @@ from fmb.index.support.windows_identity import (
 from fmb.index.adapters.stream_content import named_stream_content_parser_run
 from fmb.index.adapters.usb_volume import usb_volume_parser_run
 from fmb.index.adapters.volume_binding import bind_native_volume
-from fmb.index.support.windows_artifacts import stream_csv_rows
+from fmb.index.support.windows_artifacts import stream_folded_csv_rows
 
 
 def add_native_population_surfaces(index: Mapping[str, Any], *, manifest: Mapping[str, Any],
@@ -73,7 +73,7 @@ def add_native_population_surfaces(index: Mapping[str, Any], *, manifest: Mappin
             raise ValueError("native NTFS collection requires one complete MFT CSV")
         context = build_mft_presence_context(root)
         matches: dict[str, dict[tuple[int, int], dict[str, Any]]] = {path: {} for path in wanted}
-        for row in stream_csv_rows(csv_paths[0]):
+        for row in stream_folded_csv_rows(csv_paths[0]):
             path = normalize_windows_compare_path(mft_row_full_path(row))
             if path not in wanted or not mft_row_is_active(row):
                 continue

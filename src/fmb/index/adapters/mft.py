@@ -22,8 +22,10 @@ from fmb.index.scanners.mft import (
 )
 from fmb.index.support.windows_artifacts import (
     MFT_TIMESTAMP_PAIRS,
+    FoldedRow,
     canonical_mftecmd_timestamp,
     first_nonempty,
+    folded_row,
     join_windows_path,
     max_timestamp_mismatch_gap_days,
     mft_path,
@@ -36,6 +38,7 @@ from fmb.index.support.windows_artifacts import (
     row_value,
     score_candidate_name,
     stream_csv_rows,
+    stream_folded_csv_rows,
 )
 from fmb.index.support.windows_identity import (
     REMOTE_PATH_VOLUME,
@@ -352,7 +355,35 @@ def mft_row_is_directory(row: dict[str, str]) -> bool:
     return "directory" in attributes.casefold()
 
 
+# The presence context of the last MFT CSV read, keyed on the CSV's SHA-256, which the context
+# needs for its mft_volume_id anyway. A run reads the same CSV for the index, the native
+# surfaces, the reference-scoped runs, the factual supplement and every comparison pool.
+_MFT_PRESENCE_CONTEXT_CACHE: dict[str, dict[str, Any]] = {}
+
+
 def build_mft_presence_context(root: Path) -> dict[str, Any]:
+    paths = mftecmd_mft_context_csv_files(root)
+    if len(paths) != 1:
+        return _scan_mft_presence_context(paths)
+    source_id = source_scope_id(paths[0])
+    context = _MFT_PRESENCE_CONTEXT_CACHE.get(source_id)
+    if context is None:
+        context = _scan_mft_presence_context(paths, source_id=source_id)
+        _MFT_PRESENCE_CONTEXT_CACHE.clear()
+        _MFT_PRESENCE_CONTEXT_CACHE[source_id] = context
+    # Each caller gets its own containers (their items are strings, numbers and tuples), so one
+    # caller's changes never reach the cache or another caller.
+    copied = {
+        key: type(value)(value) if isinstance(value, (set, dict, list)) else value
+        for key, value in context.items()
+    }
+    copied["source_paths"] = [str(path) for path in paths]
+    return copied
+
+
+def _scan_mft_presence_context(
+    paths: list[Path], *, source_id: str | None = None
+) -> dict[str, Any]:
     active_full_paths: set[str] = set()
     active_basenames: set[str] = set()
     active_refs: set[tuple[int, int]] = set()
@@ -364,9 +395,9 @@ def build_mft_presence_context(root: Path) -> dict[str, Any]:
     malformed_identity_row_count = 0
     malformed_reference_row_count = 0
     malformed_path_row_count = 0
-    for path in mftecmd_mft_context_csv_files(root):
+    for path in paths:
         source_paths.append(str(path))
-        for row in stream_csv_rows(path):
+        for row in stream_folded_csv_rows(path):
             row_count += 1
             full_path = mft_row_full_path(row)
             active_state = parse_explicit_bool(row_value(row, "InUse", "In Use"))
@@ -405,7 +436,7 @@ def build_mft_presence_context(root: Path) -> dict[str, Any]:
             if reference is not None and full_path and mft_row_is_directory(row):
                 directory_paths_by_ref.setdefault(reference, full_path)
     volume_id = (
-        f"mft-source:{source_scope_id(Path(source_paths[0]))}"
+        f"mft-source:{source_id or source_scope_id(Path(source_paths[0]))}"
         if len(source_paths) == 1
         else None
     )
@@ -641,21 +672,22 @@ def mftecmd_mft_parser_run(
         source_row_count = row_index
         if population_rule_evaluable is None:
             population_rule_evaluable = mft_timestamp_population_rule_evaluable(row)
-        timestamp_row = canonical_mftecmd_timestamp_row(row)
-        subject = mft_path(row)
+        folded = FoldedRow(folded_row(row))
+        subject = mft_path(folded)
         if (
             subject == "<unknown>"
-            or not mft_row_is_active(row)
-            or mft_row_is_directory(row)
+            or not mft_row_is_active(folded)
+            or mft_row_is_directory(folded)
         ):
             continue
-        entry = parse_int(row_first(row, "EntryNumber", "Entry Number"))
-        sequence = parse_int(row_first(row, "SequenceNumber", "Sequence Number"))
+        timestamp_row = FoldedRow(folded_row(canonical_mftecmd_timestamp_row(row)))
+        entry = parse_int(row_first(folded, "EntryNumber", "Entry Number"))
+        sequence = parse_int(row_first(folded, "SequenceNumber", "Sequence Number"))
         parent_entry = parse_int(
-            row_first(row, "ParentEntryNumber", "Parent Entry Number")
+            row_first(folded, "ParentEntryNumber", "Parent Entry Number")
         )
         parent_sequence = parse_int(
-            row_first(row, "ParentSequenceNumber", "Parent Sequence Number")
+            row_first(folded, "ParentSequenceNumber", "Parent Sequence Number")
         )
         mismatches = mft_timestamp_mismatches(timestamp_row)
         score = score_candidate_name(subject, purpose="timestomp")
@@ -697,7 +729,7 @@ def mftecmd_mft_parser_run(
                 "mismatches": mismatches,
                 "mft_entry": entry,
                 "sequence_number": sequence,
-                "file_name": row_first(row, "FileName", "File Name", "Name"),
+                "file_name": row_first(folded, "FileName", "File Name", "Name"),
                 "parent_entry_number": parent_entry,
                 "parent_sequence_number": parent_sequence,
                 "in_use": True,

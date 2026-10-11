@@ -85,6 +85,17 @@ def stream_csv_rows(path: Path) -> Iterator[dict[str, str]]:
             yield sanitize_csv_row(row)
 
 
+class FoldedRow(dict):
+    """A CSV row whose keys are already case-folded: folded_row returns it as it is."""
+
+
+def stream_folded_csv_rows(path: Path) -> Iterator[FoldedRow]:
+    # For loops that read every row only through row_value, row_first and the other helpers
+    # that fold the row: each row is folded once instead of once per lookup.
+    for row in stream_csv_rows(path):
+        yield FoldedRow(folded_row(row))
+
+
 def first_nonempty(*values: str | None) -> str:
     for value in values:
         if isinstance(value, str) and value.strip():
@@ -112,6 +123,8 @@ def _folded_row_value(folded: Mapping[str, str], *keys: str) -> str | None:
 
 
 def folded_row(row: dict[str, str]) -> dict[str, str]:
+    if type(row) is FoldedRow:
+        return row
     return {key.casefold(): value for key, value in row.items()}
 
 
