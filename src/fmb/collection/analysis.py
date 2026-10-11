@@ -369,6 +369,10 @@ def collect_evidence_index(evidence: Path, *, profile: dict, output_dir: Path, r
     prepared = bind_population_manifest(collected, generated.population_manifest, **selection)
     prepared = add_reference_scoped_usn(prepared, output_dir=output_dir)
     prepared = add_reference_scoped_ads(prepared, output_dir=output_dir)
+    # The reference-scoped USN and $LogFile runs add observations of the bound subjects. The ADS
+    # step rebinds when the image has an ADS population; every image needs it, because preparation
+    # rebinds this index and requires the same membership.
+    prepared = bind_population_manifest(prepared, generated.population_manifest, **selection)
     if public is not None:
         prepared = add_factual_population(prepared, evidence=evidence, public=public,
                                          output_dir=output_dir / 'factual-supplement',

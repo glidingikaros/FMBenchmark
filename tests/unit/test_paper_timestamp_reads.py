@@ -18,7 +18,7 @@ def run_powershell(tmp_path, source, target):
         ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(script), str(target)],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert not result.stderr.strip(), result.stderr

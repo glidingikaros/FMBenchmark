@@ -88,24 +88,63 @@ def test_relative_correction_is_independent_of_launch_and_setter_startup_delay()
         assert receipt["measurement"]["host_send_utc"] != receipt["host_utc_iso"]
 
 
-def test_wide_calibration_roundtrip_is_unproven_and_never_sets_clock():
+@pytest.fixture
+def no_retake_pause(monkeypatch):
+    monkeypatch.setattr(protocol, "RETAKE_PAUSE_SECONDS", 0)
+
+
+def test_wide_calibration_roundtrip_is_unproven_and_never_sets_clock(no_retake_pause):
     connection = SimulatedConnection(outbound=2, inbound=2)
     with pytest.raises(ValueError, match="calibration_timing_uncertain"):
         connection.apply()
-    assert len(connection.calls) == 2 and not any(
+    assert len(connection.calls) == 2 + protocol.RETAKES and not any(
         "Set-Date" in s for s in connection.calls
     )
 
 
-def test_overlap_with_tolerance_is_not_sufficient_checkpoint_proof():
+def test_overlap_with_tolerance_is_not_sufficient_checkpoint_proof(no_retake_pause):
     connection = SimulatedConnection(offset=0, outbound=2, inbound=2)
     connection.service = "Stopped"
     with pytest.raises(ValueError, match="offset_not_proven"):
         connection.apply(stage="pre_export")
-    assert len(connection.calls) == 1
+    assert len(connection.calls) == 1 + protocol.RETAKES
 
 
-def test_host_wall_clock_step_is_not_mistaken_for_transport_delay():
+def test_a_slow_reading_on_a_busy_host_is_taken_again(no_retake_pause):
+    connection = SimulatedConnection(offset=0, outbound=2, inbound=2)
+    connection.service = "Stopped"
+    execute = connection.execute
+
+    def settling(script):
+        result = execute(script)
+        if len(connection.calls) == 2:
+            connection.outbound = connection.inbound = 0.2
+        return result
+
+    point = protocol.clock_action(settling, policy="host_sync_then_service_stopped", stage="pre_export",
+                                  wall_clock=connection.wall, monotonic_clock=connection.mono)
+    assert len(connection.calls) == 3
+    assert point["measurement"]["monotonic_elapsed_seconds"] == pytest.approx(0.4)
+    assert protocol.require_certain_offset(point["measurement"])["offset_seconds"] == pytest.approx(0)
+
+
+def test_a_reading_across_a_host_clock_step_is_taken_again(no_retake_pause):
+    connection = SimulatedConnection(offset=0)
+    connection.service = "Stopped"
+    execute = connection.execute
+
+    def stepping_once(script):
+        result = execute(script)
+        if len(connection.calls) == 1:
+            connection.host_step += 1
+        return result
+
+    point = protocol.clock_action(stepping_once, policy="host_sync_then_service_stopped", stage="pre_export",
+                                  wall_clock=connection.wall, monotonic_clock=connection.mono)
+    assert len(connection.calls) == 2 and point["stage"] == "pre_export"
+
+
+def test_host_wall_clock_step_is_not_mistaken_for_transport_delay(no_retake_pause):
     connection = SimulatedConnection()
     execute = connection.execute
 

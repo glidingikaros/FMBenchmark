@@ -85,6 +85,8 @@ def setup_command(args: argparse.Namespace) -> int:
     width = max(len(name) for name, _, _ in rows)
     for name, ok, detail in rows:
         print(f"{'ok ' if ok else 'NO '} {name:<{width}}  {detail}")
+    if busy := host.load_warning():
+        print(f"warning: {busy}")
     return 0 if all(ok for _, ok, _ in rows) else 1
 
 

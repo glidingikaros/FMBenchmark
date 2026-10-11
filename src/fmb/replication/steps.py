@@ -73,8 +73,9 @@ def freeze(image: str, provider: str, lock: str, recipe: str, image_file: str | 
 
         own = image_files.load(Path(image_file))
         facts = host.guest_facts(provider) or {}
-        config = recipes.image_config(own.seed, own.contract, provider, settings=own.settings,
-                                      guest_bias=recipes.guest_clock_bias(facts.get("finished_utc")))
+        # The QEMU backend sets the hardware clock for the base's saved bias, so there Windows reads it as 480.
+        guest_bias = recipes.guest_clock_bias(None if provider == "qemu" else facts.get("finished_utc"))
+        config = recipes.image_config(own.seed, own.contract, provider, settings=own.settings, guest_bias=guest_bias)
         contract = own.contract
     pipeline = _pipeline(config, default_current_root() / "generated", population_contract=contract)
     try:

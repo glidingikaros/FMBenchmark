@@ -82,6 +82,24 @@ def guest_clock_bias(base_finished_utc=None):
     return -int(offset.total_seconds() // 60)
 
 
+def base_clock_lag_minutes(bias, provider, base_finished_utc=None):
+    """How far behind the base's last events a generation guest boots.
+
+    The events of both bases carry the true time: the QEMU base is built on a wall-clock hardware clock, and VMware
+    Tools sets the VMware box's clock to the host's each time the Tools start during its build. Windows reads the
+    hardware clock with the bias it saved when the base shut down, Pacific's offset on the day it was built. The
+    QEMU backend sets the hardware clock for that bias, so its guest lags by `bias - 480`, and at least
+    AUTO_CLOCK_LAG_MINUTES so that the first clock action only ever moves the clock forward. A VMware guest's
+    hardware clock starts at UTC minus `bias`, so it lags by `bias` minus the saved bias: 60 minutes more for a
+    box built in summer.
+    """
+    from fmb.generation.clock_protocol import GUEST_STANDARD_BIAS_MINUTES
+
+    if provider == 'qemu':
+        return max(bias - GUEST_STANDARD_BIAS_MINUTES, AUTO_CLOCK_LAG_MINUTES)
+    return bias - guest_clock_bias(base_finished_utc)
+
+
 def image_config(seed, contract, provider='vmware_desktop', windows_box=None, settings=None, guest_bias=None):
     from fmb.generation.clock_protocol import GUEST_STANDARD_BIAS_MINUTES
 

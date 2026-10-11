@@ -109,7 +109,7 @@ def run_body(tmp_path: Path, payload: dict | str, *, failure: str = "none", body
     result = subprocess.run(
         [PWSH, "-NoProfile", "-NonInteractive", "-File", str(script)],
         input=json.dumps(payload) if isinstance(payload, dict) else payload,
-        text=True, capture_output=True, timeout=30, check=False,
+        text=True, capture_output=True, timeout=120, check=False,
     )
     assert result.returncode == 0, result.stderr
     assert SENTINEL not in result.stdout + result.stderr

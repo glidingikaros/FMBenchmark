@@ -10,6 +10,8 @@ from fmb.core.hashing import sha256_file
 from fmb.core.sealed_records import read_json, contained_path
 
 _MODIFIED_PERMITTED = False
+_DIGESTS: dict[Path, tuple[tuple, str]] = {}
+_RACY_NS = 2_000_000_000
 
 
 def permit_modified_sources() -> None:
@@ -30,39 +32,69 @@ def source_files(roots=None):
     excluded = {"__pycache__", ".vagrant", "outputs", "private", ".fmb", ".git"}
 
     def visit(start):
+        # os.scandir reports symlinks from the directory listing, without one more system
+        # call per entry, which is most of an inventory's cost on Windows.
         count = 0
-        for directory, directories, names in os.walk(start, followlinks=False):
-            directory = Path(directory)
+        pending = [(start, ())]
+        while pending:
+            directory, relative = pending.pop()
             if (
-                len(directory.relative_to(start).parts) > 20
+                len(relative) > 20
                 or time.monotonic() > deadline
             ):
                 raise ValueError(
                     "paper source inventory exceeded its depth/time budget"
                 )
-            for name in directories + names:
-                if (directory / name).is_symlink():
-                    raise ValueError("symlinked implementation asset")
-            directories[:] = [name for name in directories if name not in excluded]
-            for name in sorted(names):
+            try:
+                with os.scandir(directory) as listing:
+                    entries = sorted(listing, key=lambda entry: entry.name)
+            except OSError:
+                continue
+            if any(entry.is_symlink() for entry in entries):
+                raise ValueError("symlinked implementation asset")
+            directories = [entry for entry in entries if entry.is_dir() and entry.name not in excluded]
+            for entry in entries:
+                if entry.is_dir():
+                    continue
                 count += 1
                 if count > 10000:
                     raise ValueError("paper source inventory exceeded its file budget")
-                yield directory / name
+                yield relative + (entry.name,), Path(entry.path)
+            pending.extend((entry.path, relative + (entry.name,)) for entry in reversed(directories))
 
     package = roots["package"]
-    for path in visit(package):
-        if path.name == "paper-source-manifest.json":
+    for parts, path in visit(package):
+        if parts[-1] == "paper-source-manifest.json":
             continue
-        if not path.is_relative_to(package / "fixtures") and path.suffix not in {".pyc", ".pyo"}:
-            files["package/" + path.relative_to(package).as_posix()] = path
+        if parts[0] != "fixtures" and path.suffix not in {".pyc", ".pyo"}:
+            files["package/" + "/".join(parts)] = path
     return dict(sorted(files.items()))
+
+
+def _identity(path: Path) -> tuple:
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
+def source_sha256(path: Path) -> str:
+    # A digest is reused only while the file keeps its identity, size and timestamps. A file
+    # changed within two seconds of being hashed is never remembered, so a rewrite that lands
+    # in the same timestamp tick cannot reuse a stale digest.
+    identity = _identity(path)
+    cached = _DIGESTS.get(path)
+    if cached is not None and cached[0] == identity:
+        return cached[1]
+    hashed_at = time.time_ns()
+    digest = sha256_file(path)
+    if hashed_at - identity[3] > _RACY_NS and _identity(path) == identity:
+        _DIGESTS[path] = (identity, digest)
+    return digest
 
 
 def current_record(roots=None) -> dict:
     roots = roots or source_roots()
     sealed = read_json(roots["package"] / "paper-source-manifest.json")
-    return {**sealed, "files": {name: sha256_file(path) for name, path in source_files(roots).items()}}
+    return {**sealed, "files": {name: source_sha256(path) for name, path in source_files(roots).items()}}
 
 
 def record_bytes(record: dict) -> bytes:
@@ -90,7 +122,7 @@ def verify_sources(manifest_path: Path | None = None, *, roots=None) -> dict:
     for name, digest in record["files"].items():
         prefix, relative = name.split("/", 1)
         path = contained_path(roots[prefix], relative)
-        if path != actual[name] or sha256_file(path) != digest:
+        if path != actual[name] or source_sha256(path) != digest:
             raise ValueError("paper implementation changed: " + name)
     if roots == source_roots():
         import fmb.core.case_contract as contract
@@ -118,7 +150,7 @@ def snapshot_sources(output: Path) -> dict:
         target = output / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(path.read_bytes())
-        records[name] = sha256_file(path)
+        records[name] = source_sha256(path)
     return records
 
 

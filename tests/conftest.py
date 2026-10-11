@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import zlib
 
 import pytest
 
@@ -140,7 +141,25 @@ PWSH_TEST_MODULES = frozenset({
 })
 
 
-def pytest_collection_modifyitems(items):
+def pytest_addoption(parser):
+    parser.addoption("--shard", metavar="INDEX/COUNT",
+                     help="run only slice INDEX (from 1) of COUNT disjoint slices of the collected tests")
+
+
+def shard_of(nodeid: str, count: int) -> int:
+    return zlib.crc32(nodeid.encode("utf-8")) % count + 1
+
+
+def pytest_collection_modifyitems(config, items):
     for item in items:
         if item.path.name in PWSH_TEST_MODULES:
             item.add_marker(pytest.mark.pwsh)
+    if shard := config.getoption("--shard"):
+        index, _, count = shard.partition("/")
+        if not (index.isdigit() and count.isdigit() and 1 <= int(index) <= int(count)):
+            raise pytest.UsageError(f"--shard expects INDEX/COUNT with 1 <= INDEX <= COUNT, not {shard!r}")
+        kept, deselected = [], []
+        for item in items:
+            (kept if shard_of(item.nodeid, int(count)) == int(index) else deselected).append(item)
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = kept

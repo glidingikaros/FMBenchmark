@@ -555,13 +555,23 @@ def main() -> int:
 
     if iso == work / "win.iso":
         iso.unlink()
-    verify(qemu, accelerator, cpu, work)
+    # The verify boot writes only to its own overlay, so the compression reads win.qcow2 alongside it.
     started = time.monotonic()
-    subprocess.run([qemu_tool(qemu, "qemu-img"), "convert", "-c", "-O", "qcow2", "-o", "compression_type=zstd",
-                    "win.qcow2", "base.qcow2"], cwd=work, check=True)
+    compress = subprocess.Popen([qemu_tool(qemu, "qemu-img"), "convert", "-c", "-O", "qcow2", "-o",
+                                 "compression_type=zstd", "win.qcow2", "base.qcow2"], cwd=work)
+    try:
+        verify(qemu, accelerator, cpu, work)
+    except BaseException:
+        compress.kill()
+        compress.wait()
+        (work / "base.qcow2").unlink(missing_ok=True)
+        raise
+    if compress.wait() != 0:
+        raise subprocess.CalledProcessError(compress.returncode, compress.args)
     (work / "win.qcow2").unlink()
     shutil.copyfile(work / "vars.fd", work / "base-vars.fd")
-    log(f"base: {(work / 'base.qcow2').stat().st_size / 2**30:.1f} GiB compressed in {time.monotonic() - started:.0f}s")
+    log(f"base: {(work / 'base.qcow2').stat().st_size / 2**30:.1f} GiB compressed and verified in "
+        f"{time.monotonic() - started:.0f}s")
     return 0
 
 
