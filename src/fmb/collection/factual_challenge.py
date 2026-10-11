@@ -242,7 +242,9 @@ def add_factual_population(index: dict, *, evidence: Path, public: dict, output_
     prepared.pop("population_manifest", None)
     prepared["candidate_populations"] = _populations(prepared, base_populations, public)
     write_json(output_dir / "pre-reference-index.json", prepared)
-    prepared = add_reference_scoped_usn(prepared, output_dir=output_dir, include_timestamp_fragments=True)
+    # The index is validated once, with its final populations, before it is written below.
+    prepared = add_reference_scoped_usn(prepared, output_dir=output_dir, include_timestamp_fragments=True,
+                                        defer_validation=True)
     prepared = add_reference_scoped_ads(prepared, output_dir=output_dir, defer_population_binding=True)
     prepared["candidate_populations"] = _populations(prepared, base_populations, public)
     from fmb.core.schemas import validate_payload

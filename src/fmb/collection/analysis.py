@@ -112,6 +112,7 @@ def add_reference_scoped_usn(
     *,
     output_dir: Path,
     include_timestamp_fragments: bool = False,
+    defer_validation: bool = False,
 ) -> dict[str, Any]:
 
     # This replaces the parser run list and shares every run and population it keeps with its
@@ -210,7 +211,8 @@ def add_reference_scoped_usn(
                 )
             )
     prepared["parser_runs"] = parser_runs
-    validate_payload(prepared, "evidence_index.schema.json")
+    if not defer_validation:
+        validate_payload(prepared, "evidence_index.schema.json")
     return prepared
 
 

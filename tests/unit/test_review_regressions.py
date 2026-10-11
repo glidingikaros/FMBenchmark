@@ -396,10 +396,12 @@ def test_reference_preparation_leaves_its_index_as_it_was(tmp_path: Path, monkey
     before = json.dumps(index)
 
     result = add_reference_scoped_usn(index, output_dir=tmp_path / "out")
+    deferred = add_reference_scoped_usn(index, output_dir=tmp_path / "out", defer_validation=True)
 
     assert json.dumps(index) == before
     assert result["parser_runs"][0] is retained and len(result["parser_runs"]) == 2
     assert result["candidate_populations"] is index["candidate_populations"]
+    assert deferred == result
     assert validated == ["evidence_index.schema.json"]
 
 
