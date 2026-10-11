@@ -233,7 +233,7 @@
     "package/index/scanners/usn.py": "4f2e6411fb3d3a4ffaabd42c8a72330c60fe9f46c62b7c9644d97fb7fb3191d3",
     "package/index/scanners/zip_content.py": "f7f0f6dd90daebbcf54097b2c1366306a5cb064dd878e121ad0ccde6d3ad334e",
     "package/index/support/usb_devices.py": "52b12296b8a05f5758ec063ac63c6e5e598977853d47bf7b3eaf6862e014924a",
-    "package/index/support/windows_artifacts.py": "f9aca12996e9c7cee568886926a802d6cfbb6ddd04c9a54e74d9bd8bf61271f0",
+    "package/index/support/windows_artifacts.py": "328bdab079ec8b9233bf2ef8d5235442f04addc17420890e611391cd51040fec",
     "package/index/support/windows_identity.py": "3658f882918b531179e435de86472479cc29ddb74e94a5627a2949fcdd9cf58e",
     "package/interpretation/context_fit.py": "b3679cceb0d896c8f33e50552b7854898da040575710289abbbced812fa36a5c",
     "package/interpretation/model_catalog.py": "bd731821231c5e9077e0a491eaf7d06282280c279974e7efdb602d8383ed5320",

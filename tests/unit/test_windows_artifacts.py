@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import itertools
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -141,3 +143,30 @@ def test_max_timestamp_gap_floors_after_taking_absolute_duration() -> None:
     ]
 
     assert windows_artifacts.max_timestamp_mismatch_gap_days(mismatches) == 364
+
+
+def _strptime_reference(text: str):
+    # The parse before it built the moment itself: strptime on the matched date and time.
+    match = windows_artifacts._TIMESTAMP_RE.fullmatch(text)
+    if match is None:
+        return None
+    try:
+        moment = datetime.strptime(f"{match.group('date')} {match.group('time')}", "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return moment
+
+
+@pytest.mark.parametrize("year", ["0000", "0001", "0099", "1600", "1900", "2000", "2023", "2024", "9999"])
+def test_timestamp_fields_are_checked_as_strptime_checks_them(year):
+    stamps = [f"{year}-{month:02d}-{day:02d} 12:34:56" for month, day in itertools.product(range(15), range(33))]
+    stamps += [f"{year}-02-28 {hour:02d}:{minute:02d}:{second:02d}.5Z"
+               for hour, minute, second in itertools.product((0, 23, 24, 99), (0, 59, 60), (0, 59, 60, 61, 99))]
+    stamps += [f"{year}-\u0661\u0662-01 00:00:00", f"{year}-01-01 \uff10\uff11:00:00", f"{year}-0\u0661-01 00:00:00"]
+    for stamp in stamps:
+        parsed, moment = windows_artifacts.parse_csv_timestamp(stamp), _strptime_reference(stamp)
+        assert (parsed is None) == (moment is None), stamp
+        if moment is not None and stamp.endswith("Z"):
+            ticks = ((moment.toordinal() * 86_400 + moment.hour * 3_600 + moment.minute * 60 + moment.second)
+                     * 10_000_000 + 5_000_000)
+            assert (parsed.ticks_100ns, parsed.basis, parsed.year) == (ticks, "utc", moment.year)

@@ -158,6 +158,17 @@ class ForensicTimestamp:
     year: int
 
 
+def _timestamp_moment(date: str, time: str) -> datetime:
+    if date.isascii() and time.isascii():
+        # The fields and range checks of strptime's "%Y-%m-%d %H:%M:%S" on ASCII digits,
+        # without its per-call format and locale work; strptime reads other digits itself.
+        return datetime(
+            int(date[:4]), int(date[5:7]), int(date[8:]),
+            int(time[:2]), int(time[3:5]), int(time[6:]),
+        )
+    return datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M:%S")
+
+
 def parse_csv_timestamp(value: str | None) -> ForensicTimestamp | None:
     if not isinstance(value, str):
         return None
@@ -165,10 +176,7 @@ def parse_csv_timestamp(value: str | None) -> ForensicTimestamp | None:
     if match is None:
         return None
     try:
-        moment = datetime.strptime(
-            f"{match.group('date')} {match.group('time')}",
-            "%Y-%m-%d %H:%M:%S",
-        )
+        moment = _timestamp_moment(match.group("date"), match.group("time"))
     except ValueError:
         return None
     fraction = match.group("fraction") or ""
