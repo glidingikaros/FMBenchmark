@@ -37,7 +37,7 @@ Without `NAME`, `fmb generate` and `fmb run` show the choices and ask.
 To replicate the paper, generate and run I1, I2 and I3. An image replicates when its admission passes. For
 admission, S3 must be exact on all the questions of the image (nine for the images of the paper).
 
-The first image after a base build waits until approximately 12 min after the build. The guest clock must be after the
+The first image after a base build waits until approximately 5 min after the build. The guest clock must be after the
 last event of the base build.
 
 If you stop `fmb generate` (Ctrl-C, closing the terminal or `kill`), it removes its virtual machine first. If a
