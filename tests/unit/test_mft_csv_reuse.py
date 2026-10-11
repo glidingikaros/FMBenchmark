@@ -13,12 +13,13 @@ from fmb.index.adapters.volume_binding import bind_native_volume
 from fmb.index.support.windows_artifacts import (
     FoldedRow,
     folded_row,
+    parse_explicit_bool,
     row_first,
     row_value,
     stream_csv_rows,
     stream_folded_csv_rows,
 )
-from fmb.index.support.windows_identity import ntfs_reference_from_row
+from fmb.index.support.windows_identity import ntfs_reference_from_row, windows_compare_path_parts
 
 HEADER = "EntryNumber,SequenceNumber,InUse,ParentPath,FileName,IsDirectory\n"
 ROWS = (
@@ -152,18 +153,57 @@ def test_comparison_pool_rows_are_read_once_per_csv_content(tmp_path, monkeypatc
     csv_path = mft_adapters.mftecmd_mft_context_csv_files(root)[0]
     scans = counted_scans(monkeypatch, mft_comparison)
 
-    first = mft_comparison._identified_mft_rows(csv_path, "digest-1")
-    again = mft_comparison._identified_mft_rows(csv_path, "digest-1")
-    other = mft_comparison._identified_mft_rows(csv_path, "digest-2")
+    first = mft_comparison.identified_mft_rows(csv_path, "digest-1")
+    again = mft_comparison.identified_mft_rows(csv_path, "digest-1")
+    other = mft_comparison.identified_mft_rows(csv_path, "digest-2")
 
     assert len(scans) == 2
     assert first is again and first == other
-    assert first == (
+    assert first == (4, (
         (1, 5, 5, True, ".\\.", "."),
         (2, 41, 3, True, ".\\Users\\alice\\report.txt", "users\\alice\\report.txt"),
         (3, 42, 7, False, ".\\Users\\alice\\gone.txt", "users\\alice\\gone.txt"),
         (4, 43, 2, True, ".\\Users\\alice", "users\\alice"),
-    )
+    ))
+
+
+def _listing_scan_reference(csv_path: Path, prefixes: set) -> dict:
+    # The listing scan before it shared the comparison pools' rows: its own read of the CSV.
+    rows, scanned, skipped = [], 0, 0
+    for number, row in enumerate(stream_csv_rows(csv_path), 1):
+        scanned += 1
+        identity = ntfs_reference_from_row(row, entry_keys=("EntryNumber", "Entry Number"),
+                                           sequence_keys=("SequenceNumber", "Sequence Number"))
+        state = parse_explicit_bool(row_value(row, "InUse", "In Use"))
+        if identity is None or state is None:
+            skipped += 1
+            continue
+        path = mft_row_full_path(row)
+        under = sorted(p for p in prefixes if windows_compare_path_parts(path)[1].startswith(p))
+        if under:
+            rows.append({"entry": identity[0], "sequence": identity[1], "in_use": state, "path": path,
+                         "row": number, "under": under})
+    return {"scanned_rows": scanned, "rows_without_identity_or_state": skipped, "rows": rows}
+
+
+def test_listing_scan_reads_the_pool_rows_as_its_own_read_found_them(tmp_path, monkeypatch):
+    from fmb.core.hashing import sha256_file
+    from fmb.preparation.cards import scan_listing
+
+    rows = ROWS + "44,,True,.\\Users\\bob,x.txt,False\n45,1,maybe,.\\Users\\bob,y.txt,False\n,,,,,\n" \
+        "46,1,yes,C:\\Users\\bob,z.txt,False\n47,2,False,,,False\n"
+    csv_path = mft_adapters.mftecmd_mft_context_csv_files(mft_root(tmp_path, rows=rows))[0]
+    prefixes = {"users\\", "users\\alice\\", "users\\bob\\", "windows\\"}
+    digest = sha256_file(csv_path)
+    scans = counted_scans(monkeypatch, mft_comparison)
+
+    pool_rows = mft_comparison.identified_mft_rows(csv_path, digest)
+    scan = scan_listing(csv_path, prefixes, {digest})
+
+    assert len(scans) == 1 and pool_rows[0] == 9
+    expected = _listing_scan_reference(csv_path, prefixes)
+    assert {key: scan[key] for key in expected} == expected
+    assert scan["csv_sha256"] == digest and expected["rows_without_identity_or_state"] == 3
 
 
 def test_folded_rows_answer_every_row_helper_as_the_raw_row_does(tmp_path):

@@ -94,27 +94,33 @@ def validate_pool(pool: dict) -> None:
             raise ValueError("invalid native MFT row")
 
 
+IdentifiedMftRow = tuple[int, int, int, bool, str, str]
+
 # The rows of the last MFT CSV read for a pool, keyed on its SHA-256: preparation builds one pool
-# per absence question from the same CSV, and each pool needs the same per-row values.
-_IDENTIFIED_MFT_ROWS: dict[str, tuple[tuple[int, int, int, bool, str, str], ...]] = {}
+# per absence question from the same CSV, and the listing scan of the presentation reads it again;
+# each needs the same per-row values.
+_IDENTIFIED_MFT_ROWS: dict[str, tuple[int, tuple[IdentifiedMftRow, ...]]] = {}
 
 
-def _identified_mft_rows(csv_path: Path, digest: str) -> tuple[tuple[int, int, int, bool, str, str], ...]:
-    rows = _IDENTIFIED_MFT_ROWS.get(digest)
-    if rows is None:
+def identified_mft_rows(csv_path: Path, digest: str) -> tuple[int, tuple[IdentifiedMftRow, ...]]:
+    """The CSV's row count, and the row number, entry, sequence, in-use state, full path and
+    compare path of each row with an NTFS reference and an in-use state, in row order."""
+    scanned = _IDENTIFIED_MFT_ROWS.get(digest)
+    if scanned is None:
         found = []
-        for number, row in enumerate(stream_folded_csv_rows(csv_path), 1):
+        count = 0
+        for count, row in enumerate(stream_folded_csv_rows(csv_path), 1):
             identity = ntfs_reference_from_row(row, entry_keys=("EntryNumber", "Entry Number"), sequence_keys=("SequenceNumber", "Sequence Number"))
             path = mft_row_full_path(row)
             normalized = windows_compare_path_parts(path)[1]
             state = parse_explicit_bool(row_value(row, "InUse", "In Use"))
             if identity is None or state is None:
                 continue
-            found.append((number, identity[0], identity[1], state, path, normalized))
-        rows = tuple(found)
+            found.append((count, identity[0], identity[1], state, path, normalized))
+        scanned = (count, tuple(found))
         _IDENTIFIED_MFT_ROWS.clear()
-        _IDENTIFIED_MFT_ROWS[digest] = rows
-    return rows
+        _IDENTIFIED_MFT_ROWS[digest] = scanned
+    return scanned
 
 
 def build_comparison_pool(*, csv_path: Path, kape_root: Path, cards: list[dict],
@@ -154,7 +160,7 @@ def build_comparison_pool(*, csv_path: Path, kape_root: Path, cards: list[dict],
     # bucket is among them.
     buckets = {first for first, _last in intervals}
     scoped_prefixes = tuple(prefixes)
-    for number, entry, sequence, state, path, normalized in _identified_mft_rows(csv_path, digest):
+    for number, entry, sequence, state, path, normalized in identified_mft_rows(csv_path, digest)[1]:
         if entry // _ENTRY_BUCKET_SIZE * _ENTRY_BUCKET_SIZE in buckets or normalized.startswith(scoped_prefixes):
             rows.append({"entry": entry, "sequence": sequence, "in_use": state, "path": path,
                          "source_record_ref": f"source:{digest[:16]}:row={number}"})
