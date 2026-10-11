@@ -218,36 +218,23 @@ def listing_prefixes(cases: dict) -> tuple[set, set]:
 
 
 def scan_listing(csv: Path, prefixes: set, digests: set) -> dict:
-    from fmb.index.adapters.mft import mft_row_full_path
-    from fmb.index.support.windows_identity import ntfs_reference_from_row, windows_compare_path_parts
-    from fmb.index.support.windows_artifacts import parse_explicit_bool
-    from fmb.index.support.windows_artifacts import row_value, stream_csv_rows
+    from fmb.analysis.mft_comparison import identified_mft_rows
 
     digest = sha256_file(csv)
     if digests != {digest}:
         raise ValueError(
             "the listing on disk is not the source of the comparison pools"
         )
-    rows, scanned, skipped = [], 0, 0
-    for number, row in enumerate(stream_csv_rows(csv), 1):
-        scanned += 1
-        identity = ntfs_reference_from_row(
-            row,
-            entry_keys=("EntryNumber", "Entry Number"),
-            sequence_keys=("SequenceNumber", "Sequence Number"),
-        )
-        state = parse_explicit_bool(row_value(row, "InUse", "In Use"))
-        if identity is None or state is None:
-            skipped += 1
-            continue
-        path = mft_row_full_path(row)
-        normalized = windows_compare_path_parts(path)[1]
+    # The comparison pools read the same rows of this CSV, by the same SHA-256.
+    scanned, identified = identified_mft_rows(csv, digest)
+    rows = []
+    for number, entry, sequence, state, path, normalized in identified:
         under = sorted(p for p in prefixes if normalized.startswith(p))
         if under:
             rows.append(
                 {
-                    "entry": identity[0],
-                    "sequence": identity[1],
+                    "entry": entry,
+                    "sequence": sequence,
                     "in_use": state,
                     "path": path,
                     "row": number,
@@ -257,7 +244,7 @@ def scan_listing(csv: Path, prefixes: set, digests: set) -> dict:
     return {
         "csv_sha256": digest,
         "scanned_rows": scanned,
-        "rows_without_identity_or_state": skipped,
+        "rows_without_identity_or_state": scanned - len(identified),
         "prefixes": sorted(prefixes),
         "rows": rows,
     }

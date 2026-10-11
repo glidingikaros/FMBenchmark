@@ -290,3 +290,194 @@ def test_work_volume_capacity_preserves_existing_runtime_reserve(tmp_path, monke
     assert report["required_free_bytes"] == (8 if apfs_clone else 34) * 1024**3
     assert report["working_vmx"] == str(work / ".vmrun-appliance" / "box.vmx")
     assert source.read_text() == "protected source"
+
+
+def _early_vm(parser_case, work_root=None):
+    args = Namespace(vm_work_root=work_root, run_id="analysis", collection_provider="vmware_desktop",
+                     windows_box="fmb/windows-11-arm64")
+    return appliance.ParserVM(args=args, stage_dir=parser_case.stage)
+
+
+def test_an_early_booted_vm_is_used_then_powered_off(parser_case, monkeypatch):
+    stops = []
+    original = vmware.cleanup_disposable_appliance_vm
+    monkeypatch.setattr(vmware, "cleanup_disposable_appliance_vm",
+                        lambda **kwargs: stops.append(kwargs["graceful"]) or original(**kwargs))
+    vm = _early_vm(parser_case, parser_case.work_root).start()
+    result = appliance.run_parser_appliance(
+        processors=[object()],
+        args=Namespace(vm_work_root=parser_case.work_root, run_id="analysis",
+                       windows_parsers="windows-parsers", collection_provider="vmware_desktop",
+                       windows_box="fmb/windows-11-arm64"),
+        stage_dir=parser_case.stage, targets_root=parser_case.stage / "targets",
+        modules_root=parser_case.stage / "modules", tool_logs=parser_case.stage / "logs", vm=vm,
+    )
+    assert [row["phase"] for row in result["phase_timings"]] == [
+        "clone_appliance", "start_appliance", "build_input_package", "await_appliance", "stage_inputs",
+        "run_guest_parsers", "collect_outputs", "stop_and_cleanup", "merge_outputs"]
+    assert stops == [False] and result["vm_cleanup"]["removed"] is True
+    assert len(parser_case.calls) == 1 and list(parser_case.work_root.iterdir()) == []
+
+
+def test_a_failed_early_boot_surfaces_and_removes_the_worker(parser_case, monkeypatch):
+    primary = RuntimeError("worker did not boot")
+
+    def fail(**kwargs):
+        raise primary
+
+    monkeypatch.setattr(vmware, "vmrun_start_and_wait", fail)
+    vm = _early_vm(parser_case, parser_case.work_root).start()
+    with pytest.raises(RuntimeError) as error:
+        appliance.run_parser_appliance(
+            processors=[object()],
+            args=Namespace(vm_work_root=parser_case.work_root, run_id="analysis",
+                           windows_parsers="windows-parsers", collection_provider="vmware_desktop",
+                           windows_box="fmb/windows-11-arm64"),
+            stage_dir=parser_case.stage, targets_root=parser_case.stage / "targets",
+            modules_root=parser_case.stage / "modules", tool_logs=parser_case.stage / "logs", vm=vm,
+        )
+    assert error.value is primary
+    assert list(parser_case.work_root.iterdir()) == []
+
+
+def test_a_vm_no_longer_needed_is_not_started_and_is_removed(parser_case, monkeypatch):
+    import threading
+
+    cloning, release, started = threading.Event(), threading.Event(), []
+
+    def slow_clone(**kwargs):
+        cloning.set()
+        release.wait(10)
+        return parser_case.clone(**kwargs)
+
+    monkeypatch.setattr(vmware, "clone_vagrant_box_for_vmrun", slow_clone)
+    monkeypatch.setattr(vmware, "vmrun_start_and_wait", lambda **kwargs: started.append(kwargs))
+    vm = _early_vm(parser_case, parser_case.work_root).start()
+    assert cloning.wait(10)
+    failure = RuntimeError("host collection failed")
+    threading.Timer(0.2, release.set).start()
+    vm.discard(failure)
+    assert started == [] and not getattr(failure, "__notes__", [])
+    assert list(parser_case.work_root.iterdir()) == []
+    vm.discard(failure)
+
+
+def test_the_boot_thread_keeps_the_run_read_audit(parser_case, monkeypatch, tmp_path):
+    from fmb.pipeline import reads
+
+    marker = tmp_path / "box-file.vmdk"
+    marker.write_bytes(b"box")
+
+    def reading_clone(**kwargs):
+        marker.read_bytes()
+        return parser_case.clone(**kwargs)
+
+    monkeypatch.setattr(vmware, "clone_vagrant_box_for_vmrun", reading_clone)
+    with reads.measured() as opened:
+        vm = _early_vm(parser_case).start()
+        vm.wait()
+        vm.close(graceful=False)
+    assert str(marker) in opened
+
+
+def test_winrm_counts_as_listening_only_when_it_answers_http():
+    import socket
+    import threading
+
+    from fmb.generation.backends import winrm_listening
+
+    def serve(reply: bytes):
+        server = socket.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+
+        def answer():
+            connection, _ = server.accept()
+            with connection:
+                connection.recv(1024)
+                if reply:
+                    connection.sendall(reply)
+
+        threading.Thread(target=answer, daemon=True).start()
+        return server
+
+    with serve(b"HTTP/1.1 401 \r\nContent-Length: 0\r\n\r\n") as server:
+        assert winrm_listening(server.getsockname()[1]) is True
+    with serve(b"") as server:
+        assert winrm_listening(server.getsockname()[1]) is False
+    with socket.socket() as unused:
+        unused.bind(("127.0.0.1", 0))
+        port = unused.getsockname()[1]
+    assert winrm_listening(port) is False
+
+
+@pytest.mark.parametrize("provider,modules,parsers,boots", [
+    ("vmware_desktop", ["PECmd"], "windows-parsers", True),
+    ("qemu", ["PECmd"], "windows-parsers", True),
+    ("native_windows", ["SBECmd"], "windows-parsers", False),
+    ("vmware_desktop", [], "windows-parsers", False),
+    ("vmware_desktop", ["PECmd"], None, False),
+])
+def test_the_parser_vm_boots_early_only_when_it_will_be_used(tmp_path, monkeypatch, provider, modules, parsers, boots):
+    from fmb.collection.tools.host import backend
+
+    started = []
+    monkeypatch.setattr(appliance.ParserVM, "start", lambda self: started.append(self.provider) or self)
+    args = Namespace(collection_provider=provider, windows_box="fmb/windows-11-arm64", windows_parsers=parsers)
+    vm = backend._start_parser_vm(args, tmp_path, modules, progress=lambda line: None)
+    assert (vm is not None) is boots and started == ([provider] if boots else [])
+
+
+def test_an_early_booted_qemu_vm_runs_the_parsers_then_is_killed(tmp_path, monkeypatch):
+    from fmb.generation import backends
+
+    stage = tmp_path / "analysis"
+    (stage / "modules").mkdir(parents=True)
+    (stage / "logs").mkdir()
+    killed, modules = [], []
+
+    class Process:
+        def poll(self):
+            return None if not killed else -9
+
+        def kill(self):
+            killed.append(True)
+
+        def wait(self, timeout=None):
+            return -9
+
+    def adhoc(ansible, port, module, args, *, timeout):
+        modules.append(module)
+        if module == "ansible.builtin.fetch":
+            Path(args["dest"]).write_bytes(b"returned test outputs")
+        return subprocess.CompletedProcess([], 0, "ok", "")
+
+    monkeypatch.setattr(backends.QemuBackend, "discover_tools", staticmethod(
+        lambda: {"qemu-system": "qemu-system-x86_64", "qemu-img": "qemu-img", "ansible": "ansible"}))
+    monkeypatch.setattr(backends.QemuBackend, "base_location", staticmethod(lambda box, version: {}))
+    monkeypatch.setattr(backends.QemuBackend, "base_directory", staticmethod(lambda location: tmp_path / "base"))
+    monkeypatch.setattr(backends, "prepare_overlay", lambda *args: None)
+    monkeypatch.setattr(backends, "qemu_guest_command", lambda *args, **kwargs: ["qemu-system-x86_64"])
+    monkeypatch.setattr(backends, "ansible_adhoc", adhoc)
+    monkeypatch.setattr(appliance.subprocess, "Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr(backends, "winrm_listening", lambda port: True)
+    monkeypatch.setattr(appliance, "build_input_package", lambda *, package_path, **kwargs: (
+        package_path.write_bytes(b"inputs"), {"package": str(package_path), "input_file_count": 1})[1])
+    monkeypatch.setattr(appliance, "_merge_outputs", lambda **kwargs: {"status": "completed"})
+    args = Namespace(vm_work_root=None, run_id="analysis", windows_parsers="windows-parsers",
+                     collection_provider="qemu", windows_box="fmb/windows-11-x64")
+    vm = appliance.ParserVM(args=args, stage_dir=stage).start()
+    vm.wait()
+    state = Path(vm.state.name)
+    assert state.is_dir()
+    record = appliance.run_parser_appliance(
+        processors=[object()], args=args, stage_dir=stage, targets_root=stage / "targets",
+        modules_root=stage / "modules", tool_logs=stage / "logs", vm=vm,
+    )
+    assert modules == ["ansible.windows.win_ping", "ansible.windows.win_file", "ansible.windows.win_copy",
+                       "ansible.windows.win_copy", "ansible.windows.win_command", "ansible.builtin.fetch"]
+    assert killed == [True] and not state.exists()
+    assert [row["phase"] for row in record["phase_timings"]] == [
+        "start_appliance", "build_input_package", "await_appliance", "run_qemu_parsers", "stop_and_cleanup",
+        "merge_outputs"]
+    assert record["vm_cleanup"]["removed"] is True and record["guest_root"] == appliance.GUEST_ROOT

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -22,7 +21,7 @@ from fmb.index.support.windows_identity import (
 from fmb.index.adapters.stream_content import named_stream_content_parser_run
 from fmb.index.adapters.usb_volume import usb_volume_parser_run
 from fmb.index.adapters.volume_binding import bind_native_volume
-from fmb.index.support.windows_artifacts import stream_csv_rows
+from fmb.index.support.windows_artifacts import stream_folded_csv_rows
 
 
 def add_native_population_surfaces(index: Mapping[str, Any], *, manifest: Mapping[str, Any],
@@ -48,14 +47,17 @@ def add_native_population_surfaces(index: Mapping[str, Any], *, manifest: Mappin
                      scenario["technique_id"] == "usb_volume_activity_gap"
                      for scenario in manifest["scenarios"].values())
     collect_system = bool(wanted) or (system_volume if system_volume is not None else native_usb)
+    # No step that builds the evidence index changes a parser run or population in place: each
+    # replaces what it changes and shares the rest with its input, so this copies only the list
+    # of parser runs it edits.
     if not collect_system and not native_usb:
-        return deepcopy(dict(index))
+        return dict(index)
     collectors = index.get("collector_runs", [])
     if len(collectors) != 1:
         raise ValueError("native NTFS collection requires one KAPE source")
     collector = collectors[0]
-    prepared = deepcopy(dict(index))
-    runs = prepared["parser_runs"]
+    prepared = dict(index)
+    runs = prepared["parser_runs"] = list(prepared["parser_runs"])
     normalized = output_dir / "native-parser-normalized"
     normalized.mkdir(parents=True, exist_ok=True)
     if collect_system:
@@ -73,7 +75,7 @@ def add_native_population_surfaces(index: Mapping[str, Any], *, manifest: Mappin
             raise ValueError("native NTFS collection requires one complete MFT CSV")
         context = build_mft_presence_context(root)
         matches: dict[str, dict[tuple[int, int], dict[str, Any]]] = {path: {} for path in wanted}
-        for row in stream_csv_rows(csv_paths[0]):
+        for row in stream_folded_csv_rows(csv_paths[0]):
             path = normalize_windows_compare_path(mft_row_full_path(row))
             if path not in wanted or not mft_row_is_active(row):
                 continue

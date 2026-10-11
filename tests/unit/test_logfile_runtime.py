@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import venv
 from pathlib import Path
@@ -210,3 +211,144 @@ def test_legacy_console_lock_keeps_exact_byte_requirement(tmp_path: Path) -> Non
     console.write_text('#!/different/python\n')
     checked = LogFileToolchain.load(env_root=env_root, driver_path=driver, lock_path=lock_path).verify()
     assert 'console_script_sha256_mismatch' in checked['problems']
+
+
+TIMED_DRIVER = '''import argparse, hashlib, json, os, random
+parser = argparse.ArgumentParser()
+parser.add_argument("--logfile"); parser.add_argument("--output"); parser.add_argument("--ops")
+parser.add_argument("--max-records", type=int); parser.add_argument("--usn-pages", action="store_true")
+args = parser.parse_args()
+data = open(args.logfile, "rb").read()
+duration = random.random()
+document = {
+    "schema_version": "fmb_logfile_records.v2",
+    "driver": {"name": "fake"},
+    "tool": {"name": "dfir_ntfs", "module_file": "/locked/LogFile.py"},
+    "logfile": {"path": os.path.abspath(args.logfile), "size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()},
+    "selection": {"operations": [name for name in args.ops.split(",") if name.strip()], "usn_pages": args.usn_pages,
+                  "max_records": args.max_records, "recover_log_data": True},
+    "parse": {"record_count": len(data), "parse_error_count": 0, "duration_seconds": duration},
+    "operation_counts": {}, "embedded_usn": {"record_count": 0}, "restart_areas": [], "lifecycle_records": [],
+    "records": [{"lsn": index, "byte": byte} for index, byte in enumerate(data)],
+}
+json.dump(document, open(args.output, "w"))
+print(json.dumps({"record_count": len(data), "duration_seconds": duration}))
+'''
+
+
+def timed_toolchain(tmp_path: Path) -> LogFileToolchain:
+    env_root, driver = fake_environment(tmp_path, driver_body=TIMED_DRIVER)
+    return LogFileToolchain.load(env_root=env_root, driver_path=driver, lock_path=write_lock(tmp_path, env_root, driver))
+
+
+def without_timing(document: dict) -> dict:
+    parse = {key: value for key, value in document["parse"].items() if key != "duration_seconds"}
+    runtime = {key: value for key, value in document["runtime"].items() if key != "stdout_excerpt"}
+    return {**document, "parse": parse, "runtime": runtime}
+
+
+def test_relocated_document_is_a_fresh_run_for_the_new_output_but_for_its_timing(tmp_path: Path) -> None:
+    toolchain = timed_toolchain(tmp_path)
+    logfile, copy = tmp_path / "kape" / "$LogFile", tmp_path / "copy" / "$LogFile"
+    for path in (logfile, copy):
+        path.parent.mkdir()
+        path.write_bytes(b"\x01\x02\x03")
+    first, second = tmp_path / "first" / "records.json", tmp_path / "second" / "records.json"
+
+    parsed = run_logfile_driver(logfile, output_path=first, toolchain=toolchain, timeout_seconds=60)
+    fresh = run_logfile_driver(copy, output_path=second, toolchain=toolchain, timeout_seconds=60)
+    relocated = logfile_runtime.relocated_logfile_document(
+        parsed, copy, output_path=second, toolchain=toolchain, timeout_seconds=60)
+
+    assert without_timing(relocated) == without_timing(fresh)
+    assert list(relocated) == list(fresh) and list(relocated["logfile"]) == list(fresh["logfile"])
+    assert relocated["parse"] == parsed["parse"]
+    assert relocated["runtime"]["stdout_excerpt"] == parsed["runtime"]["stdout_excerpt"]
+    assert str(second) in relocated["runtime"]["command_line"]
+    assert relocated["logfile"]["path"] == str(copy) and parsed["logfile"]["path"] == str(logfile)
+
+
+def test_relocation_refuses_another_logfile_selection_or_schema(tmp_path: Path) -> None:
+    toolchain = timed_toolchain(tmp_path)
+    logfile = tmp_path / "$LogFile"
+    logfile.write_bytes(b"\x01\x02\x03")
+    parsed = run_logfile_driver(logfile, output_path=tmp_path / "first.json", toolchain=toolchain, timeout_seconds=60)
+
+    def relocate(document: dict, **options: object) -> dict | None:
+        return logfile_runtime.relocated_logfile_document(
+            document, logfile, output_path=tmp_path / "second.json", toolchain=toolchain, timeout_seconds=60, **options)
+
+    assert relocate(parsed) is not None
+    assert relocate(parsed, operations=("UpdateResidentValue",)) is None
+    assert relocate(parsed, max_records=10) is None
+    assert relocate({**parsed, "schema_version": "fmb_logfile_records.v1"}) is None
+    logfile.write_bytes(b"\x01\x02\x04")
+    assert relocate(parsed) is None
+
+
+def test_adapter_parses_one_logfile_once_for_two_output_folders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from functools import partial
+
+    from fmb.index.adapters import logfile as logfile_adapters
+
+    toolchain = timed_toolchain(tmp_path)
+    runs: list[Path] = []
+
+    def counted_run(path: Path, *, output_path: Path, operations: tuple[str, ...]) -> dict:
+        runs.append(output_path)
+        return run_logfile_driver(path, output_path=output_path, operations=operations, toolchain=toolchain,
+                                  timeout_seconds=60)
+
+    monkeypatch.setattr(logfile_adapters, "run_logfile_driver", counted_run)
+    monkeypatch.setattr(logfile_adapters, "relocated_logfile_document", partial(
+        logfile_runtime.relocated_logfile_document, toolchain=toolchain, timeout_seconds=60))
+    monkeypatch.setattr(logfile_adapters, "_PARSED_LOGFILE_DOCUMENTS", {})
+    logfile = tmp_path / "kape" / "targets" / "C" / "$LogFile"
+    logfile.parent.mkdir(parents=True)
+    logfile.write_bytes(b"\x05\x06")
+
+    first = logfile_adapters._logfile_driver_document(logfile, normalized_output_dir=tmp_path / "normalized")
+    again = logfile_adapters._logfile_driver_document(logfile, normalized_output_dir=tmp_path / "normalized")
+    second = logfile_adapters._logfile_driver_document(logfile, normalized_output_dir=tmp_path / "supplement")
+    logfile.write_bytes(b"\x05\x07")
+    changed = logfile_adapters._logfile_driver_document(logfile, normalized_output_dir=tmp_path / "other")
+
+    assert len(runs) == 2 and runs[0].parent == tmp_path / "normalized" and runs[1].parent == tmp_path / "other"
+    assert again == first and second["parse"] == first["parse"] and second["records"] == first["records"]
+    assert str(tmp_path / "supplement") in second["runtime"]["command_line"]
+    written = sorted((tmp_path / "supplement").glob("*" + logfile_adapters.LOGFILE_DRIVER_DOCUMENT_SUFFIX))
+    assert [json.loads(path.read_text(encoding="utf-8")) for path in written] == [second]
+    assert changed["records"] != first["records"]
+
+
+def test_a_relocated_document_is_read_as_a_driver_run_reads_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from functools import partial
+
+    from fmb.index.adapters import logfile as logfile_adapters
+    from fmb.pipeline import reads
+
+    toolchain = timed_toolchain(tmp_path)
+    monkeypatch.setattr(logfile_adapters, "run_logfile_driver", partial(
+        run_logfile_driver, toolchain=toolchain, timeout_seconds=60))
+    relocate = partial(logfile_runtime.relocated_logfile_document, toolchain=toolchain, timeout_seconds=60)
+
+    root = tmp_path / "case"
+
+    def files_read(relocation) -> set[str]:
+        # A pipeline step records every file it reads, so a relocation must read what a run reads.
+        monkeypatch.setattr(logfile_adapters, "relocated_logfile_document", relocation)
+        monkeypatch.setattr(logfile_adapters, "_PARSED_LOGFILE_DOCUMENTS", {})
+        shutil.rmtree(root, ignore_errors=True)
+        logfile = root / "kape" / "$LogFile"
+        logfile.parent.mkdir(parents=True)
+        logfile.write_bytes(b"\x05\x06")
+        with reads.measured() as opened:
+            for folder in ("normalized", "supplement"):
+                logfile_adapters._logfile_driver_document(logfile, normalized_output_dir=root / folder)
+        return opened
+
+    parsed_twice = files_read(lambda *args, **options: None)
+    relocated = files_read(relocate)
+
+    assert relocated == parsed_twice
+    assert any(path.startswith(str(root / "supplement")) for path in relocated)

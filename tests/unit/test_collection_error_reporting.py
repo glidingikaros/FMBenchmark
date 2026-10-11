@@ -1,4 +1,5 @@
 from argparse import Namespace
+import os
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -102,13 +103,59 @@ def test_final_record_failure_after_success_is_still_failure(collection_boundary
     assert case.writes[1]["status"] == "completed"
 
 
-def test_image_that_changes_during_collection_is_refused(collection_boundary, monkeypatch):
+def test_image_that_changes_during_collection_is_refused(collection_boundary, monkeypatch, tmp_path):
     case = collection_boundary.setup("host")
-    digests = iter(["b" * 64, "c" * 64])
-    monkeypatch.setattr(paper_host, "sha256_file", lambda path: next(digests, "c" * 64))
+    hashed = []
+    monkeypatch.setattr(paper_host, "sha256_file", lambda path: hashed.append(path) or "b" * 64)
+
+    def collected(*args, **kwargs):
+        with (tmp_path / "evidence.vmdk").open("ab") as evidence:
+            evidence.write(b"appended during collection")
+        return {"test": True}
+
+    monkeypatch.setattr(paper_host, "run_host_collector_extraction", collected)
     with pytest.raises(FmbInputError, match="changed during collection"):
         case.invoke()
     assert case.writes[1]["status"] == "failed"
+    assert hashed == [tmp_path / "evidence.vmdk"]
+
+
+def test_image_rewritten_in_place_is_refused_where_metadata_can_be_restored(collection_boundary, monkeypatch,
+                                                                             tmp_path):
+    case = collection_boundary.setup("host")
+    evidence = tmp_path / "evidence.vmdk"
+    hashed = []
+    monkeypatch.setattr(paper_host, "REHASH_AFTER_COLLECTION", True)
+    monkeypatch.setattr(paper_host, "sha256_file",
+                        lambda path: hashed.append(path) or ("b" if len(hashed) == 1 else "c") * 64)
+    # What Windows reports: st_ctime is the creation time, so only the size and the restorable last-write time remain.
+    monkeypatch.setattr(paper_host, "file_identity", lambda path: (path.stat().st_size, path.stat().st_mtime_ns))
+
+    def collected(*args, **kwargs):
+        status = evidence.stat()
+        evidence.write_bytes(b"SMALL PUBLIC TEST EVIDENCE")
+        os.utime(evidence, ns=(status.st_atime_ns, status.st_mtime_ns))
+        return {"test": True}
+
+    monkeypatch.setattr(paper_host, "run_host_collector_extraction", collected)
+    with pytest.raises(FmbInputError, match="changed during collection"):
+        case.invoke()
+    assert case.writes[1]["status"] == "failed"
+    assert hashed == [evidence, evidence]
+
+
+@pytest.mark.parametrize("rehash", [False, True])
+def test_unchanged_image_is_hashed_again_only_where_metadata_can_be_restored(collection_boundary, monkeypatch,
+                                                                            tmp_path, rehash):
+    case = collection_boundary.setup("host")
+    hashed = []
+    monkeypatch.setattr(paper_host, "REHASH_AFTER_COLLECTION", rehash)
+    monkeypatch.setattr(paper_host, "sha256_file", lambda path: hashed.append(path) or "b" * 64)
+    with pytest.raises(OSError):
+        case.invoke()
+    assert case.writes[1]["status"] == "completed"
+    evidence_hashes = [path for path in hashed if path == tmp_path / "evidence.vmdk"]
+    assert len(evidence_hashes) == (2 if rehash else 1)
 
 
 def test_suppressed_private_read_is_not_masked_by_final_record_failure(collection_boundary):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from argparse import Namespace
 from pathlib import Path
+import os
 import time
 
 from fmb.collection.run.lock import acquire_evidence_image_run_lock
@@ -20,6 +21,23 @@ from fmb.core.errors import FmbInputError
 from fmb.core.hashing import sha256_file
 from fmb.core.paths import default_current_root
 from fmb.core.sealed_records import write_json, now
+
+
+# On Linux and macOS any write updates the change time, which programs cannot set, so a second full hash of a
+# multi-GB image is not needed to see that it changed during collection. On Windows st_ctime is the creation time
+# and a writer can restore the last-write time, so there only a second hash shows that the bytes are unchanged.
+REHASH_AFTER_COLLECTION = os.name == "nt"
+
+
+def file_identity(path: Path) -> tuple[int, ...]:
+    status = path.stat()
+    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns)
+
+
+def evidence_unchanged(path: Path, identity: tuple[int, ...], sha256: str) -> bool:
+    if file_identity(path) != identity:
+        return False
+    return not REHASH_AFTER_COLLECTION or sha256_file(path) == sha256
 
 
 def collection_args(
@@ -118,6 +136,7 @@ def collect_host(
                     "paper collection prerequisites are unavailable: "
                     + str(checks["host"]["missing"])
                 )
+            identity = file_identity(evidence)
             observed = sha256_file(evidence)
             if observed != expected_sha256:
                 raise FmbInputError(
@@ -136,7 +155,7 @@ def collect_host(
                 evidence_sha256=observed,
                 run_id=run_id,
             )
-            if sha256_file(evidence) != observed:
+            if not evidence_unchanged(evidence, identity, observed):
                 raise FmbInputError("evidence image changed during collection")
             inputs = dict(
                 request_path=stage / "tool_run_request.json",

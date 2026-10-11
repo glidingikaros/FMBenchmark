@@ -263,6 +263,7 @@ def run_host_collector_extraction(
     )
     command_line = f"target: {target_line}; module: {module_line}"
     started = _utc_now()
+    parser_vm = None
 
     def load_definitions() -> KapeDefinitions:
         definitions = KapeDefinitions(bundled_targets=BUNDLED_KAPE_TARGETS)
@@ -291,6 +292,7 @@ def run_host_collector_extraction(
         if unverified:
             raise HostCollectorError(f"host toolchain differs from its lock: {unverified}")
         windows_only_modules = _windows_only_modules(processors, toolchain)
+        parser_vm = _start_parser_vm(args, stage_dir, windows_only_modules, progress=log)
         extra_args = parser_appliance_request_args(PARSER_APPLIANCE_RUN, windows_only_modules)
         request = build_tool_run_request(
             question_id=question_id,
@@ -341,7 +343,7 @@ def run_host_collector_extraction(
             lambda: _run_windows_only_processors(
                 processors, module_runs, mode=PARSER_APPLIANCE_RUN, args=args, stage_dir=stage_dir,
                 targets_root=targets_root, modules_root=modules_root, tool_logs=tool_logs,
-                progress=log,
+                progress=log, parser_vm=parser_vm,
             ),
         )
         module_console = modules_root / f"{kape_log_stamp(started)}_ConsoleLog.txt"
@@ -447,7 +449,14 @@ def run_host_collector_extraction(
             result=result, metadata=metadata,
         )
     except (KapeDefinitionError, NtfsIndexError, HostModuleError, HostToolchainError, ExecutionEnvelopeError) as error:
-        raise HostCollectorError(str(error)) from error
+        failure = HostCollectorError(str(error))
+        if parser_vm is not None:
+            parser_vm.discard(failure)
+        raise failure from error
+    except BaseException as error:
+        if parser_vm is not None:
+            parser_vm.discard(error)
+        raise
     summary = {
         "schema_version": HOST_COLLECTOR_SUMMARY_SCHEMA,
         "status": "completed",
@@ -501,6 +510,17 @@ def _windows_only_modules(processors, toolchain: HostToolchain) -> list[str]:
     return names
 
 
+def _start_parser_vm(args: argparse.Namespace, stage_dir: Path, windows_only_modules: list[str], *,
+                     progress: Callable[[str], None]):
+    # The parser VM needs nothing from the host's own parsers, so it boots while the host indexes and parses.
+    provider = getattr(args, "collection_provider", None)
+    if not windows_only_modules or provider in (None, "native_windows") or not getattr(args, "windows_parsers", None):
+        return None
+    from fmb.collection.tools.host.parser_appliance import ParserVM
+
+    return ParserVM(args=args, stage_dir=stage_dir, progress=progress).start()
+
+
 def _run_windows_only_processors(
     processors,
     module_runs: list[ProcessorRun],
@@ -512,10 +532,13 @@ def _run_windows_only_processors(
     modules_root: Path,
     tool_logs: Path,
     progress: Callable[[str], None],
+    parser_vm=None,
 ) -> dict[str, Any]:
     deferred = {run.module_name for run in module_runs if run.status == "deferred"}
     pending = [item for item in processors if item.module_name in deferred]
     if not pending:
+        if parser_vm is not None:
+            parser_vm.close(graceful=False)
         return {"mode": mode, "status": "not_requested", "modules": []}
     from fmb.collection.tools.host.parser_appliance import run_parser_appliance
 
@@ -527,6 +550,7 @@ def _run_windows_only_processors(
         modules_root=modules_root,
         tool_logs=tool_logs,
         progress=progress,
+        vm=parser_vm,
     )
 
 

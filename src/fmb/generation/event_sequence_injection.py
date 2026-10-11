@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 import hashlib
 from importlib.metadata import version
+import multiprocessing
+import os
 import struct
 import xml.etree.ElementTree as ET
 import zlib
 
 NS = {"e": "http://schemas.microsoft.com/win/2004/08/events/event"}
+
+# python-evtx takes a few milliseconds to render one record, and a Security log holds thousands of them. Chunks are
+# self-contained, so a large log is rendered in worker processes, one chunk per job, in the same order.
+PARALLEL_RENDER_MIN_CHUNKS = 16
+_RENDER_SOURCES: tuple[bytes, ...] = ()
 
 
 def _xml_id(xml: str) -> tuple[ET.Element, ET.Element, int]:
@@ -24,6 +33,46 @@ def _active_chunks(data: bytes):
     count = struct.unpack_from("<H", data, 42)[0]
     for ordinal in range(count):
         yield ChunkHeader(data, 4096 + ((first + ordinal) % capacity) * 65536)
+
+
+def _start_renderer(sources: tuple[bytes, ...]) -> None:
+    global _RENDER_SOURCES
+    _RENDER_SOURCES = sources
+
+
+def _render_chunk(job: tuple[int, int]) -> list[str]:
+    from Evtx.Evtx import ChunkHeader
+    source, offset = job
+    return [record.xml() for record in ChunkHeader(_RENDER_SOURCES[source], offset).records()]
+
+
+def _render_workers() -> int:
+    try:
+        available = len(os.sched_getaffinity(0))
+    except AttributeError:
+        available = os.cpu_count() or 1
+    return min(available, 8)
+
+
+def rendered_xml(*sources: tuple[bytes, list]) -> list[list[str]]:
+    """The XML of every record in each (data, chunks of that data) source, in chunk and record order."""
+    count = sum(len(chunks) for _, chunks in sources)
+    workers = min(count, _render_workers())
+    if count >= PARALLEL_RENDER_MIN_CHUNKS and workers > 1:
+        jobs = [(index, chunk.offset()) for index, (_, chunks) in enumerate(sources) for chunk in chunks]
+        try:
+            with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn"),
+                                     initializer=_start_renderer,
+                                     initargs=(tuple(data for data, _ in sources),)) as pool:
+                parts = list(pool.map(_render_chunk, jobs, chunksize=max(1, len(jobs) // (workers * 4))))
+        except (BrokenProcessPool, OSError):
+            pass
+        else:
+            result: list[list[str]] = [[] for _ in sources]
+            for (index, _), part in zip(jobs, parts, strict=True):
+                result[index].extend(part)
+            return result
+    return [[record.xml() for chunk in chunks for record in chunk.records()] for _, chunks in sources]
 
 
 def _substitution_patch(data: bytes, record, new_id: int) -> tuple[int, bytes]:
@@ -52,7 +101,8 @@ def _substitution_patch(data: bytes, record, new_id: int) -> tuple[int, bytes]:
     return matches[0], struct.pack("<Q", new_id)
 
 
-def mutate_evtx_bytes(data: bytes) -> tuple[bytes, dict]:
+def mutate_evtx_bytes(data: bytes, *, source_xml: list[str] | None = None) -> tuple[bytes, dict]:
+    """source_xml, when given, is rendered_xml's output for data (as validate_log_a_source returns it)."""
     __import__("Evtx.Evtx")
     from fmb.index.scanners.evtx_sequence import retained_record_ids
 
@@ -101,10 +151,17 @@ def mutate_evtx_bytes(data: bytes) -> tuple[bytes, dict]:
     expected_ids = before_ids[:-2] + tuple(value + 1 for value in before_ids[-2:])
     if len(result) != len(data) or after_ids != expected_ids:
         raise ValueError("native sequence mutation failed structural postconditions")
-    after_records = [record for chunk in _active_chunks(result) for record in chunk.records()]
-    for before, after in zip(records, after_records, strict=True):
-        after_tree, _, after_id = _xml_id(after.xml())
-        original_xml = ET.tostring(ET.fromstring(before.xml()))
+    after_chunks = list(_active_chunks(result))
+    after_records = [record for chunk in after_chunks for record in chunk.records()]
+    if source_xml is None:
+        before_xml, after_xml = rendered_xml((data, chunks), (result, after_chunks))
+    else:
+        if len(source_xml) != len(records):
+            raise ValueError("rendered source XML does not cover the retained records")
+        before_xml, [after_xml] = source_xml, rendered_xml((result, after_chunks))
+    for before, after, before_text, after_text in zip(records, after_records, before_xml, after_xml, strict=True):
+        after_tree, _, after_id = _xml_id(after_text)
+        original_xml = ET.tostring(ET.fromstring(before_text))
         if (ET.tostring(after_tree) != expected_xml.get(before.offset(), original_xml)
                 or after_id != after.record_num()):
             raise ValueError("native XML round trip changed unintended event content")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -22,8 +23,10 @@ from fmb.index.scanners.mft import (
 )
 from fmb.index.support.windows_artifacts import (
     MFT_TIMESTAMP_PAIRS,
+    FoldedRow,
     canonical_mftecmd_timestamp,
     first_nonempty,
+    folded_row,
     join_windows_path,
     max_timestamp_mismatch_gap_days,
     mft_path,
@@ -36,6 +39,7 @@ from fmb.index.support.windows_artifacts import (
     row_value,
     score_candidate_name,
     stream_csv_rows,
+    stream_folded_csv_rows,
 )
 from fmb.index.support.windows_identity import (
     REMOTE_PATH_VOLUME,
@@ -352,7 +356,35 @@ def mft_row_is_directory(row: dict[str, str]) -> bool:
     return "directory" in attributes.casefold()
 
 
+# The presence context of the last MFT CSV read, keyed on the CSV's SHA-256, which the context
+# needs for its mft_volume_id anyway. A run reads the same CSV for the index, the native
+# surfaces, the reference-scoped runs, the factual supplement and every comparison pool.
+_MFT_PRESENCE_CONTEXT_CACHE: dict[str, dict[str, Any]] = {}
+
+
 def build_mft_presence_context(root: Path) -> dict[str, Any]:
+    paths = mftecmd_mft_context_csv_files(root)
+    if len(paths) != 1:
+        return _scan_mft_presence_context(paths)
+    source_id = source_scope_id(paths[0])
+    context = _MFT_PRESENCE_CONTEXT_CACHE.get(source_id)
+    if context is None:
+        context = _scan_mft_presence_context(paths, source_id=source_id)
+        _MFT_PRESENCE_CONTEXT_CACHE.clear()
+        _MFT_PRESENCE_CONTEXT_CACHE[source_id] = context
+    # Each caller gets its own containers (their items are strings, numbers and tuples), so one
+    # caller's changes never reach the cache or another caller.
+    copied = {
+        key: type(value)(value) if isinstance(value, (set, dict, list)) else value
+        for key, value in context.items()
+    }
+    copied["source_paths"] = [str(path) for path in paths]
+    return copied
+
+
+def _scan_mft_presence_context(
+    paths: list[Path], *, source_id: str | None = None
+) -> dict[str, Any]:
     active_full_paths: set[str] = set()
     active_basenames: set[str] = set()
     active_refs: set[tuple[int, int]] = set()
@@ -364,9 +396,9 @@ def build_mft_presence_context(root: Path) -> dict[str, Any]:
     malformed_identity_row_count = 0
     malformed_reference_row_count = 0
     malformed_path_row_count = 0
-    for path in mftecmd_mft_context_csv_files(root):
+    for path in paths:
         source_paths.append(str(path))
-        for row in stream_csv_rows(path):
+        for row in stream_folded_csv_rows(path):
             row_count += 1
             full_path = mft_row_full_path(row)
             active_state = parse_explicit_bool(row_value(row, "InUse", "In Use"))
@@ -405,7 +437,7 @@ def build_mft_presence_context(root: Path) -> dict[str, Any]:
             if reference is not None and full_path and mft_row_is_directory(row):
                 directory_paths_by_ref.setdefault(reference, full_path)
     volume_id = (
-        f"mft-source:{source_scope_id(Path(source_paths[0]))}"
+        f"mft-source:{source_id or source_scope_id(Path(source_paths[0]))}"
         if len(source_paths) == 1
         else None
     )
@@ -618,93 +650,121 @@ def _mft_active_presence_fields(
     }
 
 
-def mftecmd_mft_parser_run(
-    *,
-    csv_path: Path,
-    raw_mft_path: Path | None = None,
-    normalized_output_dir: Path,
-    collector_run: dict[str, Any],
-    public_paths: frozenset[str] = frozenset(),
+# The rankings of the last MFTECmd $MFT CSV read, keyed on its SHA-256, which names its volume
+# in every observation, and on its file name, which every observation cites. A run ranks the
+# same CSV for the index and again, with the public paths, for the factual supplement.
+_MFT_ROW_SCANS: dict[tuple[str, str], dict[str, Any]] = {}
+
+_MFT_OBSERVATION_TYPES = {
+    "subject": "mft_file_record",
+    "timestamp": "si_fn_timestamp_difference",
+}
+
+
+def _mft_observation_of_kind(
+    observation: dict[str, Any], kind: str, row_index: int
 ) -> dict[str, Any]:
+    return {
+        **observation,
+        "observation_id": f"obs:mftecmd-mft-{kind}:{row_index:06d}",
+        "observation_type": _MFT_OBSERVATION_TYPES[kind],
+    }
+
+
+def _mft_row_observations(
+    row: dict[str, str], row_index: int, *, csv_name: str, mft_volume_id: str
+) -> tuple[int, dict[str, Any], dict[str, Any] | None] | None:
+    folded = FoldedRow(folded_row(row))
+    subject = mft_path(folded)
+    if (
+        subject == "<unknown>"
+        or not mft_row_is_active(folded)
+        or mft_row_is_directory(folded)
+    ):
+        return None
+    timestamp_row = FoldedRow(folded_row(canonical_mftecmd_timestamp_row(row)))
+    entry = parse_int(row_first(folded, "EntryNumber", "Entry Number"))
+    sequence = parse_int(row_first(folded, "SequenceNumber", "Sequence Number"))
+    parent_entry = parse_int(
+        row_first(folded, "ParentEntryNumber", "Parent Entry Number")
+    )
+    parent_sequence = parse_int(
+        row_first(folded, "ParentSequenceNumber", "Parent Sequence Number")
+    )
+    mismatches = mft_timestamp_mismatches(timestamp_row)
+    score = score_candidate_name(subject, purpose="timestomp")
+    identity_observation = {
+        "observation_id": f"obs:mftecmd-mft-subject:{row_index:06d}",
+        "artifact_family": "ntfs.mft",
+        "observation_type": "mft_file_record",
+        "subject_ref": subject,
+        "fields": {
+            "si_created": row_first(timestamp_row, "Created0x10", "SI Created"),
+            "si_modified": row_first(
+                timestamp_row, "LastModified0x10", "SI Modified"
+            ),
+            "si_record_changed": row_first(
+                timestamp_row, "LastRecordChange0x10", "SI MFT Changed"
+            ),
+            "si_accessed": row_first(
+                timestamp_row, "LastAccess0x10", "SI Accessed"
+            ),
+            "fn_created": row_first(timestamp_row, "Created0x30", "FN Created"),
+            "fn_modified": row_first(
+                timestamp_row, "LastModified0x30", "FN Modified"
+            ),
+            "fn_record_changed": row_first(
+                timestamp_row, "LastRecordChange0x30", "FN MFT Changed"
+            ),
+            "fn_accessed": row_first(
+                timestamp_row, "LastAccess0x30", "FN Accessed"
+            ),
+            "mismatch_fields": [item["field"] for item in mismatches],
+            "mismatch_count": len(mismatches),
+            "max_gap_days": max_timestamp_mismatch_gap_days(mismatches),
+            "record_changed_si": row_first(
+                timestamp_row, "LastRecordChange0x10", "SI MFT Changed"
+            ),
+            "candidate_score": score,
+            "row_index": row_index,
+            "mismatches": mismatches,
+            "mft_entry": entry,
+            "sequence_number": sequence,
+            "file_name": row_first(folded, "FileName", "File Name", "Name"),
+            "parent_entry_number": parent_entry,
+            "parent_sequence_number": parent_sequence,
+            "in_use": True,
+            "mft_volume_id": mft_volume_id,
+        },
+        "source_record_ref": f"{csv_name}:row={row_index}",
+    }
+    timestamp_observation = (
+        _mft_observation_of_kind(identity_observation, "timestamp", row_index)
+        if mismatches
+        else None
+    )
+    return score, identity_observation, timestamp_observation
+
+
+def _scan_mft_rows(csv_path: Path, *, mft_volume_id: str) -> dict[str, Any]:
     identity_candidates: list[RankedObservation] = []
     timestamp_candidates: list[RankedObservation] = []
-    source_id = source_scope_id(csv_path)
-    mft_volume_id = f"mft-source:{source_id}"
+    subject_rows: dict[str, list[int]] = {}
     source_row_count = 0
     identity_candidate_row_count = 0
     candidate_row_count = 0
     population_rule_evaluable: bool | None = None
-    public_suffixes = {normalize_windows_compare_path(p) for p in public_paths}
-    public_identity_observations: list[dict[str, Any]] = []
-    public_timestamp_observations: list[dict[str, Any]] = []
     for row_index, row in enumerate(stream_csv_rows(csv_path), start=1):
         source_row_count = row_index
         if population_rule_evaluable is None:
             population_rule_evaluable = mft_timestamp_population_rule_evaluable(row)
-        timestamp_row = canonical_mftecmd_timestamp_row(row)
-        subject = mft_path(row)
-        if (
-            subject == "<unknown>"
-            or not mft_row_is_active(row)
-            or mft_row_is_directory(row)
-        ):
+        observed = _mft_row_observations(
+            row, row_index, csv_name=csv_path.name, mft_volume_id=mft_volume_id
+        )
+        if observed is None:
             continue
-        entry = parse_int(row_first(row, "EntryNumber", "Entry Number"))
-        sequence = parse_int(row_first(row, "SequenceNumber", "Sequence Number"))
-        parent_entry = parse_int(
-            row_first(row, "ParentEntryNumber", "Parent Entry Number")
-        )
-        parent_sequence = parse_int(
-            row_first(row, "ParentSequenceNumber", "Parent Sequence Number")
-        )
-        mismatches = mft_timestamp_mismatches(timestamp_row)
-        score = score_candidate_name(subject, purpose="timestomp")
+        score, identity_observation, timestamp_observation = observed
         identity_candidate_row_count += 1
-        identity_observation = {
-            "observation_id": f"obs:mftecmd-mft-subject:{row_index:06d}",
-            "artifact_family": "ntfs.mft",
-            "observation_type": "mft_file_record",
-            "subject_ref": subject,
-            "fields": {
-                "si_created": row_first(timestamp_row, "Created0x10", "SI Created"),
-                "si_modified": row_first(
-                    timestamp_row, "LastModified0x10", "SI Modified"
-                ),
-                "si_record_changed": row_first(
-                    timestamp_row, "LastRecordChange0x10", "SI MFT Changed"
-                ),
-                "si_accessed": row_first(
-                    timestamp_row, "LastAccess0x10", "SI Accessed"
-                ),
-                "fn_created": row_first(timestamp_row, "Created0x30", "FN Created"),
-                "fn_modified": row_first(
-                    timestamp_row, "LastModified0x30", "FN Modified"
-                ),
-                "fn_record_changed": row_first(
-                    timestamp_row, "LastRecordChange0x30", "FN MFT Changed"
-                ),
-                "fn_accessed": row_first(
-                    timestamp_row, "LastAccess0x30", "FN Accessed"
-                ),
-                "mismatch_fields": [item["field"] for item in mismatches],
-                "mismatch_count": len(mismatches),
-                "max_gap_days": max_timestamp_mismatch_gap_days(mismatches),
-                "record_changed_si": row_first(
-                    timestamp_row, "LastRecordChange0x10", "SI MFT Changed"
-                ),
-                "candidate_score": score,
-                "row_index": row_index,
-                "mismatches": mismatches,
-                "mft_entry": entry,
-                "sequence_number": sequence,
-                "file_name": row_first(row, "FileName", "File Name", "Name"),
-                "parent_entry_number": parent_entry,
-                "parent_sequence_number": parent_sequence,
-                "in_use": True,
-                "mft_volume_id": mft_volume_id,
-            },
-            "source_record_ref": f"{csv_path.name}:row={row_index}",
-        }
         keep_ranked_observation(
             identity_candidates,
             score=score,
@@ -712,15 +772,8 @@ def mftecmd_mft_parser_run(
             observation=identity_observation,
             limit=MAX_MFT_IDENTITY_OBSERVATIONS,
         )
-        timestamp_observation = {
-            **identity_observation,
-            "observation_id": f"obs:mftecmd-mft-timestamp:{row_index:06d}",
-            "observation_type": "si_fn_timestamp_difference",
-        } if mismatches else None
-        if normalize_windows_compare_path(subject) in public_suffixes:
-            public_identity_observations.append(identity_observation)
-            if timestamp_observation is not None:
-                public_timestamp_observations.append(timestamp_observation)
+        subject = normalize_windows_compare_path(identity_observation["subject_ref"])
+        subject_rows.setdefault(subject, []).append(row_index)
         if timestamp_observation is None:
             continue
         candidate_row_count += 1
@@ -731,6 +784,98 @@ def mftecmd_mft_parser_run(
             observation=timestamp_observation,
             limit=MAX_MFT_TIMESTAMP_OBSERVATIONS,
         )
+    return {
+        "source_row_count": source_row_count,
+        "population_rule_evaluable": population_rule_evaluable,
+        "identity_candidate_row_count": identity_candidate_row_count,
+        "candidate_row_count": candidate_row_count,
+        "identity_candidates": identity_candidates,
+        "timestamp_candidates": timestamp_candidates,
+        "subject_rows": subject_rows,
+    }
+
+
+def _public_mft_observations(
+    csv_path: Path,
+    scan: dict[str, Any],
+    public_suffixes: set[str],
+    identity_candidates: list[RankedObservation],
+    timestamp_candidates: list[RankedObservation],
+    *,
+    mft_volume_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    rows = sorted(
+        {row_index for suffix in public_suffixes for row_index in scan["subject_rows"].get(suffix, ())}
+    )
+    identities = {row_index: item for _score, row_index, item in identity_candidates}
+    timestamps = {row_index: item for _score, row_index, item in timestamp_candidates}
+    # A public row that a ranking kept is that ranked observation, and its other observation
+    # shares its fields, as when the row was read. A row both rankings dropped is read again.
+    unranked = {row_index for row_index in rows if row_index not in identities and row_index not in timestamps}
+    rebuilt: dict[int, tuple[dict[str, Any], dict[str, Any] | None]] = {}
+    if unranked:
+        for row_index, row in enumerate(stream_csv_rows(csv_path), start=1):
+            if row_index not in unranked:
+                continue
+            observed = _mft_row_observations(
+                row, row_index, csv_name=csv_path.name, mft_volume_id=mft_volume_id
+            )
+            if observed is None:
+                raise ValueError("MFTECmd $MFT CSV changed while it was read")
+            rebuilt[row_index] = observed[1:]
+            if len(rebuilt) == len(unranked):
+                break
+    identity_observations: list[dict[str, Any]] = []
+    timestamp_observations: list[dict[str, Any]] = []
+    for row_index in rows:
+        identity_observation = identities.get(row_index)
+        timestamp_observation = timestamps.get(row_index)
+        if identity_observation is None and timestamp_observation is None:
+            identity_observation, timestamp_observation = rebuilt[row_index]
+        elif identity_observation is None:
+            identity_observation = _mft_observation_of_kind(timestamp_observation, "subject", row_index)
+        elif timestamp_observation is None and identity_observation["fields"]["mismatches"]:
+            timestamp_observation = _mft_observation_of_kind(identity_observation, "timestamp", row_index)
+        identity_observations.append(identity_observation)
+        if timestamp_observation is not None:
+            timestamp_observations.append(timestamp_observation)
+    return identity_observations, timestamp_observations
+
+
+def mftecmd_mft_parser_run(
+    *,
+    csv_path: Path,
+    raw_mft_path: Path | None = None,
+    normalized_output_dir: Path,
+    collector_run: dict[str, Any],
+    public_paths: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    source_id = source_scope_id(csv_path)
+    mft_volume_id = f"mft-source:{source_id}"
+    key = (source_id, csv_path.name)
+    scan = _MFT_ROW_SCANS.get(key)
+    if scan is None:
+        scan = _scan_mft_rows(csv_path, mft_volume_id=mft_volume_id)
+        _MFT_ROW_SCANS.clear()
+        _MFT_ROW_SCANS[key] = scan
+    source_row_count = scan["source_row_count"]
+    identity_candidate_row_count = scan["identity_candidate_row_count"]
+    candidate_row_count = scan["candidate_row_count"]
+    population_rule_evaluable: bool | None = scan["population_rule_evaluable"]
+    # This run's own copy of both rankings, in one copy: a row's identity and timestamp
+    # observations keep sharing their fields, which the raw $MFT recovery completes once.
+    identity_candidates, timestamp_candidates = deepcopy(
+        (scan["identity_candidates"], scan["timestamp_candidates"])
+    )
+    public_suffixes = {normalize_windows_compare_path(p) for p in public_paths}
+    public_identity_observations, public_timestamp_observations = _public_mft_observations(
+        csv_path,
+        scan,
+        public_suffixes,
+        identity_candidates,
+        timestamp_candidates,
+        mft_volume_id=mft_volume_id,
+    )
 
     selected_identity_observations = ranked_observations(identity_candidates)
     selected_timestamp_observations = ranked_observations(timestamp_candidates)

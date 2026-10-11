@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -113,9 +112,12 @@ def add_reference_scoped_usn(
     *,
     output_dir: Path,
     include_timestamp_fragments: bool = False,
+    defer_validation: bool = False,
 ) -> dict[str, Any]:
 
-    prepared = deepcopy(dict(evidence_index))
+    # This replaces the parser run list and shares every run and population it keeps with its
+    # input; no step that builds the evidence index changes one in place.
+    prepared = dict(evidence_index)
     scoped_population_references: list[tuple[str, set[tuple[int, int]]]] = []
     logfile_population_references: list[tuple[str, set[tuple[int, int]]]] = []
     seen_scopes: set[tuple[str, tuple[tuple[int, int], ...]]] = set()
@@ -209,7 +211,8 @@ def add_reference_scoped_usn(
                 )
             )
     prepared["parser_runs"] = parser_runs
-    validate_payload(prepared, "evidence_index.schema.json")
+    if not defer_validation:
+        validate_payload(prepared, "evidence_index.schema.json")
     return prepared
 
 
@@ -247,7 +250,8 @@ def add_reference_scoped_ads(
     defer_population_binding: bool = False,
 ) -> dict[str, Any]:
 
-    prepared = deepcopy(dict(evidence_index))
+    # This replaces the parser run and population lists and shares what it keeps with its input.
+    prepared = dict(evidence_index)
     population = _reference_scoped_ads_population(prepared)
     if population is None:
         return prepared

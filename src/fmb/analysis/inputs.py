@@ -1754,8 +1754,28 @@ def _build_roster(
 def build_analysis_input(
     evidence_index: Mapping[str, Any], definition: TechniqueDefinition
 ) -> AnalysisInput:
+    return build_analysis_inputs(evidence_index, (definition,))[0]
+
+
+def build_analysis_inputs(
+    evidence_index: Mapping[str, Any], definitions: Iterable[TechniqueDefinition]
+) -> tuple[AnalysisInput, ...]:
+    # Building an input reads the index and never changes it, so the truth-blind check and the
+    # hash of the whole index, which cost far more than the rest, run once for all techniques.
+    definitions = tuple(definitions)
+    if not definitions:
+        return ()
     assert_truth_blind(evidence_index)
     index_hash = evidence_index_sha256(evidence_index)
+    return tuple(
+        _analysis_input(evidence_index, definition, index_hash)
+        for definition in definitions
+    )
+
+
+def _analysis_input(
+    evidence_index: Mapping[str, Any], definition: TechniqueDefinition, index_hash: str
+) -> AnalysisInput:
     index_id = str(
         evidence_index.get("evidence_id")
         or evidence_index.get("run_id")

@@ -360,7 +360,9 @@ def bind_population_manifest(
     *, techniques: set[str] | None = None,
 ) -> dict[str, Any]:
 
-    bound = deepcopy(dict(evidence_index))
+    # This sets the manifest and population keys and shares the parser runs with its input; no
+    # step that builds or reads the evidence index changes a run in place.
+    bound = dict(evidence_index)
     assert_truth_blind(bound)
     raw_parser_runs = bound.get("parser_runs", [])
     if not isinstance(raw_parser_runs, list) or any(

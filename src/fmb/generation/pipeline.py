@@ -1874,10 +1874,11 @@ class GenerationPipeline:
         from fmb.generation.event_sequence_injection import mutate_evtx_bytes
         def recorded_mutation(data):
             self.retain_factual_checkpoint("checkpoint-02.evtx", data)
+            source_xml = None
             if planned.get("native_pilot_profile") == "pilot_min.v1":
                 from fmb.generation.pilot_profile import validate_log_a_source
-                validate_log_a_source(data)
-            return mutate_evtx_bytes(data)
+                source_xml = validate_log_a_source(data)
+            return mutate_evtx_bytes(data, source_xml=source_xml)
         if planned["operation_refs"]:
             receipt = native.transform_native_file(
                 Path(image_path), r"C:\Windows\System32\winevt\Logs\Security.evtx", recorded_mutation

@@ -183,21 +183,25 @@ def _year(filetime: int) -> int:
     return datetime.fromtimestamp((filetime - 116_444_736_000_000_000) / 10_000_000, timezone.utc).year
 
 
-def validate_log_a_source(data: bytes) -> None:
+def validate_log_a_source(data: bytes) -> list[str]:
+    """Returns every record's rendered XML, which the sequence mutation reuses for its round-trip check."""
     import xml.etree.ElementTree as ET
-    from fmb.generation.event_sequence_injection import NS, _active_chunks
+    from fmb.generation.event_sequence_injection import NS, _active_chunks, rendered_xml
     from fmb.index.scanners.evtx_sequence import retained_record_ids
     identifiers = retained_record_ids(data)
-    records = [r for chunk in _active_chunks(data) for r in chunk.records()]
+    chunks = list(_active_chunks(data))
+    records = [r for chunk in chunks for r in chunk.records()]
     if tuple(r.record_num() for r in records) != identifiers:
         raise ValueError("pilot log inventory disagrees across native readers")
-    for record in records:
-        tree = ET.fromstring(record.xml())
+    [rendered] = rendered_xml((data, chunks))
+    for xml in rendered:
+        tree = ET.fromstring(xml)
         nodes = tree.findall("./e:System/e:EventID", NS)
         if len(nodes) != 1 or not nodes[0].text:
             raise ValueError("pilot log contains an unresolved native event identity")
         if int(nodes[0].text) == 1102:
             raise ValueError("pilot A inherited clearing evidence; preserve the realization")
+    return rendered
 
 
 def _validate_negative_timestamps(before: dict, after: dict) -> None:
