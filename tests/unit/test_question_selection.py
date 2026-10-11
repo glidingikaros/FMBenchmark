@@ -346,3 +346,42 @@ def test_selected_parser_source_verification_rejects_missing_or_changed_evidence
         index["parser_runs"][1]["normalized_output"]["sha256"] = "0" * 64
     with pytest.raises((ValueError, FileNotFoundError)):
         _verified_parser_outputs(index, Path)
+
+
+def test_collection_rebinds_populations_after_reference_scoped_observations(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from fmb.analysis import population_binding
+    from fmb.collection import alignment, analysis, factual_challenge, paper_host
+
+    evidence = tmp_path / "full_scale.vmdk"
+    evidence.write_bytes(b"image")
+    manifest = {"scenarios": {}}
+    generated = SimpleNamespace(content_subject_limit=None, i30_directory_paths=(),
+                                evidence_sha256=sha256_file(evidence), population_manifest=manifest)
+    monkeypatch.setattr(population_binding, "load_generated_population_bundle", lambda *_, **__: generated)
+    monkeypatch.setattr(factual_challenge, "load_public_population", lambda _: None)
+    monkeypatch.setattr(paper_host, "collect_host", lambda **_: {"steps": []})
+    monkeypatch.setattr(alignment, "add_native_population_surfaces", lambda index, *_, **__: index)
+
+    def step(name):
+        def run(index, *args, **kwargs):
+            return {"steps": [*index["steps"], name]}
+        return run
+
+    binds = []
+
+    def bind(index, public, **kwargs):
+        binds.append((list(index["steps"]), public, kwargs))
+        return step("bind")(index)
+
+    monkeypatch.setattr(population_binding, "bind_population_manifest", bind)
+    monkeypatch.setattr(analysis, "add_reference_scoped_usn", step("usn"))
+    monkeypatch.setattr(analysis, "add_reference_scoped_ads", step("ads"))
+    profile = resolve_paper_profile(["BQ-TIME-01", "BQ-SHELLBAG-01"])
+    result = analysis.collect_evidence_index(evidence, profile=profile, output_dir=tmp_path / "analysis",
+                                             run_id="selection", windows_parsers=None)
+
+    assert result["steps"] == ["bind", "usn", "ads", "bind"]
+    assert [steps for steps, _, _ in binds] == [[], ["bind", "usn", "ads"]]
+    assert all(public is manifest for _, public, _ in binds)
+    assert binds[0][2] == binds[1][2] and binds[1][2]["techniques"]
