@@ -24,6 +24,13 @@ Invoke-Winrm set winrm/config/client/auth '@{Basic="true"}'
 Invoke-Winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="1024"}'
 Invoke-Winrm set winrm/config '@{MaxTimeoutms="1800000"}'
 
+# Windows starts a delayed-start service about two minutes after boot, and every boot waits for WinRM.
+& sc.exe config WinRM start= auto | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "sc.exe config WinRM start= auto failed (exit code $LASTEXITCODE)" }
+if ((Get-CimInstance -ClassName Win32_Service -Filter "Name='WinRM'").DelayedAutoStart) {
+    throw 'WinRM is still a delayed-start service'
+}
+
 Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
     -Name 'LocalAccountTokenFilterPolicy' -Type DWord -Value 1
 

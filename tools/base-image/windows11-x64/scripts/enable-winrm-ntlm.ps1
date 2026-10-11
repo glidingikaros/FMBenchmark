@@ -14,6 +14,13 @@ if (-not @(Get-ChildItem WSMan:\localhost\Listener | Where-Object { $_.Keys -con
 Set-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB 1024
 Set-Item WSMan:\localhost\MaxTimeoutms 1800000
 
+# Windows starts a delayed-start service about two minutes after boot, and every boot waits for WinRM.
+& sc.exe config WinRM start= auto | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "sc.exe config WinRM start= auto failed (exit code $LASTEXITCODE)" }
+if ((Get-CimInstance -ClassName Win32_Service -Filter "Name='WinRM'").DelayedAutoStart) {
+    throw 'WinRM is still a delayed-start service'
+}
+
 Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
     -Name 'LocalAccountTokenFilterPolicy' -Type DWord -Value 1
 
