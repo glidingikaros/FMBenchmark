@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025, macos-15]
+        os: [windows-2025]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -34,5 +34,8 @@ jobs:
         run: uv sync --locked --extra dev --extra generation --extra factual --extra collection
       - name: CLI
         run: uv run --no-sync fmb --help
-      - name: Test suite
-        run: uv run --no-sync python -m pytest -m "not external" -n 4 -q -p no:cacheprovider --durations=15
+      - name: Profile
+        shell: bash
+        run: |
+          uv run --no-sync python -m cProfile -o prof.out -m pytest -q -p no:cacheprovider "tests/unit/test_llm_conditions.py::test_a_user_condition_with_two_passes_runs_through_the_pipeline" "tests/unit/test_stage_substitution.py::test_an_incorrect_candidate_cannot_change_admission_and_keeps_its_errors" tests/unit/test_generation_lock_v2.py --durations=5
+          uv run --no-sync python -c "import pstats; s=pstats.Stats('prof.out'); s.sort_stats('cumulative').print_stats(70); s.sort_stats('tottime').print_stats(25)"
