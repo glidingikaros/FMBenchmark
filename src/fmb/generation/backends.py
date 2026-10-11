@@ -209,6 +209,19 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
+def winrm_listening(port: int) -> bool:
+    # QEMU accepts the forwarded port before the guest listens on it, so only an HTTP answer counts.
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as connection:
+            connection.settimeout(5)
+            connection.sendall(b"POST /wsman HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n")
+            return connection.recv(16).startswith(b"HTTP/")
+    except OSError:
+        return False
+
+
 def ansible_winrm_vars(port: int) -> dict:
     return {"ansible_host": "127.0.0.1", "ansible_port": int(port), "ansible_user": "vagrant",
             "ansible_password": "vagrant", "ansible_connection": "winrm", "ansible_winrm_scheme": "http",
@@ -408,7 +421,10 @@ class QemuBackend:
             reply = self._monitor(command).replace(command, "").lower()
             if any(word in reply for word in ("error", "could not", "failed", "invalid", "not found", "unknown")):
                 raise RuntimeError(f"QEMU refused {command!r}: {reply.strip()[:500]}")
-            time.sleep(5 if command.startswith("qom-set") else 1)
+            # drive_add and device_add are done when the monitor answers; the pause after each attach lets
+            # Windows see one new disk at a time.
+            if command.startswith("qom-set"):
+                time.sleep(5)
 
     def await_media(self, ansible: str, count: int, timeout: int = 300) -> None:
         import subprocess
@@ -427,7 +443,7 @@ class QemuBackend:
                 pass
             if time.monotonic() > deadline:
                 raise TimeoutError(f"Windows did not install the {count} plugged virtual USB disks")
-            time.sleep(10)
+            time.sleep(3)
 
     def _guest_powershell(self, script: str, timeout: int = 180):
         return ansible_adhoc(self.pipeline.ansible_cmd, self.winrm_port, "ansible.windows.win_powershell",
@@ -502,7 +518,7 @@ class QemuBackend:
             if self.process.poll() is not None:
                 raise RuntimeError("QEMU exited during boot: " + (state / "qemu.log").read_text(errors="replace")[-2000:])
             try:
-                if self._guest_powershell(wait, timeout=120).returncode == 0:
+                if winrm_listening(self.winrm_port) and self._guest_powershell(wait, timeout=120).returncode == 0:
                     if media:
                         self.attach_media(inputs["fmb_hardware"], media)
                         self.await_media(p.ansible_cmd, len(media))
@@ -511,7 +527,7 @@ class QemuBackend:
                             f"{len(media)} virtual USB disks plugged in)\n")
             except subprocess.TimeoutExpired:
                 pass
-            time.sleep(5)
+            time.sleep(2)
         try:
             self._monitor(f"screendump {p.output_dir / 'qemu-boot-timeout.png'} -f png")
         except OSError:

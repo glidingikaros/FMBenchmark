@@ -384,6 +384,8 @@ def test_winrm_counts_as_listening_only_when_it_answers_http():
     import socket
     import threading
 
+    from fmb.generation.backends import winrm_listening
+
     def serve(reply: bytes):
         server = socket.socket()
         server.bind(("127.0.0.1", 0))
@@ -400,13 +402,13 @@ def test_winrm_counts_as_listening_only_when_it_answers_http():
         return server
 
     with serve(b"HTTP/1.1 401 \r\nContent-Length: 0\r\n\r\n") as server:
-        assert appliance._winrm_listening(server.getsockname()[1]) is True
+        assert winrm_listening(server.getsockname()[1]) is True
     with serve(b"") as server:
-        assert appliance._winrm_listening(server.getsockname()[1]) is False
+        assert winrm_listening(server.getsockname()[1]) is False
     with socket.socket() as unused:
         unused.bind(("127.0.0.1", 0))
         port = unused.getsockname()[1]
-    assert appliance._winrm_listening(port) is False
+    assert winrm_listening(port) is False
 
 
 @pytest.mark.parametrize("provider,modules,parsers,boots", [
@@ -458,7 +460,7 @@ def test_an_early_booted_qemu_vm_runs_the_parsers_then_is_killed(tmp_path, monke
     monkeypatch.setattr(backends, "qemu_guest_command", lambda *args, **kwargs: ["qemu-system-x86_64"])
     monkeypatch.setattr(backends, "ansible_adhoc", adhoc)
     monkeypatch.setattr(appliance.subprocess, "Popen", lambda *args, **kwargs: Process())
-    monkeypatch.setattr(appliance, "_winrm_listening", lambda port: True)
+    monkeypatch.setattr(backends, "winrm_listening", lambda port: True)
     monkeypatch.setattr(appliance, "build_input_package", lambda *, package_path, **kwargs: (
         package_path.write_bytes(b"inputs"), {"package": str(package_path), "input_file_count": 1})[1])
     monkeypatch.setattr(appliance, "_merge_outputs", lambda **kwargs: {"status": "completed"})

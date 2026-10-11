@@ -9,7 +9,6 @@ import ntpath
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -290,17 +289,6 @@ def _run_native_windows_parsers(*, package_path: Path, script_path: Path, output
         return completed
 
 
-def _winrm_listening(port: int) -> bool:
-    # QEMU accepts the forwarded port before the guest listens on it, so only an HTTP answer counts.
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=5) as connection:
-            connection.settimeout(5)
-            connection.sendall(b"POST /wsman HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n")
-            return connection.recv(16).startswith(b"HTTP/")
-    except OSError:
-        return False
-
-
 def _phase(timings: list[dict[str, Any]], name: str, callback):
     started = _utc_now()
     start = time.monotonic()
@@ -452,9 +440,9 @@ class ParserVM:
         self.log("parser appliance: QEMU worker answered WinRM")
 
     def _answered(self) -> bool:
-        from fmb.generation.backends import ansible_adhoc
+        from fmb.generation.backends import ansible_adhoc, winrm_listening
 
-        if not _winrm_listening(self.port):
+        if not winrm_listening(self.port):
             return False
         try:
             return ansible_adhoc(self.ansible, self.port, "ansible.windows.win_ping", {}, timeout=120).returncode == 0
