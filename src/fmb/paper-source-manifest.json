@@ -33,7 +33,7 @@
     "package/collection/inputs/source_drive.py": "a0c17cb6fae2d5bd642b535d9f99eea234c7c5da71d1f4c71b451a7bacff807d",
     "package/collection/ntfs_surfaces.py": "07a86b46092ae879b707d44746e7fc8388ff023dc4388c3dfac3ed0bff34928e",
     "package/collection/paper_collection.py": "f4aa0daba57e7b4306a4915a76eebe816562edd9c895869282419a12c7e9fc15",
-    "package/collection/paper_host.py": "00d1c0b8aad64b351501e7b3a63305a1c441a751cc8168467e1915935164ffd7",
+    "package/collection/paper_host.py": "cdcc2341042160ad69528fdb9963c6466a1c479536888f3c92eca6105c1f5efe",
     "package/collection/run/lock.py": "e20d7ec2e14433cb90f3a14b8e8453c88e5e1c665293510100e1a37c071dd0f7",
     "package/collection/tools/envelope.py": "16a8dd6d78c1b65ad2ea52a266ddb6dd420acea02179d0b65c9fff9d10e85ae9",
     "package/collection/tools/host/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
