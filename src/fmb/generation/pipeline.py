@@ -1191,7 +1191,7 @@ class GenerationPipeline:
             "ansible_winrm_transport": "ntlm",
             "ansible_winrm_server_cert_validation": "ignore",
             "ansible_winrm_operation_timeout_sec": 120,
-            "ansible_winrm_read_timeout_sec": 130,
+            "ansible_winrm_read_timeout_sec": 300,
         }
         env = {
             "ANSIBLE_HOST_KEY_CHECKING": "False",
@@ -1381,7 +1381,7 @@ class GenerationPipeline:
             "ansible_winrm_server_cert_validation": "ignore",
             "ansible_winrm_transport": "ntlm",
             "ansible_winrm_operation_timeout_sec": 120,
-            "ansible_winrm_read_timeout_sec": 130,
+            "ansible_winrm_read_timeout_sec": 300,
         }
         if self.is_macos:
             extra_vars["fmb_generation_host_is_macos"] = True

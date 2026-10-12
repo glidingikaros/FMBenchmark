@@ -789,7 +789,7 @@ def test_direct_ansible_winrm_allows_long_forensic_operations(tmp_path: Path) ->
     command = observed["command"]
     extra_vars = json.loads(command[command.index("-e") + 1])
     assert extra_vars["ansible_winrm_operation_timeout_sec"] == 120
-    assert extra_vars["ansible_winrm_read_timeout_sec"] == 130
+    assert extra_vars["ansible_winrm_read_timeout_sec"] == 300
     assert "ansible_winrm_message_encryption" not in extra_vars
 
 

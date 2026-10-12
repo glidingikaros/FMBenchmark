@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from copy import deepcopy
@@ -456,3 +457,13 @@ def test_a_rerun_keeps_the_earlier_log_of_the_same_attempt(tmp_path, monkeypatch
     kept = [path for path in folder.glob("generate-1-*.log")]
     assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == "the failure being investigated"
     assert (folder / "generate-1.log").read_text(encoding="utf-8") == "done"
+
+
+def test_a_slow_winrm_reply_is_waited_for_well_past_the_operation_timeout():
+    from fmb.generation.backends import ansible_winrm_vars
+
+    source = (Path(__file__).resolve().parents[2] / "src/fmb/generation/pipeline.py").read_text(encoding="utf-8")
+    pipeline = [int(value) for value in re.findall(r'"ansible_winrm_read_timeout_sec": (\d+)', source)]
+    winrm = ansible_winrm_vars(5985)
+    assert len(pipeline) == 2 and all(value >= winrm["ansible_winrm_read_timeout_sec"] for value in pipeline)
+    assert winrm["ansible_winrm_read_timeout_sec"] >= winrm["ansible_winrm_operation_timeout_sec"] + 120

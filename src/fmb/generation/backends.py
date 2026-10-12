@@ -227,7 +227,7 @@ def ansible_winrm_vars(port: int) -> dict:
             "ansible_password": "vagrant", "ansible_connection": "winrm", "ansible_winrm_scheme": "http",
             "ansible_winrm_transport": "ntlm", "ansible_winrm_message_encryption": "always",
             "ansible_winrm_server_cert_validation": "ignore",
-            "ansible_winrm_operation_timeout_sec": 120, "ansible_winrm_read_timeout_sec": 130}
+            "ansible_winrm_operation_timeout_sec": 120, "ansible_winrm_read_timeout_sec": 300}
 
 
 def ansible_adhoc(ansible: str, port: int, module: str, args: dict, *, timeout: int):
