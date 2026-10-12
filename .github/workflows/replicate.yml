@@ -105,6 +105,9 @@ jobs:
         run: sg kvm -c "uv run fmb generate ${{ matrix.image }}"
       - name: "README: run ${{ matrix.image }}"
         run: sg kvm -c "uv run fmb run ${{ steps.image.outputs.name }}"
+      - name: "runner: the end of each log, when a step failed (the terminal shows one line per step)"
+        if: failure()
+        run: tail -n 60 /mnt/fmb/generated/*.log /mnt/fmb/generated/*/*.log /mnt/fmb/results/*/*/pipeline.log 2>/dev/null || true
       - name: Summary
         if: always()
         run: |
@@ -122,6 +125,7 @@ jobs:
             /mnt/fmb/results/*/*/run/gates/*.json
             /mnt/fmb/results/*/*/run/run-manifest.json
             /mnt/fmb/results/*/*/run/analysis/evidence_index.json
+            /mnt/fmb/generated/*.log
             /mnt/fmb/generated/*/*.log
             /mnt/fmb/generated/*/image.json
             /mnt/fmb/generated/*/generation/**/*.png
@@ -191,6 +195,9 @@ jobs:
             if [ "$IMAGE" = random ]; then uv run python scripts/random_image.py "$GITHUB_RUN_ID" images/random.json; fi
             uv run fmb generate "$IMAGE"
             uv run fmb run "$(basename "$IMAGE" .json)"'
+      - name: "runner: the end of each log, when a step failed (the terminal shows one line per step)"
+        if: failure()
+        run: sudo tail -n 60 /mnt/fmb/generated/*.log /mnt/fmb/generated/*/*.log /mnt/fmb/results/*/*/pipeline.log 2>/dev/null || true
       - name: Summary
         if: always()
         run: sudo cat /mnt/fmb/results/*/*/report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
@@ -322,6 +329,11 @@ jobs:
         run: uv run fmb generate ${{ matrix.image }}
       - name: "README: run ${{ matrix.image }}"
         run: uv run fmb run ${{ steps.image.outputs.name }}
+      - name: "runner: the end of each log, when a step failed (the terminal shows one line per step)"
+        if: failure()
+        run: |
+          Get-ChildItem generated\*.log, generated\*\*.log, results\*\*\pipeline.log -ErrorAction SilentlyContinue |
+            ForEach-Object { "==> $($_.FullName) <=="; Get-Content $_.FullName -Tail 60 }
       - name: Summary
         if: always()
         run: |
@@ -342,6 +354,7 @@ jobs:
             results/*/*/run/gates/*.json
             results/*/*/run/run-manifest.json
             results/*/*/run/analysis/execution/**/tool-logs/
+            generated/*.log
             generated/*/*.log
             generated/*/image.json
             generated/*/generation/**/*.png

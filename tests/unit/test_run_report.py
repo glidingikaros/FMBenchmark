@@ -55,8 +55,8 @@ def test_a_finished_run_gets_its_receipts_a_summary_and_a_readable_report(tmp_pa
         assert expected in text
     lines = report.headline(row, output)
     assert lines[0].startswith("small: admission passed")
-    assert "9/9" not in lines[1] and "1/1 questions exact   F1 1.000   TP 1 FP 0 FN 0 TN 1" in lines[1]
-    assert "sonnet5-high" in lines[2] and "0/1 questions exact over 1 passes   F1 –   $1.23" in lines[2]
+    assert "9/9" not in lines[1] and "1/1 questions exact   F1 100.0%   TP 1 FP 0 FN 0 TN 1" in lines[1]
+    assert "sonnet5-high" in lines[2] and "0/1 questions exact per pass (1 pass)   F1 –   $1.23" in lines[2]
     assert lines[-1] == f"  report: {output / 'report.md'}"
 
 

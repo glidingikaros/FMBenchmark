@@ -99,6 +99,12 @@ def which(name: str) -> str | None:
     return shutil.which(name, path=environment()["PATH"])
 
 
+def generated() -> Path:
+    from fmb.core.paths import workspace
+
+    return workspace() / "generated"
+
+
 def free_gib(path: Path) -> float:
     path.mkdir(parents=True, exist_ok=True)
     return shutil.disk_usage(path).free / 2**30
@@ -146,7 +152,7 @@ def leftovers() -> list[tuple[str, str]]:
         found += [("qemu", line.split(None, 1)[0]) for line in listing.splitlines()
                   if "qemu-system" in line and "/.vagrant/system.qcow2" in line]
         found += [("overlay", str(disk.parent)) for disk in
-                  sorted(Path.cwd().glob("generated/*/generation/attempt-*/full_scale/*/.vagrant/system.qcow2"))]
+                  sorted(generated().glob("*/generation/attempt-*/full_scale/*/.vagrant/system.qcow2"))]
     return found
 
 
@@ -205,9 +211,10 @@ def check(rows: list, name: str, found, fix: str) -> None:
 def checks() -> list[tuple[str, bool, str]]:
     rows: list[tuple[str, bool, str]] = []
     system = platform.system()
-    need, free = image_need_gib(), free_gib(Path.cwd())
+    where = generated() if generated().is_dir() else generated().parent
+    need, free = image_need_gib(), shutil.disk_usage(where).free / 2**30
     rows.append((f"free disk for one image ({need:.0f} GiB while it is generated and analysed)", free >= need,
-                 f"{free:.0f} GiB free at {Path.cwd()}"))
+                 f"{free:.0f} GiB free at {where}"))
     stale = leftovers()
     rows.append(("no VMs left by an interrupted generation", not stale,
                  "none" if not stale else "fmb generate stops and removes them before it starts: "
@@ -219,15 +226,25 @@ def checks() -> list[tuple[str, bool, str]]:
           "run: fmb setup (installs it under the cache)")
     if MACOS:
         check(rows, "VMware Fusion (vmrun)", VMRUN.exists() and VMRUN, "install VMware Fusion 13")
-        check(rows, "Vagrant", which("vagrant"), "install Vagrant and the vagrant-vmware-desktop plugin")
+        vagrant = which("vagrant")
+        check(rows, "Vagrant", vagrant, "install Vagrant (developer.hashicorp.com/vagrant/install)")
+        plugins = subprocess.run([vagrant, "plugin", "list"], capture_output=True, text=True,
+                                 check=False).stdout if vagrant else ""
+        check(rows, "Vagrant's VMware plugin", "vagrant-vmware-desktop" in plugins,
+              "vagrant plugin install vagrant-vmware-desktop, and install the Vagrant VMware Utility")
         check(rows, "Ansible", which("ansible-playbook"), "brew install ansible")
+        check(rows, "QEMU tools (qemu-img, qemu-io: disk export and USB media)",
+              which("qemu-io") and which("qemu-img"), "brew install qemu")
         box = vagrant_boxes() / "fmb-VAGRANTSLASH-windows-11-arm64"
+        if not box.is_dir():
+            check(rows, "Packer (builds the Windows box once)", which("packer"),
+                  "brew tap hashicorp/tap && brew install hashicorp/tap/packer")
         base, iso = windows_base(), PINS["windows_iso_arm64"]
         built = base and f"build {base['build']}, " + {True: "from the pinned ISO", None: "ISO not recorded",
                                                         False: f"from an unpinned ISO (SHA-256 {base['iso_sha256']})"}[base["iso_pinned"]]
         check(rows, "Windows box (fmb/windows-11-arm64)", box.is_dir() and (built or "the box of the paper, build 22000"),
-              f"download {iso['file']} from {iso['download']}, then run: tools/base-image/windows11-arm64/"
-              f"build-vmware-box.sh <that file> {iso['sha256']} (~30 min; or set VAGRANT_HOME to where a box is)")
+              f"download {iso['file']} from {iso['download']}, then run: fmb setup --iso <that file> (~30 min; or set "
+              "VAGRANT_HOME to where a box is)")
         return rows
     from fmb.generation.qemu_host import uefi_firmware
 
@@ -240,7 +257,9 @@ def checks() -> list[tuple[str, bool, str]]:
     check(rows, "UEFI firmware for QEMU (OVMF)", firmware, qemu_install())
     if system == "Linux":
         check(rows, "KVM (/dev/kvm read-write)", os.access("/dev/kvm", os.R_OK | os.W_OK),
-              "sudo usermod -aG kvm $USER, then log in again")
+              "sudo usermod -aG kvm $USER, then log in again" if os.path.exists("/dev/kvm") else
+              "no /dev/kvm: turn on virtualisation (Intel VT-x or AMD-V) in the firmware settings; in a VM, turn on "
+              "nested virtualisation")
     else:
         check(rows, "Windows Hypervisor Platform (QEMU starts with WHPX)", qemu and accelerates(qemu, "whpx"),
               "admin PowerShell: Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform; reboot")

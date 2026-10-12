@@ -215,41 +215,42 @@ def test_generate_checks_image_files_before_anything_starts(tmp_path, monkeypatc
         run.generate_images([write_image(tmp_path / "mine.json", broken)], 1, tmp_path / "generated")
     with pytest.raises(SystemExit, match="same name"):
         run.generate_images([EXAMPLE, write_image(tmp_path / "decoys.json", example())], 1, tmp_path / "generated")
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FMB_HOME", str(tmp_path))
     assert main(["generate", "missing"]) != 0
     assert not (tmp_path / "generated").exists()
 
 
-def test_generate_and_run_take_names_stages_and_llm_conditions(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+def test_generate_and_run_take_names_stages_and_llm_conditions(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FMB_HOME", str(tmp_path))
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
     (tmp_path / "images").mkdir()
     write_image(tmp_path / "images/small.json", example(), 5)
     (tmp_path / "images/I1.json").write_text((ROOT / "images/I1.json").read_text())
     generated, analysed = [], []
-    monkeypatch.setattr(run, "generate_images", lambda paths, attempts: generated.append(paths) or 0)
+    monkeypatch.setattr(run, "generate_images", lambda paths, attempts, **_: generated.append(paths) or 0)
     monkeypatch.setattr(run, "run_images",
-                        lambda names, llm, delete_image: analysed.append((names, llm, delete_image)) or 0)
+                        lambda names, llm, delete_image, **_: analysed.append((names, llm, delete_image)) or 0)
     assert main(["generate", "small", "I1"]) == 0
-    assert generated == [[Path("images/small.json"), Path("images/I1.json")]]
+    assert generated == [[tmp_path / "images/small.json", tmp_path / "images/I1.json"]]
     assert main(["run", "small", "--compare", "S3", "--llm", "sonnet5-high", "--cap-usd", "20"]) == 0
     assert main(["run", "small", "--delete-image"]) == 0
     assert analysed == [(["small"], {
         "conditions": ["sonnet5-high"],
         "dispatch": {"execute": True, "cap_usd": "20.0", "rates": {"sonnet5-high": {"input": "2.000", "output": "10.000"}}}},
         False), (["small"], None, True)]
-    with pytest.raises(SystemExit, match="needs --llm"):
-        main(["run", "small", "--compare", "S3"])
+    capsys.readouterr()
+    assert main(["run", "small", "--compare", "S3"]) == 2
+    assert "fmb: --compare S3 needs --llm" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         main(["run", "small", "--compare", "S1"])
     for command in ("generate", "run"):
         with pytest.raises(SystemExit, match=f"name the images to {command}"):
             main([command])
-    assert [name for name, _ in image_files.available()] == ["I1", "small"]
+    assert [name for name, _ in image_files.available()] == ["I1", "I2", "I3", "small"]
 
 
 @pytest.mark.parametrize("conditions,cap,prices,message", [
-    (["sonnet5-high"], None, [], "needs --cap-usd"),
+    (["sonnet5-high"], None, [], "add --cap-usd"),
     ([], 5, [], "go with --llm"),
     (["luna-high"], 5, [], "no recorded price"),
     (["luna-high"], 5, ["luna-high=1.25,10"], "set OPENAI_API_KEY"),

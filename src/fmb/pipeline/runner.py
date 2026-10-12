@@ -6,9 +6,11 @@ from decimal import Decimal
 import json
 import os
 from pathlib import Path
+import time
 from typing import Any
 
 from fmb.core import paper_integrity as integrity
+from fmb.core import progress
 from fmb.core.hashing import sha256_bytes, sha256_file
 from fmb.core.paper_protocol import checked_conditions, checked_passes, declare_conditions, paper_protocol
 from fmb.core.schemas import validate_payload
@@ -113,7 +115,7 @@ def implementations(analysis: Path, built: Path, rules: Path, runs: list[Path], 
     return {
         "S1": {"resolver": "fmb.profiles.resolve_profile", "mode": "supplied" if supplied_profile else "packs"},
         "S2": {"implementation": "fmb.pipeline.stages.prepare_evidence",
-               "collection": "fmb paper collect" if collected else "reused",
+               "collection": "collected" if collected else "reused",
                "parsers": sorted({str(run.get("parser")) for run in index.get("parser_runs", [])}),
                "preparation": "fmb.paper.workflow.prepare",
                "question_scope": stages.question_scope(built)},
@@ -179,6 +181,13 @@ def run_pipeline(config: dict, *, provider=None, stage_responder=None) -> dict:
         previous = set(gates)
         error = None
         opened: set[str] = set()
+        started = time.monotonic()
+        progress.emit("stage", step=step, outcome="start")
+
+        def finished() -> None:
+            progress.emit("stage", step=step, outcome=entry["status"],
+                          elapsed_seconds=round(time.monotonic() - started, 1),
+                          **{key: detail[key] for key in ("admission",) if key in detail})
         try:
             with reads.measured() as opened:
                 for key, reference in entry["inputs"].items():
@@ -213,10 +222,12 @@ def run_pipeline(config: dict, *, provider=None, stage_responder=None) -> dict:
                 if found is not None and "reads_record" not in entry:
                     detail["unwritten_reads"] = found
                 if error is None:
+                    finished()
                     raise
                 error.add_note("phase audit failed: " + detail["audit_error"])
             else:
                 entry["status"] = "completed" if error is None else "failed"
+            finished()
 
     def write_manifest(*, collected: bool | None, built: Path | None, rules: Path | None, runs: list[Path],
                        failure: dict | None = None) -> None:

@@ -107,13 +107,7 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def base(iso: Path | None = None, *, unpinned_iso: bool = False) -> dict:
-    from fmb.generation.recipe import qemu_box
-
-    facts = host.base_guest_facts()
-    if facts is not None:
-        return facts
-    pin = host.PINS["windows_iso"]
+def checked_iso(iso: Path | None, pin: dict, unpinned_iso: bool) -> tuple[Path, str]:
     if iso is None:
         raise SystemExit(f"the Windows base is built from Microsoft's ISO: download {pin['choose']} from "
                          f"{pin['download']} ({pin['file']}), then run: fmb setup --iso <that file>")
@@ -126,6 +120,29 @@ def base(iso: Path | None = None, *, unpinned_iso: bool = False) -> dict:
         raise SystemExit(f"{iso.name} is not the pinned ISO ({pin['file']}): its SHA-256 is {sha256}, the pin is "
                          f"{pin['sha256']}. Microsoft offers only its current build. To build the base from this ISO "
                          "anyway, add --unpinned-iso: every result then records the base's build and this SHA-256.")
+    return iso, sha256
+
+
+def box(iso: Path | None = None, *, unpinned_iso: bool = False) -> dict | None:
+    """The Mac's Windows 11 ARM64 Vagrant box, built from Microsoft's ARM64 ISO by the box script."""
+    if (host.vagrant_boxes() / "fmb-VAGRANTSLASH-windows-11-arm64").is_dir():
+        return host.box_guest_facts()
+    iso, sha256 = checked_iso(iso, host.PINS["windows_iso_arm64"], unpinned_iso)
+    try:
+        run(["sh", host.REPO / "tools" / "base-image" / "windows11-arm64" / "build-vmware-box.sh", iso, sha256])
+    except subprocess.CalledProcessError as error:
+        raise SystemExit("building the Windows box failed; the box script says why above") from error
+    return host.box_guest_facts()
+
+
+def base(iso: Path | None = None, *, unpinned_iso: bool = False) -> dict:
+    from fmb.generation.recipe import qemu_box
+
+    facts = host.base_guest_facts()
+    if facts is not None:
+        return facts
+    iso, sha256 = checked_iso(iso, host.PINS["windows_iso"], unpinned_iso)
+    pin = host.PINS["windows_iso"]
     work = host.cache() / "base-build"
     pins = host.PINS["base_builder"]
     run(["uv", "run", "--no-project", "--python", platform.python_version(), "--with", f"pycdlib=={pins['pycdlib']}",
@@ -148,3 +165,5 @@ def all_steps(*, build_base: bool = True, iso: Path | None = None, unpinned_iso:
     toolchain()
     if build_base and host.provider() == "qemu":
         log(f"base guest: {base(iso, unpinned_iso=unpinned_iso)}")
+    elif build_base:
+        log(f"Windows box: {box(iso, unpinned_iso=unpinned_iso)}")

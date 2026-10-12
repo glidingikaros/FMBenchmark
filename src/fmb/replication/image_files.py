@@ -9,7 +9,6 @@ from fmb.core.sealed_records import read_json
 from fmb.question_packs import load_packs
 
 NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
-IMAGES = Path("images")
 TEMPLATE = "template"
 SETTINGS = {"clock_bias_minutes": (-840, 840, "auto"), "activity_count": (1, 500, None),
             "activity_seed": (0, 2**63 - 1, None), "hardware_seed": (0, 2**63 - 1, None)}
@@ -110,7 +109,7 @@ def random_definition(seed: int) -> dict:
     from fmb.generation.pilot_profile import MEDIA_PORTS
 
     rng = random.Random(seed)
-    value = read_json(PROJECT_ROOT.parent.parent / IMAGES / f"{TEMPLATE}.json")
+    value = read_json(PROJECT_ROOT.parent.parent / "images" / f"{TEMPLATE}.json")
     scenarios = value["scenarios"]
 
     def counts(scenario, configured, manipulated, **extra):
@@ -173,8 +172,16 @@ def _settings(value, where: str) -> dict:
 
 def check(image: Image) -> str:
     from fmb.generation import population, recipe
+    from fmb.replication import host
 
-    config = recipe.image_config(image.seed, image.contract, settings=image.settings)
+    provider = host.provider()
+    facts = host.guest_facts(provider) or {}
+    # As when the recipe is frozen: the QEMU backend sets the hardware clock for the base's saved bias.
+    bias = recipe.guest_clock_bias(None if provider == "qemu" else facts.get("finished_utc"))
+    try:
+        config = recipe.image_config(image.seed, image.contract, provider, settings=image.settings, guest_bias=bias)
+    except ValueError as error:
+        raise ValueError(f"{image.path.name}: generation.{error}") from error
     try:
         contract = recipe.resolved_contract(config)
         manifest = population.build_public_manifest(experiment=config["experiment"], seed=image.seed,
@@ -216,24 +223,45 @@ def activate(recipe_directory: Path) -> bool:
     return True
 
 
+def images_folder() -> Path:
+    from fmb.core.paths import workspace
+
+    return workspace() / "images"
+
+
+def folders() -> list[Path]:
+    """Where image files are: the workspace's images/, then the repository's, which has the paper's and the template."""
+    from fmb.core.paths import PROJECT_ROOT
+
+    return list(dict.fromkeys([images_folder(), PROJECT_ROOT.parents[1] / "images"]))
+
+
 def resolve(name: str) -> Path:
-    path = Path(name).expanduser() if name.endswith(".json") else IMAGES / f"{name}.json"
-    if not path.is_file():
-        raise ValueError(f"no image {name}: name a file in {IMAGES}/ without .json, or give a path ending in .json")
-    return path
+    if name.endswith(".json"):
+        path = Path(name).expanduser()
+        if not path.is_file():
+            raise ValueError(f"no image file {path.absolute()}")
+        return path
+    for folder in folders():
+        if (folder / f"{name}.json").is_file():
+            return folder / f"{name}.json"
+    raise ValueError(f"no image {name} in {images_folder()}: name a file there without .json, or give a path ending "
+                     "in .json")
 
 
 def available() -> list[tuple[str, str]]:
     rows = []
-    for path in sorted(IMAGES.glob("*.json")):
-        if path.stem == TEMPLATE:
+    seen = set()
+    for path in (path for folder in folders() for path in sorted(folder.glob("*.json"))):
+        if path.stem == TEMPLATE or path.stem in seen:
             continue
+        seen.add(path.stem)
         try:
             image = load(path)
             rows.append((image.name, ("paper image, " if image.paper else "") + check(image).split(", ", 1)[1]))
         except ValueError as error:
             rows.append((path.stem, str(error)))
-    return rows
+    return sorted(rows, key=lambda row: row[0])
 
 
 def read_conditions(path: Path) -> dict:
@@ -255,7 +283,7 @@ def available_conditions(own: dict | None = None) -> list[tuple[str, str]]:
         rows.append((name, ("yours: " if name in (own or {}) else "")
                      + f"{settings['model']} via {settings['provider']}, reasoning {settings['reasoning_effort']}, "
                      + sampling + (f"${price['input']} in / ${price['output']} out per million tokens" if price
-                                   else "no recorded price")))
+                                   else f"no recorded price: add --price {name}=INPUT,OUTPUT")))
     return rows
 
 
@@ -267,31 +295,36 @@ def llm_dispatch(conditions: list[str], cap_usd: float | None, prices: list[str]
         if cap_usd is not None or prices or own is not None or passes is not None:
             raise ValueError("--cap-usd, --price, --conditions and --passes go with --llm")
         return None
+    problems = []
     if cap_usd is None or cap_usd <= 0:
-        raise ValueError("--llm needs --cap-usd: the most the LLM requests of one image may cost, in US dollars")
+        problems.append("add --cap-usd USD, the most the LLM requests of one image may cost, in US dollars")
     if passes is not None and (type(passes) is not int or not 1 <= passes <= MAX_PASSES):
-        raise ValueError(f"--passes is how many times each LLM request is sent, from 1 to {MAX_PASSES}")
+        problems.append(f"--passes is how many times each LLM request is sent, from 1 to {MAX_PASSES}")
     declared, given = {**paper_protocol()["conditions"], **(own or {})}, {}
     for item in prices:
         name, _, pair = item.partition("=")
         try:
             given[name] = dict(zip(("input", "output"), (str(Decimal(value)) for value in pair.split(",")), strict=True))
-        except (InvalidOperation, ValueError) as error:
-            raise ValueError(f"--price {item}: give NAME=INPUT,OUTPUT in US dollars per million tokens") from error
+        except (InvalidOperation, ValueError):
+            problems.append(f"--price {item}: give NAME=INPUT,OUTPUT in US dollars per million tokens")
     rates = {}
     for name in dict.fromkeys(conditions):
         if name not in declared:
-            raise ValueError(f"no LLM condition {name}; the conditions are " + ", ".join(declared)
-                             + ("" if own else "; declare your own in a JSON file given with --conditions FILE"))
+            problems.append(f"no LLM condition {name}; the conditions are " + ", ".join(declared)
+                            + ("" if own else "; declare your own in a JSON file given with --conditions FILE"))
+            continue
         settings = declared[name]["settings"]
         price = given.get(name) or settings.get("price_usd_per_million")
         if price is None:
-            raise ValueError(f"{name} has no recorded price; add --price {name}=INPUT,OUTPUT (US dollars per million "
-                             "tokens)")
+            problems.append(f"{name} has no recorded price; add --price {name}=INPUT,OUTPUT (US dollars per million "
+                            "tokens)")
         key = PROVIDER_KEYS[settings["provider"]]
         if not environ.get(key, "").strip():
-            raise ValueError(f"{name} calls {settings['provider']}: set {key}")
-        rates[name] = {"input": str(price["input"]), "output": str(price["output"])}
+            problems.append(f"{name} calls {settings['provider']}: set {key}")
+        if price is not None:
+            rates[name] = {"input": str(price["input"]), "output": str(price["output"])}
+    if problems:
+        raise ValueError("; ".join(dict.fromkeys(problems)))
     used = {name: own[name] for name in rates if name in (own or {})}
     return {"conditions": list(rates), "dispatch": {"execute": True, "cap_usd": str(cap_usd), "rates": rates},
             **({"user_conditions": used} if used else {}), **({"passes": passes} if passes is not None else {})}

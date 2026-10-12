@@ -54,7 +54,7 @@ def admit_conditions(
         rules = Path(rules).resolve(strict=True)
         assessment = verify_assessment(rules, built=built)
     elif not legacy:
-        raise ValueError("admission needs S3's sealed rule assessment (fmb paper assess)")
+        raise ValueError("admission needs S3's sealed rule assessment")
     build = read_json(built / "build-report.json")
     if (
         preparation_folder(built, build) != prepared

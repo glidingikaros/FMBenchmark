@@ -135,8 +135,9 @@ def test_only_an_attempt_with_another_to_follow_says_it_is_retried(tmp_path, mon
     image = SimpleNamespace(name="I3", paper=True, path=tmp_path / "I3.json")
     with pytest.raises(SystemExit, match="generation failed"):
         run.generate_image(image, tmp_path / "lock.json", folder, attempts=2)
-    assert said == ["I3: attempt 1 failed while booting or provisioning; retrying with the same recipe",
-                    "I3: attempt 2 failed while booting or provisioning; that was the last of 2 attempts"]
+    assert [line for line in said if "failed" in line] == [
+        "I3: attempt 1 failed while booting or provisioning; retrying with the same recipe",
+        "I3: attempt 2 failed while booting or provisioning; that was the last of 2 attempts"]
 
 
 def test_a_generation_left_running_is_stopped_and_removed(tmp_path, monkeypatch):
@@ -170,7 +171,7 @@ def test_leftovers_are_only_reported_while_no_generation_runs(tmp_path, monkeypa
     monkeypatch.setattr(host.subprocess, "run", listing("1 /bin/zsh", "77 python -m fmb.replication.steps generate {}"))
     assert host.leftovers() == []
     monkeypatch.setattr(host, "MACOS", False)
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FMB_HOME", str(tmp_path))
     overlay = tmp_path / "generated" / "I1" / "generation" / "attempt-1" / "full_scale" / "a" / ".vagrant"
     overlay.mkdir(parents=True)
     (overlay / "system.qcow2").write_bytes(b"")

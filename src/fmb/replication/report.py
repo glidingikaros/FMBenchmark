@@ -16,7 +16,8 @@ KEY_RECEIPTS = {"image.json": "Image definition", "recipe.json": "Generation rec
 
 
 def _f1(value) -> str:
-    return "–" if value is None else f"{value:.3f}"
+    """F1 in percent, as in the paper's table."""
+    return "–" if value is None else f"{value * 100:.1f}%"
 
 
 def _span(values: list, form=str) -> str:
@@ -30,7 +31,8 @@ def _admission(row: dict) -> str:
     if row["admission"] == "failed":
         return ("failed: the rules miss " + ", ".join(row["not_exact"])
                 + "; the comparison is a development run, not a result")
-    return "not reached: the pipeline stopped; see pipeline.log"
+    return ("not reached: the pipeline stopped" + (f" ({row['error']})" if row.get("error") else "")
+            + "; see pipeline.log")
 
 
 def headline(row: dict, folder: Path) -> list[str]:
@@ -42,10 +44,11 @@ def headline(row: dict, folder: Path) -> list[str]:
                      f"TN {counts.get('tn', 0)}")
         for condition, llm in row.get("llm", {}).items():
             cost = f"   ${llm['cost_usd']}" if llm.get("cost_usd") is not None else ""
-            lines.append(f"  S3'  {condition:<22} {_span(llm['exact'])}/{row['questions']} questions exact over "
-                         f"{llm['passes']} passes   F1 {_span(llm['f1'], _f1)}{cost}")
+            lines.append(f"  S3'  {condition:<22} {_span(llm['exact'])}/{row['questions']} questions exact per pass "
+                         f"({llm['passes']} pass{'' if llm['passes'] == 1 else 'es'})   F1 {_span(llm['f1'], _f1)}{cost}")
         if not row.get("llm"):
-            lines.append("  S3'  not sent: add --compare S3 --llm CONDITION to compare an LLM")
+            lines.append("  S3'  not sent: add --llm CONDITION --cap-usd USD to compare an LLM (fmb run --help lists "
+                         "the conditions)")
     lines.append(f"  report: {folder / 'report.md'}")
     return lines
 
