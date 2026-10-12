@@ -154,7 +154,7 @@ def test_a_failed_generation_names_the_phase_the_error_and_the_log(tmp_path, mon
                                 f"the exported disk has no NTFS volume; see {folder / 'generate-1.log'}")
 
 
-def test_generation_stops_before_booting_without_the_disk_it_needs(tmp_path, monkeypatch):
+def test_generation_stops_before_booting_without_the_disk_it_needs(tmp_path, monkeypatch, capsys):
     for name in ("I1", "I2"):
         published = tmp_path / name / "generation" / "attempt-1" / "full_scale" / "a"
         published.mkdir(parents=True)
@@ -166,12 +166,12 @@ def test_generation_stops_before_booting_without_the_disk_it_needs(tmp_path, mon
                                          r"and only 22\.4 GiB are free at .*; free 7\.6 GiB more\. Generated images "
                                          r"there: I1, I2; fmb run with --delete-image"):
         run.disk_space("I3", tmp_path)
-    # Just short: the message must not read as if there were enough.
+    # Just short: within the few GiB free space moves by on its own, so a warning that must not read as enough.
     monkeypatch.setattr(host, "image_need_gib", lambda: 35.97)
     monkeypatch.setattr(host, "free_gib", lambda path: 35.66)
-    with pytest.raises(run.NoSpace, match=r"needs about 36\.0 GiB free, and only 35\.6 GiB are free at .*; free "
-                                          r"0\.4 GiB more"):
-        run.disk_space("I3", tmp_path)
+    run.disk_space("I3", tmp_path)
+    assert re.search(r"needs about 36\.0 GiB free, and only 35\.6 GiB are free at .*; free 0\.4 GiB more to be safe; "
+                     r"going ahead", capsys.readouterr().err)
     monkeypatch.setattr(host, "free_gib", lambda path: 36.0)
     run.disk_space("I3", tmp_path)
 
@@ -194,6 +194,7 @@ def test_fmb_run_generates_runs_and_deletes_one_image_at_a_time(tmp_path, monkey
 
     monkeypatch.setattr(run, "implementation", lambda paper: {})
     monkeypatch.setattr(run, "prepare", lambda images, where: order.append(("prepare", [i.name for i in images])))
+    monkeypatch.setattr(run, "list_space", lambda *_: None)
     monkeypatch.setattr(run, "generate_one", generate_one)
     monkeypatch.setattr(run, "analyse", lambda name, *_: order.append(("run", name)) or {"image": name,
                                                                                          "admission": "passed"})

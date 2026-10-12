@@ -405,17 +405,51 @@ def warn(text: str) -> None:
     print(f"fmb: {text}", file=sys.stderr, flush=True)
 
 
+# Free space moves by a few GiB on its own (macOS adds and drops 1 GiB swap files as memory fills), so a shortfall
+# up to this only warns; a larger one refuses the image.
+SLACK_GIB = 3
+RESULTS_GIB = 1.1  # what one image's run leaves in results/
+KEPT_GIB = 25  # about what one generated image keeps on disk
+
+
+def shortfall(free: float, need: float) -> tuple[float, float]:
+    """Free space rounded down and the shortfall rounded up, so that a refusal never reads as enough."""
+    return math.floor(round(free * 10, 6)) / 10, math.ceil(round((need - free) * 10, 6)) / 10
+
+
 def disk_space(name: str, root: Path) -> None:
     need, free = host.image_need_gib(), host.free_gib(root)
     if free >= need:
         return
-    # Rounded down and up, so a refusal never reads as enough.
-    shown, short = math.floor(round(free * 10, 6)) / 10, math.ceil(round((need - free) * 10, 6)) / 10
+    shown, short = shortfall(free, need)
+    text = (f"generating and analysing it needs about {need:.1f} GiB free, and only {shown:.1f} GiB are free at "
+            f"{root}; free {short:.1f} GiB more")
+    if need - free <= SLACK_GIB:
+        warn(f"{name}: {text} to be safe; going ahead, as free space moves by a few GiB on its own")
+        return
     others = [folder.name for folder in sorted(root.iterdir()) if completed(folder / "generation") is not None]
-    raise NoSpace(f"{name}: not generated: generating and analysing it needs about {need:.1f} GiB free, and only "
-                  f"{shown:.1f} GiB are free at {root}; free {short:.1f} GiB more"
+    raise NoSpace(f"{name}: not generated: {text}"
                   + (f". Generated images there: {', '.join(others)}; fmb run with --delete-image deletes each "
                      "image after its passing run" if others else ""))
+
+
+def list_space(steps: list[tuple[str, float, bool, float]], root: Path, advice: str) -> None:
+    """Warns before the first of several images when they may not all fit; each is checked again before it is
+    generated. A step is (image, GiB freed before it, whether it is generated, GiB it leaves taken)."""
+    if len(steps) < 2 or not any(generates for _, _, generates, _ in steps):
+        return
+    need, free = host.image_need_gib(), host.free_gib(root)
+    held = worst = 0.0
+    for _, freed, generates, leaves in steps:
+        held -= freed
+        worst = max(worst, held + need) if generates else worst
+        held += leaves
+    if worst + SLACK_GIB <= free:
+        return
+    shown, short = shortfall(free, worst + SLACK_GIB)
+    warn(f"{', '.join(name for name, *_ in steps)} may need up to about {worst + SLACK_GIB:.1f} GiB free at {root} "
+         f"({advice}, and {SLACK_GIB} GiB to spare), and {shown:.1f} GiB are free; free about {short:.1f} GiB more "
+         "before they start. Each image is checked again just before it is generated")
 
 
 def generate_one(image, lock: Path, root: Path, attempts: int, again: bool = False) -> Path:
@@ -462,6 +496,13 @@ def generate_images(paths: list[Path], attempts: int, root: Path | None = None, 
     implementation([image.name for image in images if image.paper])
     root = (root or generated_root()).resolve()
     lock = prepare(images, root)
+    steps = []
+    for image in images:
+        folder = root / image.name
+        generates = again or completed(folder / "generation") is None
+        steps.append((image.name, host.allocated_gib(folder) if again and folder.exists() else 0.0, generates,
+                      KEPT_GIB if generates else 0.0))
+    list_space(steps, root, f"each generated image keeps about {KEPT_GIB} GiB")
     failed = []
     for image in images:
         try:
@@ -502,6 +543,18 @@ def summarise(outputs: list[Path], results: Path) -> None:
     log(f"the table across images, as in the paper: {folder / 'results.md'} (also table-results.csv)")
 
 
+def run_steps(names: list[str], fresh: dict, root: Path, delete_image: bool) -> list[tuple[str, float, bool, float]]:
+    """Each image's turn in fmb run for list_space: whether it is generated, and what it leaves taken afterwards."""
+    steps = []
+    for name in names:
+        if delete_image:
+            leaves = RESULTS_GIB - (0.0 if name in fresh else host.allocated_gib(root / name))
+        else:
+            leaves = RESULTS_GIB + (KEPT_GIB if name in fresh else 0.0)
+        steps.append((name, 0.0, name in fresh, leaves))
+    return steps
+
+
 def run_images(names: list[str], llm: dict | None, root: Path | None = None, results: Path | None = None,
                delete_image: bool = False, attempts: int = 3, recollect: bool = False) -> int:
     from fmb.replication import image_files, report
@@ -521,6 +574,10 @@ def run_images(names: list[str], llm: dict | None, root: Path | None = None, res
         log(f"not generated yet: {', '.join(images)}; fmb run generates "
             + ("each one just before it runs it" if len(images) > 1 else "it first"))
         lock = prepare(list(images.values()), root)
+        list_space(run_steps(names, images, root, delete_image), root,
+                   f"each run keeps about {RESULTS_GIB} GiB of results"
+                   + ("" if delete_image else f" and each generated image about {KEPT_GIB} GiB, which --delete-image "
+                                              "deletes after its passing run"))
     rows, outputs, outcome = [], [], {}
     for name in names:
         folder = root / name

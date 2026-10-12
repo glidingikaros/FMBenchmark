@@ -412,3 +412,56 @@ def test_a_generation_that_failed_after_the_computer_slept_says_so(tmp_path, mon
         "the host's: keep the computer awake, on power and with its lid open while fmb generates")
     with pytest.raises(SystemExit, match=r"clock offset$"):
         run.generate_one(image, tmp_path / "lock.json", tmp_path / "generated", attempts=3)
+
+
+def test_several_images_are_checked_for_disk_together_and_a_small_shortfall_only_warns(tmp_path, monkeypatch,
+                                                                                         capsys):
+    from fmb.replication import report
+
+    root = tmp_path / "generated"
+    root.mkdir()
+    free = iter([36.67, 36.67, 34.43, 34.43])
+
+    def generate_image(image, lock, folder, attempts):
+        published = folder / "generation" / "attempt-1" / "full_scale" / "a"
+        published.mkdir(parents=True)
+        (published / "manifest.json").write_text("{}")
+        (published / "full_scale.vmdk").write_bytes(b"")
+        (folder / "recipe").mkdir()
+        return published
+
+    monkeypatch.setattr(run, "implementation", lambda paper: {})
+    monkeypatch.setattr(run, "prepare", lambda images, where: None)
+    monkeypatch.setattr(run, "generate_image", generate_image)
+    monkeypatch.setattr(run, "analyse", lambda name, *_: {"image": name, "admission": "passed"})
+    monkeypatch.setattr(host, "image_need_gib", lambda: 36.3)
+    monkeypatch.setattr(host, "free_gib", lambda path: next(free))
+    monkeypatch.setattr(host, "allocated_gib", lambda folder: 17.0)
+    monkeypatch.setattr(host, "load_warning", lambda: None)
+    monkeypatch.setattr(host, "windows_base", lambda: None)
+    monkeypatch.setattr(report, "complete", lambda *_: None)
+    monkeypatch.setattr(report, "headline", lambda row, output: [row["image"]])
+    assert run.run_images(["I1", "I2", "I3"], None, root, tmp_path / "results", delete_image=True) == 0
+    assert list(root.iterdir()) == []
+    err = capsys.readouterr().err.splitlines()
+    assert err[0] == (f"fmb: I1, I2, I3 may need up to about 41.5 GiB free at {root} (each run keeps about 1.1 GiB of "
+                      "results, and 3 GiB to spare), and 36.6 GiB are free; free about 4.9 GiB more before they start. "
+                      "Each image is checked again just before it is generated")
+    assert err[1:] == [f"fmb: {name}: generating and analysing it needs about 36.3 GiB free, and only 34.4 GiB are "
+                       f"free at {root}; free 1.9 GiB more to be safe; going ahead, as free space moves by a few GiB "
+                       "on its own" for name in ("I2", "I3")]
+
+
+def test_fmb_generate_counts_each_earlier_image_it_keeps(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "generated"
+    monkeypatch.setattr(run, "implementation", lambda paper: {})
+    monkeypatch.setattr(run, "prepare", lambda images, where: None)
+    monkeypatch.setattr(run, "generate_one", lambda *_, **__: None)
+    monkeypatch.setattr(host, "image_need_gib", lambda: 30.0)
+    monkeypatch.setattr(host, "free_gib", lambda path: 50.0)
+    assert run.generate_images([image_files.resolve("I1")], 3, root) == 0
+    assert run.generate_images([image_files.resolve("I1"), image_files.resolve("I2")], 3, root) == 0
+    assert capsys.readouterr().err.splitlines() == [
+        f"fmb: I1, I2 may need up to about 58.0 GiB free at {root} (each generated image keeps about 25 GiB, and 3 "
+        "GiB to spare), and 50.0 GiB are free; free about 8.0 GiB more before they start. Each image is checked again "
+        "just before it is generated"]
