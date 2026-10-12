@@ -432,6 +432,7 @@ def test_several_images_are_checked_for_disk_together_and_a_small_shortfall_only
 
     monkeypatch.setattr(run, "implementation", lambda paper: {})
     monkeypatch.setattr(run, "prepare", lambda images, where: None)
+    monkeypatch.setattr(run, "unfit_parsers", lambda: [])
     monkeypatch.setattr(run, "generate_image", generate_image)
     monkeypatch.setattr(run, "analyse", lambda name, *_: {"image": name, "admission": "passed"})
     monkeypatch.setattr(host, "image_need_gib", lambda: 36.3)

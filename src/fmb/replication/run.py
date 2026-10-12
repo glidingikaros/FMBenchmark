@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fmb.core.paths import workspace
 from fmb.replication import awake, host, terminal
-from fmb.replication.setup import log, windows_parsers
+from fmb.replication.setup import log, unfit_parsers, windows_parsers
 
 # Phases whose failure a new attempt from the same recipe may not repeat; a failed attempt's disks are discarded.
 RETRYABLE = frozenset({"qemu_boot", "vagrant_boot", "ansible_provisioning", "soft_halt", "disk_discovery_export",
@@ -774,6 +774,9 @@ def run_images(names: list[str], llm: dict | None, root: Path | None = None, res
     paper = [name for name in names if (images[name].paper if name in images else paper_image(root / name))]
     provenance = implementation(paper)
     lock = None
+    if images and (unfit := unfit_parsers()):
+        raise SystemExit(f"{' and '.join(unfit)} in {windows_parsers()}: missing or not a validated build, and S2 needs "
+                         f"both, so fmb run stops before generating {', '.join(images)}; run: fmb setup")
     if images:
         log(f"not generated yet: {', '.join(images)}; fmb run generates "
             + ("each one just before it runs it" if len(images) > 1 else "it first"))
