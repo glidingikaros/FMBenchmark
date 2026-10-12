@@ -11,6 +11,10 @@ from typing import Literal
 
 from fmb.core.coercion import parse_truncated_int
 
+# EZ tool CSVs hold fields far longer than the csv module's 128 KiB default (a Prefetch FilesLoaded list, an event
+# payload). Every parser output reader imports this module, so the limit is raised here, collection or not.
+csv.field_size_limit(1 << 30)
+
 CandidatePurpose = Literal["timestomp", "usn_delete", "prefetch", "registry_mru"]
 SUPPORTED_CANDIDATE_PURPOSES = {
     "timestomp",

@@ -103,10 +103,11 @@ def verify_preparation(prepared: Path, *, sources: bool = False) -> dict:
                 raise ValueError("native source changed after preparation: " + name)
         current = integrity.source_files()
         frozen = read_json(prepared / "source-hashes.json")
-        if set(current) != set(frozen) or any(
-            sha256_file(current[name]) != digest for name, digest in frozen.items()
-        ):
-            raise ValueError("implementation snapshot changed")
+        if set(current) != set(frozen):
+            raise ValueError("implementation snapshot changed: " + integrity.membership_change(current, frozen))
+        changed = [name for name, digest in frozen.items() if sha256_file(current[name]) != digest]
+        if changed:
+            raise ValueError("implementation snapshot changed: " + ", ".join(changed))
     return manifest
 
 

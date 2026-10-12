@@ -627,3 +627,82 @@ def test_an_orphaned_parser_qemu_is_stopped_and_its_overlay_removed(tmp_path, mo
     assert not states["222"].exists() and states["111"].is_dir()
     assert logged == ["parser appliance: stopped the parser QEMU (pid 4222) of a gone fmb run (pid 222)"]
 
+
+def test_the_qemu_monitor_reply_is_read_up_to_the_prompt():
+    import socket
+    import threading
+    import time
+
+    from fmb.generation.backends import QemuBackend
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+
+    def serve():
+        connection, _ = server.accept()
+        with connection:
+            connection.sendall(b"QEMU 8.2.2 monitor - type 'help' for more information\r\n")
+            time.sleep(0.2)
+            connection.sendall(b"(qemu) ")
+            connection.recv(1024)
+            connection.sendall(b"drive_add 0 if=none,id=usb8\r\n")
+            time.sleep(1.0)
+            connection.sendall(b"Could not open '/m8.vmdk': No such file or directory\r\n(qemu) ")
+            time.sleep(0.5)
+
+    threading.Thread(target=serve, daemon=True).start()
+    backend = QemuBackend(pipeline=None)
+    backend.monitor_port = server.getsockname()[1]
+    with server:
+        reply = backend._monitor("drive_add 0 if=none,id=usb8")
+    assert "Could not open" in reply and reply.rstrip().endswith("(qemu)")
+
+
+def test_parser_outputs_with_long_fields_read_without_collection(tmp_path):
+    import subprocess
+    import sys
+
+    csv_path = tmp_path / "PECmd_Output.csv"
+    csv_path.write_text("ExecutableName,FilesLoaded\nRUNNER.EXE," + "x" * 300_000 + "\n", encoding="utf-8")
+    script = ("import sys\nfrom pathlib import Path\nfrom fmb.index.support.windows_artifacts import stream_csv_rows\n"
+              "print(len(next(stream_csv_rows(Path(sys.argv[1])))['FilesLoaded']))\n")
+    completed = subprocess.run([sys.executable, "-c", script, str(csv_path)], capture_output=True, text=True,
+                               env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}, timeout=120)
+    assert completed.stdout.strip() == "300000", completed.stderr
+
+
+@pytest.mark.parametrize("change", ["extra", "missing"])
+def test_a_mid_run_seal_failure_names_the_file(tmp_path, change):
+    from fmb.core.paper_integrity import source_files, verify_sources
+
+    roots = {"package": tmp_path / "package"}
+    module = roots["package"] / "analysis" / "rules.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("x = 1\n", encoding="utf-8")
+    manifest = tmp_path / "lock.json"
+    manifest.write_text(json.dumps({"schema_version": "paper_source_manifest.v1", "files": {
+        name: __import__("hashlib").sha256(path.read_bytes()).hexdigest()
+        for name, path in source_files(roots).items()}}), encoding="utf-8")
+    if change == "extra":
+        (module.parent / ".DS_Store").write_bytes(b"\0")
+        expected = "membership changed: added package/analysis/.DS_Store"
+    else:
+        module.unlink()
+        expected = "membership changed: missing package/analysis/rules.py"
+    with pytest.raises(ValueError, match=expected):
+        verify_sources(manifest, roots=roots)
+
+
+def test_a_symlinked_source_is_named(tmp_path):
+    from fmb.core.paper_integrity import source_files
+
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "rules.py").write_text("x = 1\n", encoding="utf-8")
+    try:
+        os.symlink(package / "rules.py", package / "alias.py")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    with pytest.raises(ValueError, match="symlinked implementation asset: .*alias.py"):
+        source_files({"package": package})

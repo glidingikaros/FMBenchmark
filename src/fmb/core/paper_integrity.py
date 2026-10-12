@@ -50,8 +50,9 @@ def source_files(roots=None):
                     entries = sorted(listing, key=lambda entry: entry.name)
             except OSError:
                 continue
-            if any(entry.is_symlink() for entry in entries):
-                raise ValueError("symlinked implementation asset")
+            linked = [entry.path for entry in entries if entry.is_symlink()]
+            if linked:
+                raise ValueError("symlinked implementation asset: " + linked[0])
             directories = [entry for entry in entries if entry.is_dir() and entry.name not in excluded]
             for entry in entries:
                 if entry.is_dir():
@@ -108,6 +109,12 @@ def modified_files(roots=None) -> list[str]:
     return sorted(name for name in sealed.keys() | current.keys() if sealed.get(name) != current.get(name))
 
 
+def membership_change(actual, sealed) -> str:
+    added, missing = sorted(set(actual) - set(sealed)), sorted(set(sealed) - set(actual))
+    return "; ".join(f"{label} {', '.join(names[:5])}" + (f" and {len(names) - 5} more" if len(names) > 5 else "")
+                     for label, names in (("added", added), ("missing", missing)) if names)
+
+
 def verify_sources(manifest_path: Path | None = None, *, roots=None) -> dict:
     roots = roots or source_roots()
     if _MODIFIED_PERMITTED and manifest_path is None and modified_files(roots):
@@ -118,7 +125,7 @@ def verify_sources(manifest_path: Path | None = None, *, roots=None) -> dict:
         raise ValueError("unsupported paper implementation manifest")
     actual = source_files(roots)
     if set(actual) != set(record["files"]):
-        raise ValueError("paper source manifest membership changed")
+        raise ValueError("paper source manifest membership changed: " + membership_change(actual, record["files"]))
     for name, digest in record["files"].items():
         prefix, relative = name.split("/", 1)
         path = contained_path(roots[prefix], relative)

@@ -392,15 +392,25 @@ class QemuBackend:
         import socket
         import time
 
+        def until_prompt(connection, deadline: float) -> bytes:
+            # A reply can come in several reads; it is complete when the monitor prompts again.
+            data = b""
+            while b"(qemu)" not in data and time.monotonic() < deadline:
+                connection.settimeout(max(0.1, deadline - time.monotonic()))
+                try:
+                    chunk = connection.recv(65536)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                data += chunk
+            return data
+
         with socket.create_connection(("127.0.0.1", self.monitor_port), timeout=10) as connection:
-            connection.recv(4096)
+            until_prompt(connection, time.monotonic() + 10)
             connection.sendall(command.encode() + b"\n")
             time.sleep(0.5)
-            connection.settimeout(2)
-            try:
-                return connection.recv(65536).decode(errors="replace")
-            except OSError:
-                return ""
+            return until_prompt(connection, time.monotonic() + 10).decode(errors="replace")
 
     def media_commands(self, hardware: dict, media: list[dict]) -> list[str]:
         commands = []
