@@ -236,7 +236,11 @@ def run_host_collector_extraction(
     evidence_sha256: str,
     run_id: str,
     progress: Callable[[str], None] | None = None,
+    after_extraction: Callable[[Path], None] | None = None,
+    confirm_evidence: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
+    # after_extraction gets the collector output root once the target files are on disk; confirm_evidence, when
+    # given, raises unless the evidence matched evidence_sha256, and the result is written only after it returned.
     if extracted_dir.exists():
         raise HostCollectorError(f"refusing to overwrite existing extracted bundle: {extracted_dir}")
     evidence = Path(str(args.evidence)).expanduser().resolve()
@@ -327,6 +331,8 @@ def run_host_collector_extraction(
             ),
         )
         log(f"extracted {len(extraction.copied)} files, skipped {len(extraction.skipped)}")
+        if after_extraction is not None:
+            after_extraction(output_root)
         module_runs: list[ProcessorRun] = clock.run(
             "run_modules",
             lambda: run_module_processors(
@@ -365,6 +371,8 @@ def run_host_collector_extraction(
             encoding="utf-8",
         )
         _record_appliance_runs(module_runs, appliance_record, bundle_root=output_root)
+        if confirm_evidence is not None:
+            confirm_evidence()
         ended = _utc_now()
         stdout_path = tool_logs / "host-collector.stdout.txt"
         stderr_path = tool_logs / "host-collector.stderr.txt"
@@ -377,8 +385,10 @@ def run_host_collector_extraction(
             definitions_sha256=definitions.tree_sha256,
             toolchain=toolchain_record,
             source_hash_basis=(
-                "evidence hashed by the host pipeline before extraction; the image was "
-                "opened read-only through The Sleuth Kit (a VMDK through libvmdk) and never written"
+                ("evidence hashed by the host pipeline before extraction; " if confirm_evidence is None else
+                 "evidence hashed by the host pipeline while extraction ran and matched before this result was "
+                 "written; ")
+                + "the image was opened read-only through The Sleuth Kit (a VMDK through libvmdk) and never written"
             ),
         )
         result = build_host_result(

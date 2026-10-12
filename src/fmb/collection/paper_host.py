@@ -17,6 +17,7 @@ from fmb.collection.tools.import_bundle import (
     write_import_outputs,
 )
 from fmb.collection.tools.host.validation import required_artifact_globs
+from fmb.core.background import Background
 from fmb.core.errors import FmbInputError
 from fmb.core.hashing import sha256_file
 from fmb.core.paths import default_current_root
@@ -44,6 +45,19 @@ def evidence_change(path: Path, identity: tuple[int, ...], sha256: str) -> str |
     if (changed or REHASH_AFTER_COLLECTION) and sha256_file(path) != sha256:
         return "content"
     return None
+
+
+def parse_logfiles_early(collector_output_root: Path, normalized_output_dir: Path) -> None:
+    # The import parses each collected $LogFile with dfir_ntfs and keeps the document under normalized_output_dir;
+    # parsing it here, while the host parsers and the parser VM run, lets the import find that document ready.
+    # A failure is left for the import, which parses again and reports it.
+    from fmb.index.adapters.logfile import _logfile_document, raw_logfile_files
+
+    for path in raw_logfile_files(collector_output_root.expanduser().resolve()):
+        try:
+            _logfile_document(path, normalized_output_dir=normalized_output_dir)
+        except Exception:
+            return
 
 
 def collection_args(
@@ -142,24 +156,51 @@ def collect_host(
                     "paper collection prerequisites are unavailable: "
                     + str(checks["host"]["missing"])
                 )
-            observed = sha256_file(evidence)
-            if observed != expected_sha256:
-                raise FmbInputError(
-                    "evidence image does not match the public generation manifest"
-                )
-            receipt["evidence_sha256"] = observed
+            # The full hash of a multi-GB image runs alongside the extraction, which only reads the image; the
+            # extraction result is written only once the hash matched the public generation manifest.
+            hashing = Background(sha256_file, evidence, name="fmb-evidence-sha256")
+
+            def confirm_evidence() -> None:
+                if hashing.result() != expected_sha256:
+                    raise FmbInputError(
+                        "evidence image does not match the public generation manifest"
+                    )
+                receipt["evidence_sha256"] = expected_sha256
+
+            parser_kinds = set(profile["parser_outputs"]) if args.selected_modules is not None else None
+            early_logfile: list[Background] = []
+
+            def after_extraction(collector_output_root: Path) -> None:
+                if parser_kinds is None or "ntfs_logfile" in parser_kinds:
+                    early_logfile.append(Background(
+                        parse_logfiles_early, collector_output_root, normalized / "parser-normalized",
+                        name="fmb-logfile-early"))
+
             write_json(output / "collection-profile.json", declared)
-            receipt["extraction"] = run_host_collector_extraction(
-                args=args,
-                stage_dir=stage,
-                extracted_dir=extracted,
-                targets=selection["target_names"],
-                modules=selection["module_names"],
-                question_id=declared["question_id"],
-                question_text=declared["question_text"],
-                evidence_sha256=observed,
-                run_id=run_id,
-            )
+            try:
+                receipt["extraction"] = run_host_collector_extraction(
+                    args=args,
+                    stage_dir=stage,
+                    extracted_dir=extracted,
+                    targets=selection["target_names"],
+                    modules=selection["module_names"],
+                    question_id=declared["question_id"],
+                    question_text=declared["question_text"],
+                    evidence_sha256=expected_sha256,
+                    run_id=run_id,
+                    after_extraction=after_extraction,
+                    confirm_evidence=confirm_evidence,
+                )
+            except Exception:
+                if hashing.result() != expected_sha256:  # a wrong image fails as one, not as what it broke
+                    raise FmbInputError(
+                        "evidence image does not match the public generation manifest"
+                    ) from None
+                receipt["evidence_sha256"] = expected_sha256
+                raise
+            confirm_evidence()
+            for parse in early_logfile:
+                parse.result()
             inputs = dict(
                 request_path=stage / "tool_run_request.json",
                 result_path=extracted / "tool_run_result.json",

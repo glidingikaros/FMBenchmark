@@ -2,6 +2,7 @@ import json
 
 import pytest
 from fmb.collection import paper_host as host
+from fmb.core.errors import FmbInputError
 from fmb.core.hashing import sha256_file
 from fmb.core.sealed_records import read_json
 from fmb.profiles import resolve_paper_profile
@@ -10,6 +11,7 @@ from fmb.profiles import resolve_paper_profile
 def mocked(tmp_path, monkeypatch, failure=None):
     evidence = tmp_path / "image.vmdk"
     evidence.write_bytes(b"unchanged evidence")
+    expected = "0" * 64 if failure in ("hash", "hash-and-extract") else sha256_file(evidence)
     events = []
     kwargs_profile = resolve_paper_profile()
     monkeypatch.setattr(host, "default_current_root", lambda: tmp_path / "runtime")
@@ -28,9 +30,10 @@ def mocked(tmp_path, monkeypatch, failure=None):
         assert kwargs["args"].expected_definitions_sha256 == (
             kwargs_profile["collection_declaration"]["kape_definitions"]["tree_sha256"]
         )
-        assert kwargs["evidence_sha256"] == sha256_file(evidence)
-        if failure == "extract":
+        assert kwargs["evidence_sha256"] == expected
+        if failure in ("extract", "hash-and-extract"):
             raise RuntimeError("failed extraction")
+        kwargs["confirm_evidence"]()  # the backend writes its result only once this returned
         return {"backend": "host-collector"}
 
     def validate(**kwargs):
@@ -59,21 +62,24 @@ def mocked(tmp_path, monkeypatch, failure=None):
         output=tmp_path / "collection",
         run_id="test",
         windows_parsers=tmp_path / "windows-parsers",
-        expected_sha256=sha256_file(evidence),
+        expected_sha256=expected,
         bounded_content_subject_limit=24,
         bounded_i30_directory_paths=("directory",),
     )
     return kwargs, events
 
 
-@pytest.mark.parametrize("failure", [None, "extract", "validate", "hash"])
+@pytest.mark.parametrize("failure", [None, "extract", "validate", "hash", "hash-and-extract"])
 def test_collection_validation_is_mandatory_and_failure_releases_owner(
     tmp_path, monkeypatch, failure
 ):
     kwargs, events = mocked(tmp_path, monkeypatch, failure)
-    if failure == "hash":
-        kwargs["expected_sha256"] = "0" * 64
-    if failure:
+    if failure in ("hash", "hash-and-extract"):
+        # The image is hashed while it is extracted; a wrong image fails as one before anything is validated,
+        # also when the extraction failed on it.
+        with pytest.raises(FmbInputError, match="does not match the public generation manifest"):
+            host.collect_host(**kwargs)
+    elif failure:
         with pytest.raises(Exception):
             host.collect_host(**kwargs)
     else:
@@ -84,14 +90,13 @@ def test_collection_validation_is_mandatory_and_failure_releases_owner(
     assert receipt["elapsed_seconds"] >= 0
     assert [path.read_text(encoding="utf-8") for path in (tmp_path / "runtime").rglob("*.lock")] == [""]
     assert events == (
-        {"hash": [], "extract": ["extract"], "validate": ["extract", "validate"]}.get(
-            failure, ["extract", "validate", "import"]
-        )
+        {"hash": ["extract"], "hash-and-extract": ["extract"], "extract": ["extract"],
+         "validate": ["extract", "validate"]}.get(failure, ["extract", "validate", "import"])
     )
+    assert ("evidence_sha256" in receipt) == (failure not in ("hash", "hash-and-extract"))
     assert kwargs["evidence"].read_bytes() == b"unchanged evidence"
-    if failure != "hash":
-        assert (kwargs["output"] / "collection-profile.json").read_text() == (
-            json.dumps(kwargs["profile"]["collection_declaration"], indent=2) + "\n"
-        )
+    assert (kwargs["output"] / "collection-profile.json").read_text() == (
+        json.dumps(kwargs["profile"]["collection_declaration"], indent=2) + "\n"
+    )
     with pytest.raises(FileExistsError):
         host.collect_host(**kwargs)
