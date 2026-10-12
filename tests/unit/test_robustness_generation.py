@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 from test_generation_logfile_retention import _fixture_volume
@@ -162,3 +163,30 @@ def test_a_failed_soft_vmware_halt_is_asked_once_more_while_the_vm_runs(tmp_path
         with pytest.raises(RuntimeError, match="soft VMware halt failed"):
             instance.halt_vm()
     assert calls == ["stop", "stop"]
+
+
+@pytest.mark.parametrize("said, converts", [("qemu-img: error while reading sector 42: Input/output error", 2),
+                                            ("qemu-img: error while writing at byte 9: No space left on device", 1)])
+def test_a_failed_convert_is_tried_once_more_unless_the_disk_is_full(tmp_path, said, converts):
+    from fmb.generation.pipeline import GenerationPipeline
+
+    instance = GenerationPipeline.__new__(GenerationPipeline)
+    calls = []
+
+    def run_command(command, **_):
+        calls.append(command[1])
+        if command[1] == "convert":
+            Path(command[-1]).write_bytes(b"partial")
+            if calls.count("convert") == 1:
+                raise subprocess.CalledProcessError(1, command, "", said)
+
+    instance.run_command = run_command
+    final = tmp_path / "full_scale.vmdk"
+    if converts == 2:
+        assert instance.convert_and_publish(tmp_path / "system.qcow2", final, "vmdk") == final
+        assert calls == ["convert", "convert", "info"]
+    else:
+        with pytest.raises(RuntimeError, match="qemu-img convert failed: .*No space left on device"):
+            instance.convert_and_publish(tmp_path / "system.qcow2", final, "vmdk")
+        assert calls == ["convert"]
+    assert not list(tmp_path.glob("*.partial"))

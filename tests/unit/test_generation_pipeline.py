@@ -1180,7 +1180,7 @@ def test_failed_vmdk_conversion_never_publishes_a_final_image(
 
     instance.run_command = fail_convert
     try:
-        with pytest.raises(__import__("subprocess").CalledProcessError):
+        with pytest.raises(RuntimeError, match="qemu-img convert failed"):
             instance.extract_disk(source)
     finally:
         instance.cleanup_population_inputs()

@@ -32,6 +32,7 @@ from fmb.generation import archive_control
 from fmb.generation import vmware_clone
 
 MIN_GENERATION_RUNTIME_RESERVE_BYTES = 8 * 1024**3
+DISK_FULL = re.compile(r"No space left on device|not enough space on the disk|\[Errno 28\]|\[WinError 112\]", re.I)
 
 
 EXECUTION_ORDER_LAST = ("timestomp_01",)
@@ -1735,16 +1736,7 @@ class GenerationPipeline:
         )
         started = time.monotonic()
         try:
-            self.run_command(
-                [
-                    "qemu-img",
-                    "convert",
-                    "-O",
-                    output_format,
-                    str(source_disk),
-                    str(partial_path),
-                ]
-            )
+            self.convert_disk(source_disk, partial_path, output_format)
             if not partial_path.is_file() or partial_path.stat().st_size <= 0:
                 raise RuntimeError(
                     f"converted image is missing or empty: {partial_path}"
@@ -1759,6 +1751,20 @@ class GenerationPipeline:
         finally:
             if partial_path.exists():
                 partial_path.unlink()
+
+    def convert_disk(self, source_disk, partial_path, output_format):
+        """qemu-img convert, tried once more unless the disk is full; converting does not change its source."""
+        command = ["qemu-img", "convert", "-O", output_format, str(source_disk), str(partial_path)]
+        for attempt in (1, 2):
+            try:
+                self.run_command(command, capture_output=True)
+                return
+            except subprocess.CalledProcessError as error:
+                said = ((error.stdout or "") + (error.stderr or "")).strip()[-400:] or f"exit code {error.returncode}"
+                partial_path.unlink(missing_ok=True)
+                if attempt == 2 or DISK_FULL.search(said):
+                    raise RuntimeError(f"qemu-img convert failed: {said}") from error
+                print(f"[!] Warning: qemu-img convert failed ({said}); converting once more", flush=True)
 
     def native_surface_module(self):
         from fmb.generation import ntfs_surface_injection as native
