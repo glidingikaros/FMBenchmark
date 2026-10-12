@@ -476,9 +476,12 @@ def run_images(names: list[str], llm: dict | None, root: Path | None = None, res
 
     root = (root or generated_root()).resolve()
     results = (results or results_root()).resolve()
-    names = list(dict.fromkeys(Path(name).stem if name.endswith(".json") else name for name in names))
-    missing = {Path(name).stem: name for name in names if completed(root / Path(name).stem / "generation") is None}
-    images = {image.name: image for image in load_images([image_files.resolve(name) for name in missing.values()])}
+    given: dict[str, str] = {}  # image name -> what was typed, which may be a path ending in .json
+    for name in names:
+        given.setdefault(Path(name).stem if name.endswith(".json") else name, name)
+    names = list(given)
+    missing = [name for name in names if completed(root / name / "generation") is None]
+    images = {image.name: image for image in load_images([image_files.resolve(given[name]) for name in missing])}
     paper = [name for name in names if (images[name].paper if name in images else paper_image(root / name))]
     provenance = implementation(paper)
     lock = None

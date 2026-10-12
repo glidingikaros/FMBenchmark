@@ -211,7 +211,9 @@ def check(rows: list, name: str, found, fix: str) -> None:
 def checks() -> list[tuple[str, bool, str]]:
     rows: list[tuple[str, bool, str]] = []
     system = platform.system()
-    where = generated() if generated().is_dir() else generated().parent
+    where = generated()
+    while not where.is_dir() and where.parent != where:  # a new FMB_HOME has no folders yet
+        where = where.parent
     need, free = image_need_gib(), shutil.disk_usage(where).free / 2**30
     rows.append((f"free disk for one image ({need:.0f} GiB while it is generated and analysed)", free >= need,
                  f"{free:.0f} GiB free at {where}"))
