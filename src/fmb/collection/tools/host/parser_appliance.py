@@ -369,12 +369,13 @@ def _lock_native_root(lock: Path) -> int | None:
 
 
 @contextmanager
-def _held_native_root(root: Path) -> Iterator[Path]:
+def _held_native_root(root: Path, cancelled: threading.Event | None = None) -> Iterator[Path]:
     # One fmb run at a time uses the fixed folder; the OS drops the lock if that run dies.
     from fmb.collection.run.lock import _unlock
 
     lock = root / NATIVE_ROOT_LOCK
     deadline = time.monotonic() + DEFAULT_GUEST_TIMEOUT_SECONDS
+    stop = cancelled or threading.Event()
     while True:
         root.mkdir(exist_ok=True)
         fd = _lock_native_root(lock)
@@ -382,7 +383,8 @@ def _held_native_root(root: Path) -> Iterator[Path]:
             break
         if time.monotonic() >= deadline:
             raise ParserApplianceError(f"another fmb run kept {root} for its parsers too long; try again")
-        time.sleep(1)
+        if stop.wait(1):
+            raise _Cancelled("the Windows-only parsers were no longer needed")
     try:
         yield root
     finally:
@@ -400,17 +402,20 @@ def _held_native_root(root: Path) -> Iterator[Path]:
             root.rmdir()
 
 
-def _run_native_windows_parsers(*, package_path: Path, script_path: Path, outputs_zip: Path) -> subprocess.CompletedProcess:
+def _run_native_windows_parsers(*, package_path: Path, script_path: Path, outputs_zip: Path,
+                                cancelled: threading.Event | None = None) -> subprocess.CompletedProcess:
+    # cancelled stops the parsers of a collection that failed meanwhile, with everything they started.
     from fmb.core.owned_process import run_owned
 
-    with _held_native_root(native_parser_root()) as root:
+    with _held_native_root(native_parser_root(), cancelled) as root:
         shutil.copyfile(package_path, root / "inputs.zip")
         shutil.copyfile(script_path, root / "run_parsers.ps1")
         powershell, env = _windows_powershell()
         command = [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                    "-File", str(root / "run_parsers.ps1"), "-Root", str(root)]
         try:
-            completed = run_owned(command, env=env, capture_output=True, timeout=DEFAULT_GUEST_TIMEOUT_SECONDS)
+            completed = run_owned(command, env=env, capture_output=True, timeout=DEFAULT_GUEST_TIMEOUT_SECONDS,
+                                  cancel=cancelled)
         except subprocess.CalledProcessError as error:
             return subprocess.CompletedProcess(command, error.returncode, error.output or "", error.stderr or "")
         shutil.copyfile(root / "outputs.zip", outputs_zip)
@@ -873,7 +878,8 @@ class ParserRun:
         guest_stderr = self.tool_logs / "parser-appliance.vmrun.stderr.txt"
         if self.provider == "native_windows":
             completed = self._phase("run_native_parsers", lambda: _run_native_windows_parsers(
-                package_path=package_path, script_path=script_path, outputs_zip=outputs_zip))
+                package_path=package_path, script_path=script_path, outputs_zip=outputs_zip,
+                cancelled=self._cancelled))
             guest_stdout.write_text(completed.stdout or "", encoding="utf-8")
             guest_stderr.write_text(completed.stderr or "", encoding="utf-8")
             if completed.returncode != 0:

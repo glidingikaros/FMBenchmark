@@ -587,9 +587,11 @@ def _start_windows_only_processors(
     progress: Callable[[str], None],
     parser_vm=None,
 ):
-    # The parser VM needs only the extracted targets, so it parses them while the host runs its own parsers. The host
-    # defers exactly the processors of windows_only_modules: processor_deferral decides both.
-    if parser_vm is None:
+    # The Windows-only parsers need only the extracted targets, so they run (natively, or in the parser VM) while the
+    # host runs its own parsers. The host defers exactly the processors of windows_only_modules: processor_deferral
+    # decides both.
+    native = getattr(args, "collection_provider", None) == "native_windows"
+    if parser_vm is None and not (native and windows_only_modules and getattr(args, "windows_parsers", None)):
         return None
     from fmb.collection.tools.host.parser_appliance import ParserRun
 

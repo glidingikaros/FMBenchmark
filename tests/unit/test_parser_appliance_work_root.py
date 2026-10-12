@@ -592,7 +592,7 @@ def host_case(parser_case, monkeypatch, tmp_path):
     evidence = tmp_path / "image.raw"
     evidence.write_bytes(b"public test image")
 
-    def run(host_parsers):
+    def run(host_parsers, provider="vmware_desktop"):
         def run_modules(processors, *, progress, **kwargs):
             host_parsers()
             progress("running MFTECmd: -f targets/C/$MFT --csv modules/FileSystem")
@@ -607,7 +607,7 @@ def host_case(parser_case, monkeypatch, tmp_path):
         args = Namespace(evidence=str(evidence), windows_parsers=str(tmp_path / "windows-parsers"),
                          selected_modules=None, expected_definitions_sha256=None, host_toolchain_root=tmp_path,
                          vm_work_root=parser_case.work_root, run_id="analysis",
-                         collection_provider="vmware_desktop", windows_box="fmb/windows-11-arm64")
+                         collection_provider=provider, windows_box="fmb/windows-11-arm64")
         return backend.run_host_collector_extraction(
             args=args, stage_dir=parser_case.stage, extracted_dir=parser_case.stage / "extracted",
             targets=["Prefetch"], modules=["MFTECmd", "PECmd", "SBECmd"], question_id="FULL-SCALE",
@@ -716,6 +716,89 @@ def test_a_boot_failure_is_noted_on_the_host_failure_that_came_with_it(host_case
         host_case.run(host_parsers)
     assert raised.value.__notes__ == ["The parser VM had also failed to boot: RuntimeError: worker did not boot"]
     assert list(host_case.work_root.iterdir()) == [] and _parser_threads() == []
+
+
+def _native_windows(monkeypatch, tmp_path, parse) -> Path:
+    from fmb.core import owned_process
+
+    root = tmp_path / "FMB-Parsers"
+    monkeypatch.setattr(appliance, "native_parser_root", lambda: root)
+    monkeypatch.setattr(appliance, "_windows_powershell", lambda: ("powershell.exe", {}))
+    monkeypatch.setattr(owned_process, "run_owned", parse)
+    return root
+
+
+def test_native_windows_parsers_run_while_the_host_runs_its_own(host_case, monkeypatch, tmp_path):
+    import threading
+
+    parsed = threading.Event()
+
+    def parse(command, *, cancel, **kwargs):
+        (root / "outputs.zip").write_bytes(b"returned test outputs")
+        parsed.set()
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    root = _native_windows(monkeypatch, tmp_path, parse)
+    overlapped = []
+    summary = host_case.run(lambda: overlapped.append(parsed.wait(10)), provider="native_windows")
+
+    assert overlapped == [True] and summary["status"] == "completed"
+    record = json.loads((host_case.stage / appliance.APPLIANCE_DIR_NAME / "parser-appliance-record.json").read_text())
+    assert [row["phase"] for row in record["phase_timings"]] == [
+        "build_input_package", "run_native_parsers", "merge_outputs"]
+    assert record["guest_root"] is None and record["vm_cleanup"]["removed"] is True
+    lines = (host_case.stage / "extracted" / "tool-logs" / "host-collector.stdout.txt").read_text().splitlines()
+    assert "parser appliance: 2 processors" in lines[-1] and "running MFTECmd" in lines[-2]
+    assert not root.exists() and _parser_threads() == []
+
+
+@pytest.mark.parametrize("failure", [KeyboardInterrupt, "host parser"])
+def test_a_host_failure_stops_the_native_windows_parsers_at_once(host_case, monkeypatch, tmp_path, failure):
+    import threading
+
+    from fmb.collection.tools.host import backend
+    from fmb.collection.tools.host.modules import HostModuleError
+
+    started, stopped = threading.Event(), []
+
+    def parse(command, *, cancel, **kwargs):
+        started.set()
+        # Still parsing when the host fails: run_owned ends them, and what they started, once cancelled.
+        stopped.append(cancel.wait(10))
+        raise RuntimeError("command cancelled")
+
+    def host_parsers():
+        assert started.wait(10)
+        if failure is KeyboardInterrupt:
+            raise KeyboardInterrupt
+        raise HostModuleError("MFTECmd exited 1 for module MFTECmd; see MFTECmd.stderr.txt")
+
+    root = _native_windows(monkeypatch, tmp_path, parse)
+    expected = KeyboardInterrupt if failure is KeyboardInterrupt else backend.HostCollectorError
+    with pytest.raises(expected) as raised:
+        host_case.run(host_parsers, provider="native_windows")
+    assert not getattr(raised.value, "__notes__", None)
+    assert stopped == [True] and not root.exists() and _parser_threads() == []
+
+
+@pytest.mark.parametrize("provider,modules,parsers,starts", [
+    ("native_windows", ["PECmd"], "windows-parsers", True),
+    ("native_windows", [], "windows-parsers", False),
+    ("native_windows", ["PECmd"], None, False),
+    ("qemu", ["PECmd"], "windows-parsers", False),
+])
+def test_the_windows_only_parsers_start_early_natively_or_with_a_parser_vm(tmp_path, monkeypatch, provider, modules,
+                                                                          parsers, starts):
+    from fmb.collection.tools.host import backend
+
+    monkeypatch.setattr(appliance.ParserRun, "start", lambda self: self)
+    args = Namespace(collection_provider=provider, windows_box="fmb/windows-11-x64", windows_parsers=parsers)
+    started = backend._start_windows_only_processors(
+        [_processor("PECmd", "ProgramExecution")], modules, args=args, stage_dir=tmp_path,
+        targets_root=tmp_path / "targets", modules_root=tmp_path / "modules", tool_logs=tmp_path / "logs",
+        progress=lambda line: None)
+    # Without an early parser VM, the parsers of another provider run, as before, after the host's.
+    assert (started is not None) is starts
 
 
 def _parsers(parser_case, vm):

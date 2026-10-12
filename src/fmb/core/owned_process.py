@@ -35,7 +35,9 @@ def run_owned(
     capture_output=False,
     on_line=None,
     max_output_bytes=64 * 1024 * 1024,
+    cancel=None,
 ):
+    # cancel, a threading.Event, stops the command (and what it started) from another thread.
     if timeout is None or timeout <= 0:
         raise ValueError("command timeout must be positive")
     options = (
@@ -93,6 +95,8 @@ def run_owned(
         deadline = time.monotonic() + timeout
         done = not capture
         while process.poll() is None or not done:
+            if cancel is not None and cancel.is_set():
+                raise RuntimeError("command cancelled")
             if (
                 error_file is not None
                 and os.fstat(error_file.fileno()).st_size > max_output_bytes
