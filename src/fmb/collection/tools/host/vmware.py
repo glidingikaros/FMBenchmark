@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 from collections.abc import Callable
+from concurrent.futures import Future
 from functools import partial
 import os
 import re
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from fmb.core.errors import ExternalToolError
-from fmb.core.hashing import sha256_file
+from fmb.core.hashing import hashing_threads, sha256_file
 from fmb.core.json_io import write_json as _write_json
 from fmb.core.processes import process_output_excerpt
 
@@ -302,15 +303,15 @@ def clone_apfs_worker_files(
     library = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
     library.clonefile.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
     library.clonefile.restype = ctypes.c_int
-    copied = []
     started = time.monotonic()
-    for source in sorted(source_root.rglob("*")):
+
+    def clone(source: Path) -> Path | None:
         target = destination / source.relative_to(source_root)
         if source.is_symlink():
             raise KapeApplianceError("APFS source closure contains a symlink")
         if source.is_dir():
             target.mkdir(exist_ok=True)
-            continue
+            return None
         if not source.is_file():
             raise KapeApplianceError("APFS source closure contains a non-file")
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -319,11 +320,29 @@ def clone_apfs_worker_files(
             raise OSError(error, os.strerror(error), str(target))
         if source.stat().st_ino == target.stat().st_ino:
             raise KapeApplianceError("worker shares a writable file identity with its source")
-        digest = sha256_file(target)
-        if digest != sha256_file(source):
+        return target
+
+    def verified(source: Path, target_digest: Future, source_digest: Future) -> dict[str, Any]:
+        digest = target_digest.result()
+        if digest != source_digest.result():
             raise KapeApplianceError("APFS worker read-back hash mismatch")
-        copied.append({"path": source.relative_to(source_root).as_posix(), "sha256": digest,
-                       "size_bytes": source.stat().st_size})
+        return {"path": source.relative_to(source_root).as_posix(), "sha256": digest,
+                "size_bytes": source.stat().st_size}
+
+    # Every clone and its source are hashed a few files at once while the next files are cloned; the files are
+    # checked in order, so a failure is reported as a loop of one file at a time would have met it first.
+    cloned: list[tuple[Path, Future, Future]] = []
+    failure = None
+    with hashing_threads() as submit:
+        try:
+            for source in sorted(source_root.rglob("*")):
+                if (target := clone(source)) is not None:
+                    cloned.append((source, submit(sha256_file, target), submit(sha256_file, source)))
+        except Exception as error:
+            failure = error  # raised once the files cloned before it are checked
+        copied = [verified(*row) for row in cloned]
+    if failure is not None:
+        raise failure
     original_vmx = destination / source_vmx.name
     if original_vmx != destination_vmx:
         original_vmx.rename(destination_vmx)

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -193,12 +194,51 @@ def test_apfs_clone_checks_file_identity_bytes_and_refuses_fallback(tmp_path, mo
         assert destination.with_name("disk.vmdk").read_bytes() == before["disk.vmdk"]
         assert disk.stat().st_ino != destination.with_name("disk.vmdk").stat().st_ino
         receipt = json.loads((metadata / "apfs-worker-clone.json").read_text())
-        assert receipt["status"] == "verified" and len(receipt["files"]) == 2
+        assert receipt["status"] == "verified" and receipt["files"] == [
+            {"path": name, "sha256": hashlib.sha256(before[name]).hexdigest(), "size_bytes": len(before[name])}
+            for name in sorted(before)]
     else:
         with pytest.raises((vmware.KapeApplianceError, OSError)):
             vmware.clone_apfs_worker_files(source, destination, receipt_dir=metadata)
         assert not (metadata / "apfs-worker-clone.json").exists()
     assert {p.name: p.read_bytes() for p in source.parent.iterdir()} == before
+
+
+@pytest.mark.parametrize("later", ["clone", "hash"])
+def test_apfs_clone_reports_the_first_failing_file_in_order(tmp_path, monkeypatch, later):
+    # box.vmx, the first file, clones corrupt; disk.vmdk, the last, fails before it is checked: its clone or its hash.
+    source = tmp_path / "source" / "box.vmx"
+    source.parent.mkdir()
+    source.write_text('memsize = "8192"\n')
+    source.with_name("disk.vmdk").write_bytes(b"independent public disk bytes")
+    destination = tmp_path / "worker" / ".vmrun-appliance" / "box.vmx"
+    destination.parent.parent.mkdir()
+    real, later_failed = vmware.sha256_file, threading.Event()
+
+    def clonefile(old, new, flags):
+        old, new = Path(os.fsdecode(old)), Path(os.fsdecode(new))
+        if old.name == "disk.vmdk" and later == "clone":
+            later_failed.set()
+            ctypes.set_errno(errno.EOPNOTSUPP)
+            return -1
+        new.write_bytes(b"corrupted" if old.name == "box.vmx" else old.read_bytes())
+        return 0
+
+    def sha256_file(path):
+        if path.name == "disk.vmdk" and ".vmrun-appliance" in path.parts:
+            later_failed.set()
+            raise OSError(errno.EIO, "read failed", str(path))
+        if path.name == "box.vmx":
+            later_failed.wait(5)
+        return real(path)
+
+    monkeypatch.setattr(vmware.sys, "platform", "darwin")
+    monkeypatch.setattr(vmware.ctypes, "CDLL", lambda *args, **kwargs: SimpleNamespace(clonefile=clonefile))
+    monkeypatch.setattr(vmware, "assert_flat_vmware_source", lambda path: None)
+    monkeypatch.setattr(vmware, "sha256_file", sha256_file)
+    with pytest.raises(vmware.KapeApplianceError, match="read-back hash mismatch"):
+        vmware.clone_apfs_worker_files(source, destination, receipt_dir=tmp_path)
+    assert not (tmp_path / "apfs-worker-clone.json").exists()
 
 
 def test_apfs_overlap_is_refused_before_source_scan(tmp_path, monkeypatch):
