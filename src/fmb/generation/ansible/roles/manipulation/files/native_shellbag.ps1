@@ -1381,8 +1381,9 @@ function Get-LocalNativeShellbagOwnedProcesses {
         [Parameter(Mandatory)][String]$WorkerCommand,
         [Parameter(Mandatory)][Int32]$ExpectedSessionId
     )
+    # A cold or busy WMI provider can take seconds, and cleanup counts a failed query as a failed visit.
     $processes = @(Get-CimInstance -ClassName Win32_Process `
-        -Filter "Name = 'powershell.exe'" -OperationTimeoutSec 2 -ErrorAction Stop)
+        -Filter "Name = 'powershell.exe'" -OperationTimeoutSec 30 -ErrorAction Stop)
     foreach ($process in $processes) {
         if ([Int32]$process.SessionId -ne $ExpectedSessionId) { continue }
         $command = [string]$process.CommandLine

@@ -72,3 +72,19 @@ def test_shellbag_close_wait_polls_through_a_failed_window_listing(tmp_path, lis
     assert result.returncode == expected, result.stderr
     assert not result.stdout.strip() and not result.stderr.strip()
 
+
+@pytest.mark.pwsh
+@requires_pwsh
+def test_shellbag_process_query_gives_a_slow_wmi_provider_time():
+    audit = r'''
+. $args[0]
+$script:timeouts=@()
+function Get-CimInstance {param($ClassName,$Filter,$OperationTimeoutSec,$ErrorAction) $script:timeouts+=$OperationTimeoutSec}
+Get-LocalNativeShellbagOwnedProcesses -SupervisorCommand 'a' -WorkerCommand 'b' -ExpectedSessionId 1 | Out-Null
+$script:timeouts -join ','
+'''
+    result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-CommandWithArgs", audit,
+                             str(FILES / "native_shellbag.ps1")],
+                            capture_output=True, text=True, check=True, timeout=PWSH_TIMEOUT)
+    assert int(result.stdout) >= 30
+
