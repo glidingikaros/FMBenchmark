@@ -16,7 +16,7 @@ ANSIBLE_REQUIREMENTS = PROJECT_ROOT / "src/fmb/generation/ansible/requirements.y
 
 def test_noise_role_uses_one_local_platform_independent_generator() -> None:
     source = NOISE_ROLE.read_text(encoding="utf-8")
-    tasks = yaml.safe_load(source)
+    tasks = [inner for entry in yaml.safe_load(source) for inner in entry.get("block", [entry])]
 
     assert isinstance(tasks, list)
     assert "http://" not in source.casefold()
@@ -41,7 +41,7 @@ def test_noise_role_uses_one_local_platform_independent_generator() -> None:
 
 
 def test_noise_generator_is_bounded_and_runs_in_the_ansible_session() -> None:
-    tasks = yaml.safe_load(NOISE_ROLE.read_text(encoding="utf-8"))
+    tasks = [inner for entry in yaml.safe_load(NOISE_ROLE.read_text(encoding="utf-8")) for inner in entry.get("block", [entry])]
     copy_task = next(task for task in tasks if "ansible.windows.win_copy" in task)
     run_task = next(task for task in tasks if "ansible.windows.win_shell" in task)
     script = copy_task["ansible.windows.win_copy"]["content"]

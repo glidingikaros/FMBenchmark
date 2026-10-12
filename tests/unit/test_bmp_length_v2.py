@@ -89,7 +89,7 @@ def test_actual_guest_body_and_strict_receipt_with_public_files(tmp_path, varian
     from fmb.generation.population import validate_guest_receipts
     from test_generation_scenario_truth_blindness import render_public_helper_lookups
     task = Path(__file__).resolve().parents[2] / 'src/fmb/generation/ansible/roles/manipulation/tasks/pilot_bitmap_trailing_data_01.yml'
-    body = render_public_helper_lookups(yaml.safe_load(task.read_text())[0]['ansible.windows.win_shell'])
+    body = render_public_helper_lookups(yaml.safe_load(task.read_text())[0]['block'][0]['ansible.windows.win_shell'])
     paths = [str(tmp_path / f'Public{i:03}.bmp') for i in range(4)]
     for path in paths:
         Path(path).write_bytes(bmp_bytes())

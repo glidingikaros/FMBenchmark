@@ -1,23 +1,29 @@
 ---
-- name: Check observed guest build, timezone and locale against the recipe
-  ansible.windows.win_shell: |
-    $ErrorActionPreference = 'Stop'
-    $expected = [Console]::In.ReadToEnd() | ConvertFrom-Json
-    $observed = [ordered]@{
-      windows_build = [string](Get-CimInstance Win32_OperatingSystem).BuildNumber
-      timezone = [string](Get-TimeZone).Id
-      locale = [string](Get-Culture).Name
-    }
-    foreach ($key in @('windows_build', 'timezone', 'locale')) {
-      if ($observed[$key] -cne [string]$expected.$key) {
-        throw "Guest environment does not match the frozen recipe: $key"
-      }
-    }
-    $observed | ConvertTo-Json -Compress
-  args:
-    stdin: "{{ fmb_expected_environment | to_json }}"
-  register: fmb_environment_result
-  no_log: true
+- block:
+    - name: Check observed guest build, timezone and locale against the recipe
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        $expected = [Console]::In.ReadToEnd() | ConvertFrom-Json
+        $observed = [ordered]@{
+          windows_build = [string](Get-CimInstance Win32_OperatingSystem).BuildNumber
+          timezone = [string](Get-TimeZone).Id
+          locale = [string](Get-Culture).Name
+        }
+        foreach ($key in @('windows_build', 'timezone', 'locale')) {
+          if ($observed[$key] -cne [string]$expected.$key) {
+            throw "Guest environment does not match the frozen recipe: $key"
+          }
+        }
+        $observed | ConvertTo-Json -Compress
+      args:
+        stdin: "{{ fmb_expected_environment | to_json }}"
+      register: fmb_environment_result
+      no_log: true
+  rescue:
+    - name: Report the hidden failure
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/hidden_task_failure.yml"
+      vars:
+        fmb_failure_is_public: true
 
 - name: Emit host-only observed guest environment
   ansible.builtin.debug:

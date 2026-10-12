@@ -363,7 +363,7 @@ def test_all_pilot_powershell_parses_without_running_guest_operations(tmp_path):
     source = ROOT / "src/fmb/generation/ansible/roles/manipulation"
     files = list((source / "files").glob("pilot_*.ps1"))
     for task in (source / "tasks").glob("pilot_*.yml"):
-        for item in yaml.safe_load(task.read_text()):
+        for item in (inner for entry in yaml.safe_load(task.read_text()) for inner in entry.get("block", [entry])):
             command = item.get("ansible.windows.win_shell")
             if command is None:
                 continue

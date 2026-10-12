@@ -29,7 +29,8 @@ def _plan(path=STRESS):
 
 
 def _guest(name: str) -> str:
-    return render_public_helper_lookups(yaml.safe_load((TASKS / name).read_text())[0]["ansible.windows.win_shell"])
+    tasks = yaml.safe_load((TASKS / name).read_text())
+    return render_public_helper_lookups(tasks[0].get("block", tasks)[0]["ansible.windows.win_shell"])
 
 
 def _run(tmp_path, name: str, inputs: dict) -> subprocess.CompletedProcess:

@@ -613,7 +613,7 @@ def test_generation_powershell_blocks_parse_when_pwsh_is_available() -> None:
     blocks = []
 
     for path in sorted(SCENARIO_ROOT.glob("*.yml")):
-        for task in yaml.safe_load(path.read_text(encoding="utf-8")):
+        for task in (inner for entry in yaml.safe_load(path.read_text(encoding="utf-8")) for inner in entry.get("block", [entry])):
             if not isinstance(task, dict) or "ansible.windows.win_shell" not in task:
                 continue
             parsed_scenarios.add(path.stem)
@@ -683,7 +683,7 @@ import yaml
 from ansible.parsing.mod_args import ModuleArgsParser
 seen = set()
 for path in sorted(Path(sys.argv[1]).glob('*.yml')):
-    for task in yaml.safe_load(path.read_text()):
+    for task in (inner for entry in yaml.safe_load(path.read_text()) for inner in entry.get('block', [entry])):
         if isinstance(task, dict) and 'ansible.windows.win_shell' in task:
             try:
                 ModuleArgsParser(task).parse(skip_action_validation=True)
