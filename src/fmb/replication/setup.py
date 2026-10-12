@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import io
 import json
 import platform
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -16,6 +18,7 @@ from pathlib import Path
 from fmb.replication import host
 
 AGENT = {"User-Agent": "Mozilla/5.0"}
+RETRY_SECONDS = (5, 30)
 
 
 def log(message: str) -> None:
@@ -28,8 +31,16 @@ def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
 
 
 def fetch(url: str) -> bytes:
-    with urllib.request.urlopen(urllib.request.Request(url, headers=AGENT), timeout=300) as response:
-        return response.read()
+    for wait in (*RETRY_SECONDS, None):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=AGENT), timeout=300) as response:
+                return response.read()
+        except (OSError, http.client.HTTPException) as error:
+            if wait is None:
+                raise SystemExit(f"downloading {url} failed {len(RETRY_SECONDS) + 1} times; the last time: "
+                                 f"{error}") from error
+            log(f"downloading {url} failed ({error}); trying again in {wait} s")
+            time.sleep(wait)
 
 
 def dotnet_runtime() -> None:
