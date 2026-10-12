@@ -149,7 +149,7 @@ def test_a_failed_generation_names_the_phase_the_error_and_the_log(tmp_path, mon
     monkeypatch.setattr(run, "step", step)
     image = SimpleNamespace(name="I1", paper=True, path=tmp_path / "I1.json")
     with pytest.raises(SystemExit) as error:
-        run.generate_image(image, tmp_path / "lock.json", folder, attempts=3)
+        run.generate_image(image, tmp_path / "lock.json", folder, attempts=1)
     assert str(error.value) == (f"I1: generation failed at 'export the disk image and apply the post-export steps': "
                                 f"the exported disk has no NTFS volume; see {folder / 'generate-1.log'}")
 

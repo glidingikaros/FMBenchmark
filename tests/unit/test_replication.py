@@ -41,10 +41,10 @@ def test_the_summary_reads_strict_admission_and_per_question_exactness(tmp_path)
 
 
 def test_a_failure_while_provisioning_is_retried_and_others_are_not():
-    phase = '{"elapsed_seconds": 1.0, "error_type": "X", "outcome": "error", "phase": "%s"}'
-    assert run.RETRYABLE.search(phase % "ansible_provisioning")
-    assert run.RETRYABLE.search(phase % "qemu_boot")
-    assert not run.RETRYABLE.search(phase % "disk_discovery_export")
+    phase = 'FMB_GENERATION_PHASE {"elapsed_seconds": 1.0, "error_type": "X", "outcome": "error", "phase": "%s"}'
+    assert run.failed_phase(run.phase_records(phase % "ansible_provisioning")) in run.RETRYABLE
+    assert run.failed_phase(run.phase_records(phase % "qemu_boot")) in run.RETRYABLE
+    assert run.failed_phase(run.phase_records(phase % "preflight")) not in run.RETRYABLE
 
 
 def test_the_base_needs_an_iso_the_user_downloads_and_says_where_from(monkeypatch):

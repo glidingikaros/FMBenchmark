@@ -119,7 +119,7 @@ def test_a_logfile_that_lost_a_timestamp_change_is_retried_without_its_disk(tmp_
 
 
 def test_an_interrupted_generation_is_not_retried(tmp_path, monkeypatch):
-    provisioning = '{"outcome": "error", "phase": "ansible_provisioning"}'
+    provisioning = 'FMB_GENERATION_PHASE {"outcome": "error", "phase": "ansible_provisioning"}'
     folder, calls = generating(tmp_path, monkeypatch, [(run.INTERRUPTED, provisioning, False)])
     image = SimpleNamespace(name="I1", paper=True, path=tmp_path / "I1.json")
     with pytest.raises(SystemExit, match="interrupted"):
@@ -128,7 +128,7 @@ def test_an_interrupted_generation_is_not_retried(tmp_path, monkeypatch):
 
 
 def test_only_an_attempt_with_another_to_follow_says_it_is_retried(tmp_path, monkeypatch):
-    provisioning = '{"outcome": "error", "phase": "ansible_provisioning"}'
+    provisioning = 'FMB_GENERATION_PHASE {"outcome": "error", "phase": "ansible_provisioning"}'
     folder, calls = generating(tmp_path, monkeypatch, [(1, provisioning, False), (1, provisioning, False)])
     said = []
     monkeypatch.setattr(run, "log", said.append)

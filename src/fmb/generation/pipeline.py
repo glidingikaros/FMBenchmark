@@ -2452,10 +2452,7 @@ class GenerationPipeline:
         journal = PostExportJournal(directory, hasher=self.calculate_hash,
                                     checkpoint=self.checkpoint_post_export_state)
         if journal.entries:
-            raise RuntimeError(
-                f"a post-export journal already exists in {directory}; "
-                "resume it with --resume-post-export"
-            )
+            raise RuntimeError(f"a post-export journal already exists in {directory}; this attempt cannot export again")
         self.post_export_journal = journal
         self.checkpoint_post_export_state()
         return journal
@@ -2474,10 +2471,7 @@ class GenerationPipeline:
         if (self.output_dir / "manifest.json").exists():
             return
         write_json_replace(self.post_export_directory() / POST_EXPORT_CLEANUP_NAME, cleanup_receipt)
-        print(
-            "[!] The post-export stage did not complete; once the cause is fixed, resume "
-            f"it with: --resume-post-export {self.output_dir}"
-        )
+        print("[!] The post-export stage did not complete; this attempt is not published")
 
     @classmethod
     def resume_post_export(cls, output_dir):

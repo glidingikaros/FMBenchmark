@@ -17,11 +17,13 @@ from fmb.core.paths import workspace
 from fmb.replication import awake, host, terminal
 from fmb.replication.setup import log, windows_parsers
 
-RETRYABLE = re.compile(r'"outcome": "error", "phase": "(qemu_boot|vagrant_boot|ansible_provisioning)"')
+# Phases whose failure a new attempt from the same recipe may not repeat; a failed attempt's disks are discarded.
+RETRYABLE = frozenset({"qemu_boot", "vagrant_boot", "ansible_provisioning", "soft_halt", "disk_discovery_export",
+                       "cleanup"})
+BOOTING = ("qemu_boot", "vagrant_boot", "ansible_provisioning")
 LOGFILE_WRAP = re.compile(r"timestamp transitions are not retained in the exported \$LogFile")
 STALE_LOCK = re.compile(r"^fmb: (.*(?:differs from its lock|differ from their lock|locked base is not installed"
                         r"|lock pins no library for the generator's imports).*)$", re.MULTILINE)
-FAILED_PHASE = re.compile(r'^FMB_GENERATION_PHASE (\{.*"outcome": "error".*\})$', re.MULTILINE)
 ERROR_LINE = re.compile(r"^(?:fmb: (?!note: |details: )(.+)|fatal: \[[^]]*\]: (.+))$", re.MULTILINE)
 INTERRUPTED = 130
 # Streams each step's whole output to the terminal, as before these short lines (fmb generate/run --verbose).
@@ -95,10 +97,15 @@ def remove_leftovers() -> None:
 
 
 def discard_disks(attempt: Path) -> float:
+    """Deletes the disk images of an attempt that will not be published, keeping its logs and receipts."""
     freed = 0
     for disk in [*attempt.rglob("*.vmdk"), *attempt.rglob("*.qcow2")]:
-        freed += disk.stat().st_size
-        disk.unlink()
+        try:
+            size = disk.stat().st_size
+            disk.unlink()
+        except OSError:  # still open, as on Windows by a QEMU that outlived its cleanup
+            continue
+        freed += size
     return freed / 2**30
 
 
@@ -184,15 +191,42 @@ def completed(root: Path) -> Path | None:
                  if (manifest.parent / "full_scale.vmdk").is_file()), None)
 
 
+def phase_records(text: str) -> list[dict]:
+    """The FMB_GENERATION_PHASE records of a generation log, whatever their key order or spacing."""
+    records = []
+    for line in text.splitlines():
+        if not line.startswith(terminal.GENERATION_PREFIX):
+            continue
+        try:
+            record = json.loads(line[len(terminal.GENERATION_PREFIX):])
+        except ValueError:
+            continue
+        if isinstance(record, dict) and isinstance(record.get("phase"), str):
+            records.append(record)
+    return records
+
+
+def failed_phase(records: list[dict]) -> str | None:
+    """The phase an attempt failed in: the last that failed, cleanup only when nothing else did."""
+    failed = [record["phase"] for record in records if record.get("outcome") == "error"]
+    return next((phase for phase in reversed(failed) if phase != "cleanup"), failed[-1] if failed else None)
+
+
 def failure(text: str) -> str:
     """Where a generation log says it failed: the phase and the last error line."""
-    phases = FAILED_PHASE.findall(text)
-    phase = json.loads(phases[-1])["phase"] if phases else None
+    records = phase_records(text)
+    phase = failed_phase(records)
     errors = ERROR_LINE.findall(text)
     error = next((part for part in errors[-1] if part), "") if errors else ""
-    started = text.count(f'"outcome": "start", "phase": {json.dumps(phase)}') if phase else 0
+    started = sum(record["phase"] == phase and record.get("outcome") == "start" for record in records)
     where = f" at '{terminal.phase_title(phase, started)}'" if phase else ""
     return where + (f": {error[:400]}" if error else "")
+
+
+def disk_full(text: str) -> bool:
+    from fmb.generation.pipeline import DISK_FULL
+
+    return DISK_FULL.search(text) is not None
 
 
 def stale(name: str, reason: str) -> str:
@@ -221,20 +255,21 @@ def freeze(image, lock: Path, folder: Path, renew: bool = True) -> None:
 
 
 def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
+    """Generates from the frozen recipe; failures and $LogFile wraps each get up to `attempts` attempts."""
     recipe = folder / "recipe"
     freeze(image, lock, folder)
     await_base_clock(recipe)
-    attempt = failures = 0
+    attempt = failures = wraps = 0
     renewed, text, log_path = False, "", folder
-    while failures < attempts:
+    while failures < attempts and wraps < attempts:
         if (done := completed(folder / "generation")) is not None:
             return done
         attempt += 1
-        log_path = folder / f"generate-{attempt}.log"
+        output, log_path = folder / "generation" / f"attempt-{attempt}", folder / f"generate-{attempt}.log"
         log(f"{image.name}: generating, attempt {attempt}; its whole output goes to {log_path}")
-        code = step("generate", recipe=recipe, output_root=folder / "generation" / f"attempt-{attempt}",
-                    vm_work_root=vm_work_root(), log_path=log_path, label=image.name)
-        if code == 0 and (done := completed(folder / "generation" / f"attempt-{attempt}")) is not None:
+        code = step("generate", recipe=recipe, output_root=output, vm_work_root=vm_work_root(), log_path=log_path,
+                    label=image.name)
+        if code == 0 and (done := completed(output)) is not None:
             return done
         if code == INTERRUPTED:
             raise SystemExit(f"{image.name}: generation interrupted; its VM is removed")
@@ -245,16 +280,22 @@ def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
             renewed = True
             freeze(image, lock, folder, renew=False)
             continue
-        failures += 1
-        then = "retrying with the same recipe" if failures < attempts else f"that was the last of {attempts} attempts"
-        if LOGFILE_WRAP.search(text):
-            freed = discard_disks(folder / "generation" / f"attempt-{attempt}")
-            log(f"{image.name}: attempt {attempt} lost a timestamp change from the $LogFile before export, which "
-                f"Windows activity in the guest sometimes causes; removed its disk images ({freed:.0f} GiB); {then}")
-            continue
-        if not RETRYABLE.search(text):
+        records, wrapped = phase_records(text), LOGFILE_WRAP.search(text) is not None
+        failures, wraps, phase = failures + (not wrapped), wraps + wrapped, failed_phase(records)
+        if not wrapped and (phase not in RETRYABLE or disk_full(text)):
             raise SystemExit(f"{image.name}: generation failed{failure(text)}; see {log_path}")
-        log(f"{image.name}: attempt {attempt} failed while booting or provisioning; {then}")
+        if any(record["phase"] == "cleanup" and record.get("outcome") == "error" for record in records):
+            remove_leftovers()
+        freed = discard_disks(output)
+        if wrapped:
+            log(f"{image.name}: attempt {attempt} lost a timestamp change from the $LogFile before export, which "
+                f"Windows activity in the guest sometimes causes; removed its disk images ({freed:.0f} GiB); "
+                + ("retrying with the same recipe" if wraps < attempts else f"stopping after {attempts} such attempts"))
+            continue
+        where = "while booting or provisioning" if phase in BOOTING else f"at '{terminal.phase_title(phase)}'"
+        removed = f"; removed its disk images ({freed:.1f} GiB)" if freed >= 0.05 else ""
+        then = "retrying with the same recipe" if failures < attempts else f"that was the last of {attempts} attempts"
+        log(f"{image.name}: attempt {attempt} failed {where}{removed}; {then}")
     raise SystemExit(f"{image.name}: generation failed{failure(text)}; see {log_path}")
 
 

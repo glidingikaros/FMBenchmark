@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from test_generation_logfile_retention import _fixture_volume
@@ -190,3 +192,81 @@ def test_a_failed_convert_is_tried_once_more_unless_the_disk_is_full(tmp_path, s
             instance.convert_and_publish(tmp_path / "system.qcow2", final, "vmdk")
         assert calls == ["convert"]
     assert not list(tmp_path.glob("*.partial"))
+
+
+def phase(name, outcome, **extra):
+    return "FMB_GENERATION_PHASE " + json.dumps({"phase": name, "outcome": outcome, **extra}) + "\n"
+
+
+def failed(name, error="it broke"):
+    return phase(name, "start") + phase(name, "error", error_type="RuntimeError") + f"fmb: {error}\n"
+
+
+WRAP = failed("disk_discovery_export", "the intended timestamp transitions are not retained in the exported $LogFile; x")
+
+
+def attempts_of(tmp_path, monkeypatch, logs):
+    """Runs generate_image with a fake step whose attempts end with the given logs (None: published)."""
+    folder = tmp_path / "I1"
+    (folder / "recipe").mkdir(parents=True)
+    monkeypatch.setattr(run, "await_base_clock", lambda recipe: None)
+    events = []
+    monkeypatch.setattr(run, "remove_leftovers", lambda: events.append("leftovers"))
+    monkeypatch.setattr(run, "log", events.append)
+
+    def step(name, *, log_path, output_root, **_):
+        events.append(name)
+        published = Path(output_root) / "full_scale" / "a"
+        published.mkdir(parents=True)
+        (published / "full_scale.vmdk").write_bytes(b"\0" * 2**20)
+        text = logs[sum(event == "generate" for event in events) - 1]
+        if text is None:
+            (published / "manifest.json").write_text("{}")
+        log_path.write_text(text or "done", encoding="utf-8")
+        return 0 if text is None else 1
+
+    monkeypatch.setattr(run, "step", step)
+    image = SimpleNamespace(name="I1", paper=True, path=tmp_path / "I1.json")
+    return lambda attempts=3: run.generate_image(image, tmp_path / "lock.json", folder, attempts), folder, events
+
+
+def test_phase_lines_are_read_whatever_their_key_order_or_spacing():
+    text = ('FMB_GENERATION_PHASE {"phase":"soft_halt","outcome":"error","outcome_detail":"x"}\n'
+            'FMB_GENERATION_PHASE {"outcome": "error", "phase": "cleanup"}\nnot json\n')
+    assert run.failed_phase(run.phase_records(text)) == "soft_halt"
+    assert run.failed_phase(run.phase_records(phase("cleanup", "error"))) == "cleanup"
+    assert run.failure(failed("soft_halt", "guest shutdown did not finish")) == (
+        " at 'shut the guest down': guest shutdown did not finish")
+
+
+@pytest.mark.parametrize("name", ["soft_halt", "disk_discovery_export", "cleanup"])
+def test_a_late_failure_is_retried_without_its_disks(tmp_path, monkeypatch, name):
+    generate, folder, events = attempts_of(tmp_path, monkeypatch, [failed(name), None])
+    assert generate() == folder / "generation" / "attempt-2" / "full_scale" / "a"
+    assert not (folder / "generation" / "attempt-1" / "full_scale" / "a" / "full_scale.vmdk").exists()
+    assert ("leftovers" in events) == (name == "cleanup")
+    assert any(f"attempt 1 failed at '{run.terminal.phase_title(name)}'" in str(event) for event in events)
+
+
+@pytest.mark.parametrize("log", [failed("disk_discovery_export", "qemu-img convert failed: No space left on device"),
+                                 failed("preflight"), "Traceback without a phase\n"])
+def test_a_full_disk_or_a_failure_another_attempt_would_repeat_is_not_retried(tmp_path, monkeypatch, log):
+    generate, _, events = attempts_of(tmp_path, monkeypatch, [log, None])
+    with pytest.raises(SystemExit, match="generation failed"):
+        generate()
+    assert events.count("generate") == 1
+
+
+def test_logfile_wraps_have_their_own_attempts(tmp_path, monkeypatch):
+    provisioning = failed("ansible_provisioning")
+    generate, folder, events = attempts_of(tmp_path, monkeypatch, [WRAP, WRAP, provisioning, provisioning, None])
+    assert generate(3) == folder / "generation" / "attempt-5" / "full_scale" / "a"
+    generate, folder, events = attempts_of(tmp_path / "again", monkeypatch, [WRAP, WRAP, None])
+    with pytest.raises(SystemExit, match="not retained"):
+        generate(2)
+    assert "I1: attempt 2 lost a timestamp change" in events[-1] and events[-1].endswith("stopping after 2 such attempts")
+
+
+def test_no_failure_hint_names_a_flag_that_does_not_exist():
+    source = (Path(__file__).resolve().parents[2] / "src/fmb/generation/pipeline.py").read_text(encoding="utf-8")
+    assert "--resume-post-export" not in source
