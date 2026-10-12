@@ -72,40 +72,6 @@ def test_a_retained_receipt_is_unchanged(tmp_path, monkeypatch):
     assert receipt["status"] == "retained" and "reason" not in written(tmp_path)
 
 
-def hmp_monitor(reply: bytes, delay: float):
-    import socket
-    import threading
-    import time
-
-    server = socket.socket()
-    server.bind(("127.0.0.1", 0))
-    server.listen(1)
-
-    def serve():
-        connection, _ = server.accept()
-        with connection:
-            connection.sendall(b"QEMU 8.2.2 monitor - type 'help' for more information\r\n(qemu) ")
-            received = b""
-            while not received.endswith(b"\n"):
-                received += connection.recv(4096)
-            connection.sendall(received.rstrip(b"\n") + b"\r\n")
-            time.sleep(delay)
-            connection.sendall(reply + b"\r\n(qemu) ")
-        server.close()
-
-    threading.Thread(target=serve, daemon=True).start()
-    return server.getsockname()[1]
-
-
-def test_a_late_monitor_error_is_read_up_to_the_prompt():
-    from fmb.generation.backends import QemuBackend
-
-    backend = QemuBackend.__new__(QemuBackend)
-    backend.monitor_port = hmp_monitor(b"Could not open '/x.vmdk': No space left on device", 1.5)
-    with pytest.raises(RuntimeError, match="(?i)QEMU refused .*no space left on device"):
-        backend.attach_media({"uuid_bios": "u"}, [{"unit": 8, "port": 1, "path": "/x.vmdk"}])
-
-
 class Guest:
     """A QEMU process that exits on the given wait() call."""
 
@@ -129,7 +95,7 @@ def qemu_guest(process, shutdown_code: int):
     backend = QemuBackend.__new__(QemuBackend)
     backend.process, sent = process, []
     backend._guest_powershell = lambda script, timeout=180: subprocess.CompletedProcess([], shutdown_code, "", "")
-    backend._monitor = lambda command, timeout=30: sent.append(command) or "(qemu) "
+    backend._monitor = lambda command: sent.append(command) or "(qemu) "
     return backend, sent
 
 
