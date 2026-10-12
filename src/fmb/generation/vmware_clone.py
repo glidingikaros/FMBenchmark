@@ -9,6 +9,8 @@ import stat
 import sys
 import time
 
+from fmb.core.hashing import hashing_threads
+
 RECEIPT_NAME = "vmware-clone-receipt.json"
 COPY_METHOD = "independent_apfs_clonefiles_no_fallback"
 MAX_SOURCE_ENTRIES = 4096
@@ -115,15 +117,15 @@ def clone_files(source_vmx, destination_vmx):
     library.clonefile.restype = ctypes.c_int
     started = time.monotonic()
     deadline = started + CLONE_TIMEOUT_SECONDS
-    files = []
-    for path in entries:
+
+    def clone(path):
         if time.monotonic() >= deadline:
             raise TimeoutError("APFS clone verification exceeded its deadline")
         target = destination / path.relative_to(source)
         before = path.lstat()
         if stat.S_ISDIR(before.st_mode):
             target.mkdir(exist_ok=False)
-            continue
+            return None
         if not stat.S_ISREG(before.st_mode):
             raise ValueError("VMware source changed to a link or non-file")
         if library.clonefile(os.fsencode(path), os.fsencode(target), 0):
@@ -132,15 +134,33 @@ def clone_files(source_vmx, destination_vmx):
         copied = target.lstat()
         if not stat.S_ISREG(copied.st_mode) or (before.st_dev, before.st_ino) == (copied.st_dev, copied.st_ino):
             raise ValueError("APFS clone shares a writable file identity with its source")
-        digest = _digest(target, deadline)
-        if copied.st_size != before.st_size or digest != _digest(path, deadline):
+        return target, before, copied
+
+    def verified(path, before, copied, target_digest, source_digest):
+        digest = target_digest.result()
+        if copied.st_size != before.st_size or digest != source_digest.result():
             raise ValueError("APFS clone read-back hash mismatch")
         after = path.lstat()
         if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) != (
                 before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns):
             raise ValueError("VMware source changed during APFS clone verification")
-        files.append({"path": path.relative_to(source).as_posix(), "sha256": digest,
-                      "size_bytes": before.st_size})
+        return {"path": path.relative_to(source).as_posix(), "sha256": digest, "size_bytes": before.st_size}
+
+    # Every clone and its source are hashed a few files at once while the next files are cloned; the files are
+    # checked in order, so a failure is reported as a loop of one file at a time would have met it first.
+    cloned, failure = [], None
+    with hashing_threads() as submit:
+        try:
+            for path in entries:
+                if (result := clone(path)) is not None:
+                    target, before, copied = result
+                    cloned.append((path, before, copied, submit(_digest, target, deadline),
+                                   submit(_digest, path, deadline)))
+        except Exception as error:
+            failure = error  # raised once the files cloned before it are checked
+        files = [verified(*row) for row in cloned]
+    if failure is not None:
+        raise failure
     cloned_vmx = destination / source_vmx.name
     if cloned_vmx != destination_vmx:
         cloned_vmx.rename(destination_vmx)

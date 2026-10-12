@@ -2,9 +2,11 @@ from pathlib import Path
 from types import SimpleNamespace
 import ctypes
 import errno
+import hashlib
 import json
 import os
 import shutil
+import threading
 
 import pytest
 
@@ -38,7 +40,8 @@ def test_clone_reads_every_byte_and_keeps_independent_inodes(source, tmp_path, m
     destination = tmp_path / "owned" / "box.vmx"
     receipt = clone.clone_files(source, destination)
     assert receipt["copy_method"] == clone.COPY_METHOD
-    assert {row["path"] for row in receipt["files"]} == set(original)
+    assert receipt["files"] == [{"path": name, "sha256": hashlib.sha256(original[name]).hexdigest(),
+                                 "size_bytes": len(original[name])} for name in sorted(original)]
     assert 'uuid.action = "create"' in destination.read_text()
     for path in source.parent.iterdir():
         assert path.read_bytes() == original[path.name]
@@ -60,6 +63,31 @@ def test_clone_refuses_shared_identity_corruption_and_unsupported_cloning(source
         monkeypatch.setattr(clone.ctypes, "CDLL", lambda *_args, **_kwargs: SimpleNamespace(clonefile=fail))
     with pytest.raises((ValueError, OSError), match="identity|hash mismatch|supported"):
         clone.clone_files(source, tmp_path / "owned" / "box.vmx")
+    assert (source.parent / "disk-flat.vmdk").read_bytes() == b"protected extent"
+
+
+@pytest.mark.parametrize("later", ["clone", "hash"])
+def test_clone_reports_the_first_failing_file_in_order(source, tmp_path, monkeypatch, later):
+    # box.vmx, the first file, clones corrupt; disk.vmdk, the last, fails before it is checked: its clone or its hash.
+    owned, real, later_failed = tmp_path / "owned", clone._digest, threading.Event()
+
+    def operation(src, dst):
+        if src.name == "disk.vmdk" and later == "clone":
+            later_failed.set()
+            raise OSError(errno.ENOTSUP, "clone not supported", str(dst))
+        dst.write_bytes(b"corrupt" if src.name == "box.vmx" else src.read_bytes())
+    fake_clone(monkeypatch, operation)
+
+    def digest(path, deadline):
+        if path == owned / "disk.vmdk":
+            later_failed.set()
+            raise TimeoutError("APFS clone verification exceeded its deadline")
+        if path.name == "box.vmx":
+            later_failed.wait(5)
+        return real(path, deadline)
+    monkeypatch.setattr(clone, "_digest", digest)
+    with pytest.raises(ValueError, match="hash mismatch"):
+        clone.clone_files(source, owned / "box.vmx")
     assert (source.parent / "disk-flat.vmdk").read_bytes() == b"protected extent"
 
 

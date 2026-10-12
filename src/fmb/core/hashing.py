@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
+import contextvars
 import hashlib
 import os
 from pathlib import Path
@@ -15,6 +19,8 @@ DEFAULT_FILE_CHUNK_SIZE = 1024 * 1024
 READ_AHEAD_MIN_BYTES = 64 * 1024 * 1024
 READ_AHEAD_BLOCK_SIZE = 16 * 1024 * 1024
 READ_AHEAD_BLOCKS = 4
+# One SHA-256 thread reads a Mac's SSD at a fraction of its speed, so the files of a VM disk are hashed a few at once.
+HASH_WORKERS = min(4, os.cpu_count() or 1)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -71,6 +77,27 @@ def _update_reading_ahead(digest: Any, handle: Any, chunk_size: int) -> None:
     finally:
         stop.set()
         thread.join()
+
+
+@contextmanager
+def hashing_threads(workers: int = HASH_WORKERS) -> Iterator[Callable[..., Future]]:
+    """Yields submit(function, *args), which starts the call on one of a few threads and returns its future.
+
+    Each call runs in a copy of the caller's context, so the run's read audit and truth guard see its file opens.
+    Leaving the block drops the calls not started yet and waits for the running ones.
+    """
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fmb-sha256") as pool:
+        try:
+            yield lambda function, *args: pool.submit(contextvars.copy_context().run, function, *args)
+        finally:
+            pool.shutdown(cancel_futures=True)
+
+
+def in_order(function: Callable[[Any], Any], items: Iterable[Any], *, workers: int = HASH_WORKERS) -> list:
+    """[function(item) for item in items], a few items at once; an error is the first failing item's, as in a loop."""
+    with hashing_threads(workers) as submit:
+        calls = [submit(function, item) for item in items]
+        return [call.result() for call in calls]
 
 
 def canonical_json_bytes(document: Any) -> bytes:

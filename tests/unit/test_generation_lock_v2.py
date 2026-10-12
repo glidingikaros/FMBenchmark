@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 
 import copy
+import hashlib
 import json
 from pathlib import Path
+import threading
 
 import pytest
 
@@ -181,6 +183,30 @@ def test_each_pinned_input_is_enforced(host, drift, message):
     lock = host.build()
     drift(host)
     with pytest.raises(ValueError, match=message):
+        dependency_lock.verify_lock(lock)
+
+
+def test_base_files_hashed_at_once_keep_their_rows_and_report_the_first_failing_file(host, monkeypatch):
+    lock = host.build()
+    assert lock["base"]["files"] == [
+        {"path": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "size_bytes": path.stat().st_size}
+        for path in sorted(host.box.iterdir())]
+    real, later_failed = dependency_lock.file_row, threading.Event()
+
+    def file_row(path, relative):
+        if path.name == "disk-flat.vmdk":
+            later_failed.wait(5)  # disk.vmdk, listed after it, has failed by now
+            path.unlink()
+        elif path.name == "disk.vmdk":
+            path.unlink()
+            try:
+                return real(path, relative)
+            finally:
+                later_failed.set()
+        return real(path, relative)
+
+    monkeypatch.setattr(dependency_lock, "file_row", file_row)
+    with pytest.raises(FileNotFoundError, match="disk-flat.vmdk"):
         dependency_lock.verify_lock(lock)
 
 

@@ -8,6 +8,7 @@ import shutil
 import sys
 from pathlib import Path, PurePosixPath
 
+from fmb.core.hashing import in_order
 from fmb.generation.recipe import BOX, SHA256, VERSION, _object as _fields, digest, file_row
 
 LOCK_SCHEMA = "generation_dependency_lock.v2"
@@ -206,7 +207,8 @@ def library_versions(imports):
 
 
 def base_rows(backend, directory):
-    return [file_row(path, path.relative_to(directory).as_posix()) for path in backend.base_files(directory)]
+    # The box's disk is split into many extent files; hashing a few at once reads a Mac's SSD several times faster.
+    return in_order(lambda path: file_row(path, path.relative_to(directory).as_posix()), backend.base_files(directory))
 
 
 def _tool_versions(tools):
