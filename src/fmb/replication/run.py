@@ -101,10 +101,14 @@ def remove_leftovers() -> None:
             log(f"could not remove {target}, left by an interrupted generation: {error}")
 
 
+def disks(attempt: Path) -> list[Path]:
+    return [*attempt.rglob("*.vmdk"), *attempt.rglob("*.qcow2"), *attempt.rglob("*.partial")]
+
+
 def discard_disks(attempt: Path) -> float:
     """Deletes the disk images of an attempt that will not be published, keeping its logs and receipts."""
     freed = 0
-    for disk in [*attempt.rglob("*.vmdk"), *attempt.rglob("*.qcow2"), *attempt.rglob("*.partial")]:
+    for disk in disks(attempt):
         try:
             size = disk.stat().st_size
             disk.unlink()
@@ -118,6 +122,13 @@ def discard_unpublished(name: str, root: Path, which: str) -> None:
     """Deletes the disks under root unless an attempt there was published, and says how much that freed."""
     if completed(root) is None and (freed := discard_disks(root)) >= 0.05:
         log(f"{name}: removed the disk images of {which} ({freed:.1f} GiB); their logs stay")
+
+
+def unpublished_gib(root: Path) -> float:
+    """What discard_unpublished(root) would free."""
+    if completed(root) is not None:
+        return 0.0
+    return sum(disk.stat().st_size for disk in disks(root) if disk.is_file()) / 2**30
 
 
 def vm_work_root() -> Path | None:
@@ -532,13 +543,15 @@ def shortfall(free: float, need: float) -> tuple[float, float]:
     return math.floor(round(free * 10, 6)) / 10, math.ceil(round((need - free) * 10, 6)) / 10
 
 
-def disk_space(name: str, root: Path) -> None:
-    need, free = host.image_need_gib(), host.free_gib(root)
+def disk_space(name: str, root: Path, reclaimable: float = 0.0) -> None:
+    """reclaimable: what this image's unfinished attempts hold, which its generation deletes before it starts."""
+    need, free = host.image_need_gib(), host.free_gib(root) + reclaimable
     if free >= need:
         return
     shown, short = shortfall(free, need)
     text = (f"generating and analysing it needs about {need:.1f} GiB free, and only {shown:.1f} GiB are free at "
-            f"{root}; free {short:.1f} GiB more")
+            f"{root}" + (f", counting {reclaimable:.1f} GiB of its unfinished attempts that it deletes first"
+                         if reclaimable >= 0.05 else "") + f"; free {short:.1f} GiB more")
     if need - free <= SLACK_GIB:
         warn(f"{name}: {text} to be safe; going ahead, as free space moves by a few GiB on its own")
         return
@@ -570,8 +583,11 @@ def list_space(steps: list[tuple[str, float, bool, float]], root: Path, advice: 
 def generate_one(image, lock: Path, root: Path, attempts: int, again: bool = False) -> Path:
     folder = root / image.name
     if again and folder.exists():
-        size = host.allocated_gib(folder)
-        shutil.rmtree(folder)
+        with generating(folder):  # never under an fmb that is generating it now
+            size = host.allocated_gib(folder)
+            for path in folder.iterdir():
+                if path.name != ".lock":
+                    shutil.rmtree(path) if path.is_dir() else path.unlink()
         log(f"{image.name}: deleted the earlier generation ({size:.0f} GiB) to generate it again")
     if (done := completed(folder / "generation")) is not None:
         log(f"{image.name}: already generated ({done}); fmb generate {image.name} --again generates it again")
@@ -580,7 +596,7 @@ def generate_one(image, lock: Path, root: Path, attempts: int, again: bool = Fal
     if (folder / "image.json").is_file() and (folder / "image.json").read_bytes() != definition:
         raise SystemExit(f"{image.path} changed since {folder} was started; fmb generate {image.name} --again "
                          "starts it again")
-    disk_space(image.name, root)
+    disk_space(image.name, root, unpublished_gib(folder / "generation"))
     folder.mkdir(exist_ok=True)
     partial = folder / ".image.json.partial"  # an interrupted write must not leave a definition that reads as changed
     try:

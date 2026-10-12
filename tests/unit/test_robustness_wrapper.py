@@ -395,7 +395,7 @@ def test_a_generation_that_failed_after_the_computer_slept_says_so(tmp_path, mon
 
     clocks = iter([(1000.0, 500.0), (4000.0, 1300.0), (1000.0, 500.0), (1003.0, 503.0)])
     monkeypatch.setattr(awake, "_clocks", lambda: next(clocks))
-    monkeypatch.setattr(run, "disk_space", lambda name, root: None)
+    monkeypatch.setattr(run, "disk_space", lambda name, root, reclaimable=0.0: None)
 
     def failed(*_):
         raise SystemExit("I1: generation failed at 'user activity and manipulations in the guest': clock offset")
@@ -521,7 +521,7 @@ def test_an_interrupted_image_definition_write_does_not_read_as_a_changed_image(
         write_bytes(path, data[:10])
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(run, "disk_space", lambda name, root: None)
+    monkeypatch.setattr(run, "disk_space", lambda name, root, reclaimable=0.0: None)
     monkeypatch.setattr(Path, "write_bytes", cut)
     with pytest.raises(KeyboardInterrupt):
         run.generate_one(image, tmp_path / "lock.json", root, attempts=3)
