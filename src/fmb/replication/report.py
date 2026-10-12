@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from decimal import Decimal
 from pathlib import Path
 
 from fmb.core.case_contract import QIDS
@@ -13,6 +14,9 @@ GATES = {"G1": "Evidence image", "G2": "Artefact profile", "G3": "Evidence cards
 KEY_RECEIPTS = {"image.json": "Image definition", "recipe.json": "Generation recipe",
                 "manifest.json": "Generation manifest", "ground_truth.json": "Ground truth",
                 "finding_reference.json": "Finding reference"}
+UNANSWERED = {"transport_exhausted": "failed", "not_attempted": "not sent",
+              "precheck_refused": "refused before sending (over the cap or the context window)",
+              "missing_outcome": "unrecorded"}
 
 
 def _f1(value) -> str:
@@ -25,14 +29,44 @@ def _span(values: list, form=str) -> str:
     return form(low) if low == high else f"{form(low)}–{form(high)}"
 
 
+def _stopped(row: dict) -> str:
+    stopped = row.get("stopped") or {}
+    return ("the pipeline stopped" + (f" at {stopped['at']}" if stopped.get("at") else "")
+            + (f" ({stopped['error']})" if stopped.get("error") else ""))
+
+
 def _admission(row: dict) -> str:
+    if row["admission"] == "not reached":
+        return f"not reached: {_stopped(row)}; see pipeline.log"
+    if row.get("stopped"):
+        return f"{row['admission']}, but then {_stopped(row)}; the run is incomplete, see pipeline.log"
     if row["admission"] == "passed":
         return "passed: the rules reproduce the ground truth on every question, so this image's evidence counts"
-    if row["admission"] == "failed":
-        return ("failed: the rules miss " + ", ".join(row["not_exact"])
-                + "; the comparison is a development run, not a result")
-    return ("not reached: the pipeline stopped" + (f" ({row['error']})" if row.get("error") else "")
-            + "; see pipeline.log")
+    return ("failed: the rules miss " + ", ".join(row["not_exact"])
+            + "; the comparison is a development run, not a result")
+
+
+def _calls(llm: dict) -> str:
+    return f"   answered {llm['answered'][0]} of {llm['answered'][1]} calls" if "answered" in llm else ""
+
+
+def _unanswered(llm: dict) -> list[str]:
+    if "answered" not in llm or llm["answered"][0] == llm["answered"][1]:
+        return []
+    states = ", ".join(f"{count} {UNANSWERED.get(state, state)}" for state, count in sorted(llm["unanswered"].items()))
+    return [f"{'':<29}not answered: {states}" + (f"; first error: {llm['error']}" if llm.get("error") else "")]
+
+
+def _not_sent(row: dict) -> list[str]:
+    lines = []
+    for condition in row.get("llm_requested", []):
+        if condition in row.get("llm", {}):
+            continue
+        spent = row.get("spent_usd", {}).get(condition)
+        lines.append(f"  S3'  {condition:<22} " + (f"not scored; ${spent} spent before the pipeline stopped" if spent
+                                                    else "not sent" + (" (admission failed)"
+                                                                       if row["admission"] == "failed" else "")))
+    return lines
 
 
 def headline(row: dict, folder: Path) -> list[str]:
@@ -45,10 +79,13 @@ def headline(row: dict, folder: Path) -> list[str]:
         for condition, llm in row.get("llm", {}).items():
             cost = f"   ${llm['cost_usd']}" if llm.get("cost_usd") is not None else ""
             lines.append(f"  S3'  {condition:<22} {_span(llm['exact'])}/{row['questions']} questions exact per pass "
-                         f"({llm['passes']} pass{'' if llm['passes'] == 1 else 'es'})   F1 {_span(llm['f1'], _f1)}{cost}")
-        if not row.get("llm"):
+                         f"({llm['passes']} pass{'' if llm['passes'] == 1 else 'es'})   F1 {_span(llm['f1'], _f1)}{cost}"
+                         + _calls(llm))
+            lines += _unanswered(llm)
+        if not row.get("llm") and not row.get("llm_requested"):
             lines.append("  S3'  not sent: add --llm CONDITION --cap-usd USD to compare an LLM (fmb run --help lists "
                          "the conditions)")
+    lines += _not_sent(row)
     lines.append(f"  report: {folder / 'report.md'}")
     return lines
 
@@ -65,11 +102,32 @@ def complete(output: Path, row: dict, generated: Path, generation: Path) -> None
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else None
     exposure = next((step["detail"].get("exposure_usd", {}) for step in (manifest or {}).get("stages", [])
                      if step.get("step") == "S3':dispatch"), {})
-    for condition, llm in row.get("llm", {}).items():
-        if condition in exposure:
-            llm["cost_usd"] = exposure[condition]
+    for condition in dict.fromkeys([*row.get("llm", {}), *row.get("llm_requested", [])]):
+        completion = _completion(output / "run" / "conditions" / condition)
+        spent = exposure.get(condition, completion.get("conservative_exposure_usd"))
+        if llm := row.get("llm", {}).get(condition):
+            llm.update({"cost_usd": spent} if spent is not None else {})
+            llm.update({"error": error} if (error := _first_error(completion)) else {})
+        elif spent is not None and Decimal(spent) > 0:
+            row.setdefault("spent_usd", {})[condition] = spent
     (output / "summary.json").write_text(json.dumps(row, indent=2) + "\n", encoding="utf-8")
     (output / "report.md").write_text(markdown(output, row, manifest, generated), encoding="utf-8")
+
+
+def _completion(condition: Path) -> dict:
+    """A condition's record of its S3' calls, which dispatch writes even when it is interrupted."""
+    try:
+        return json.loads((condition / "run" / "completion.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _first_error(completion: dict) -> str | None:
+    for outcome in completion.get("outcomes", []):
+        error = outcome.get("error") or {}
+        if error and outcome.get("status") not in ("completed", "invalid_response"):
+            return (f"{error.get('type')}: {error['message']}" if error.get("message") else str(error.get("type")))[:300]
+    return None
 
 
 def _verdict(entry: dict) -> str:
@@ -143,9 +201,15 @@ def markdown(output: Path, row: dict, manifest: dict | None, generated: Path) ->
                      + f", reasoning {settings['reasoning_effort']}"
                      + "".join(f", {key} {settings[key]}" for key in SAMPLING if key in settings)
                      + f", at most {settings['max_output_tokens']} output tokens, {llm['passes']} passes"
-                     + (f", ${llm['cost_usd']} of a ${cap} cap" if llm.get("cost_usd") is not None else "") + ".")
-    if not row.get("llm"):
-        lines.append("- S3': not sent. The LLM requests are frozen under `run/conditions/`.")
+                     + (f", ${llm['cost_usd']} of a ${cap} cap" if llm.get("cost_usd") is not None else "")
+                     + (f", answered {llm['answered'][0]} of {llm['answered'][1]} calls" if "answered" in llm else "")
+                     + ".")
+    frozen = any(step.get("step") == "S3':freeze" and step.get("status") == "completed"
+                 for step in (manifest or {}).get("stages", []))
+    for condition, spent in row.get("spent_usd", {}).items():
+        lines.append(f"- S3' `{condition}`: not scored; ${spent} spent before the pipeline stopped.")
+    if not row.get("llm") and not row.get("spent_usd"):
+        lines.append("- S3': not sent." + (" The LLM requests are frozen under `run/conditions/`." if frozen else ""))
     lines += ["", "## Receipts", "", "| Record | File | SHA-256 |", "|---|---|---|"]
     for name, entry in sorted((manifest or {}).get("gates", {}).items()):
         lines.append(f"| {name} {GATES.get(name.split(':')[0], '')} | `run/{entry['path']}` | `{entry['sha256']}` |")

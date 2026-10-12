@@ -8,7 +8,7 @@ from fmb.core.paper_protocol import SAFETY_RESERVE_TOKENS
 from fmb.core.paper_results import IDENTITY_FIELDS
 from fmb.core.paper_policy import BACKOFF_SECONDS, MAX_ATTEMPTS, completion_eligible, resolve_policy
 from fmb.assessment.completion import bind_completion, claim_execution
-from fmb.core.errors import FmbError
+from fmb.core.errors import ConfigurationError, FmbError
 from fmb.core.hashing import sha256_bytes
 from fmb.core.sealed_records import now, read_json, parse_json, write_json, seal_directory
 from fmb.interpretation.paper_payload import wire
@@ -102,6 +102,17 @@ def _validate_answer(root: Path, row: dict, folder: Path, outcome: dict, respons
         outcome["status"] = "completed"
 
 
+def _condition_stop(error) -> dict | None:
+    """The error every later call of the condition would repeat, so that none of them is sent."""
+    if not isinstance(error, FmbError):
+        return None
+    if error.details.get("http_status", error.details.get("status_code")) in (401, 403):
+        return {"type": "authentication_stop"}
+    if isinstance(error, ConfigurationError):
+        return {"type": "configuration_stop", "message": str(error)[:500]}
+    return None
+
+
 def _seal_run(run: Path, schedule: list, outcomes: list, interrupted: dict | None, spent: Decimal, mock: bool,
               prior: dict) -> None:
     completed = {(o["request_id"], o["pass"]) for o in outcomes}
@@ -192,7 +203,7 @@ def execute_schedule(
     outcomes = []
     interrupted = None
     active = None
-    auth_failed = False
+    stopped = None
 
     def cost(i, o):
         return (Decimal(i) * rate["input"] + Decimal(o) * rate["output"]) / Decimal(
@@ -249,11 +260,8 @@ def execute_schedule(
                         "basis": fit["input_token_basis"],
                     }
                     break
-                if auth_failed:
-                    outcome["error"] = {
-                        "type": "authentication_stop",
-                        "retryable": False,
-                    }
+                if stopped:
+                    outcome["error"] = {**stopped, "retryable": False}
                     break
                 if spent + reservation > cap:
                     outcome["error"] = {"type": "budget_exhausted", "retryable": False}
@@ -289,10 +297,7 @@ def execute_schedule(
                         "message": str(error)[:500],
                         "retryable": retryable,
                     }
-                    if isinstance(error, FmbError) and error.details.get(
-                        "http_status", error.details.get("status_code")
-                    ) in (401, 403):
-                        auth_failed = True
+                    stopped = stopped or _condition_stop(error)
                     usage = (
                         error.details.get("usage")
                         if isinstance(error, FmbError)

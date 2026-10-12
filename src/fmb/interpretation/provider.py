@@ -437,27 +437,42 @@ def _trusted_https_origin(base_url: str, hosts: set[str]) -> bool:
     )
 
 
-def _base_url(provider: str, base_url: str | None = None) -> str:
+def _base_url(provider: str, base_url: str | None = None, environ=None) -> str:
     endpoint = PROVIDER_ENDPOINTS[provider]
-    return (base_url or os.environ.get(endpoint["env"] + "_BASE_URL", endpoint["base_url"])).rstrip("/")
+    environ = os.environ if environ is None else environ
+    return (base_url or environ.get(endpoint["env"] + "_BASE_URL", endpoint["base_url"])).rstrip("/")
 
 
-def _api_key(provider: str, base_url: str) -> str:
+def _api_key(provider: str, base_url: str, environ=None) -> str:
     endpoint = PROVIDER_ENDPOINTS[provider]
     env, label, host = endpoint["env"], endpoint["label"], endpoint["host"]
+    environ = os.environ if environ is None else environ
     if _trusted_https_origin(base_url, {host}):
-        api_key = os.environ.get(env + "_API_KEY", "").strip()
+        api_key = environ.get(env + "_API_KEY", "").strip()
         if not api_key:
             raise ConfigurationError(f"{env}_API_KEY is required for the {provider} LLM provider")
         return api_key
-    if os.environ.get(env + "_ALLOW_CUSTOM_BASE_URL", "").strip().casefold() not in {"1", "true", "yes"}:
+    if environ.get(env + "_ALLOW_CUSTOM_BASE_URL", "").strip().casefold() not in {"1", "true", "yes"}:
         raise ConfigurationError(f"custom {label}-compatible base URLs require {env}_ALLOW_CUSTOM_BASE_URL=1")
-    api_key = os.environ.get(env + "_COMPAT_API_KEY", "").strip()
+    api_key = environ.get(env + "_COMPAT_API_KEY", "").strip()
     if not api_key:
         raise ConfigurationError(
             f"custom {label}-compatible base URLs require {env}_COMPAT_API_KEY; {env}_API_KEY is only sent to {host}"
         )
     return api_key
+
+
+def credentials_problem(provider: str, environ) -> str | None:
+    """What would stop every call to provider before it is sent, by the lookup call_llm makes; None if nothing."""
+    endpoint = PROVIDER_ENDPOINTS[provider]
+    base_url = _base_url(provider, environ=environ)
+    try:
+        _api_key(provider, base_url, environ)
+    except ConfigurationError as error:
+        if _trusted_https_origin(base_url, {endpoint["host"]}):
+            return f"set {endpoint['env']}_API_KEY"
+        return f"{error} ({endpoint['env']}_BASE_URL is {base_url}; unset it to call {endpoint['host']})"
+    return None
 
 
 def provider_request_body(**kwargs: Any) -> bytes:

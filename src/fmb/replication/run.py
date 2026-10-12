@@ -285,13 +285,26 @@ def analyse(name: str, generation: Path, recipe: Path, folder: Path, llm: dict |
     code = step("analyse", config=folder / "pipeline.json", recipe=recipe, log_path=folder / "pipeline.log", label=name)
     if code == INTERRUPTED:
         raise SystemExit(f"{name}: run interrupted")
-    row = summary(name, folder / "run" / "gates" / "G5.json")
-    if row["admission"] == "not reached" and (folder / "pipeline.log").is_file():
-        errors = ERROR_LINE.findall((folder / "pipeline.log").read_text(encoding="utf-8", errors="replace"))
-        if errors:
-            row["error"] = next((part for part in errors[-1] if part), "")[:400]
+    row = summary(name, folder / "run" / "gates" / "G5.json") | ({"llm_requested": llm["conditions"]} if llm else {})
+    if stopped := unfinished(folder, code, row["admission"]):
+        row["stopped"] = stopped
     log(f"{name}: pipeline finished in {terminal.duration(time.monotonic() - started)}")
     return row
+
+
+def unfinished(folder: Path, code: int, admission: str) -> dict | None:
+    """Where the pipeline stopped, from its run manifest or else its log; None when it finished."""
+    try:
+        manifest = json.loads((folder / "run" / "run-manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        manifest = {}
+    if manifest.get("status") == "completed":
+        return None if code == (0 if admission == "passed" else 1) else {"error": f"exit code {code}"}
+    if failure := manifest.get("failure"):
+        return {"at": failure["step"], "error": failure["message"][:400]}
+    log_path = folder / "pipeline.log"
+    errors = ERROR_LINE.findall(log_path.read_text(encoding="utf-8", errors="replace")) if log_path.is_file() else []
+    return {"error": next((part for part in errors[-1] if part), "")[:400] if errors else f"exit code {code}"}
 
 
 def code_identity() -> str:
@@ -327,17 +340,31 @@ def earlier_collection(results: Path, generation: Path) -> Path | None:
     return None
 
 
+ANSWERED = ("completed", "invalid_response")
+
+
+def answered(score: dict | None) -> dict:
+    """How many of a condition's scheduled S3' calls returned an answer, and what became of the others."""
+    states = (score or {}).get("execution_states")
+    if not states:
+        return {}
+    return {"answered": [sum(states.get(state, 0) for state in ANSWERED), sum(states.values())],
+            "unanswered": {state: count for state, count in states.items() if state not in ANSWERED}}
+
+
 def summary(image: str, gate: Path) -> dict:
     if not gate.is_file():
         return {"image": image, "admission": "not reached"}
     g5 = json.loads(gate.read_text(encoding="utf-8"))
     rules, conditions = g5["comparison"]["rules"], g5["comparison"].get("conditions") or {}
+    scores = g5.get("scores") or {}
     return {"image": image, "admission": g5["admission"]["status"], "f1": rules["f1"],
             "exact": sum(bool(q["exact"]) for q in rules["per_question"].values()), "questions": len(rules["per_question"]),
             "counts": rules["finding_counts"],
             "not_exact": sorted(name for name, q in rules["per_question"].items() if not q["exact"]),
             **({"llm": {name: {"exact": [c["spread"]["exact_min"], c["spread"]["exact_max"]],
-                               "f1": [c["spread"]["f1_min"], c["spread"]["f1_max"]], "passes": len(c["passes"])}
+                               "f1": [c["spread"]["f1_min"], c["spread"]["f1_max"]], "passes": len(c["passes"]),
+                               **answered(scores.get(name))}
                         for name, c in conditions.items()}} if conditions else {})}
 
 
@@ -512,15 +539,18 @@ def run_images(names: list[str], llm: dict | None, root: Path | None = None, res
                 "windows_base": host.windows_base(), "generation": str(generation)}
         report.complete(output, row, folder, generation)
         rows.append(row)
-        outputs.append(output)
-        outcome[name] = row["admission"] if row["admission"] == "passed" else f"admission {row['admission']}"
+        if not row.get("stopped"):
+            outputs.append(output)
+        outcome[name] = verdict(row)
         print("\n".join(report.headline(row, output)), flush=True)
         if row["admission"] != "passed":
             continue
         size = host.allocated_gib(folder)
-        if delete_image:
-            shutil.rmtree(folder)
-            log(f"{name}: deleted the generated image ({size:.0f} GiB); its result stays in {output}")
+        if delete_image and outcome[name] == "passed":
+            delete(name, folder, size, output)
+        elif delete_image:
+            log(f"{name}: kept the generated image ({size:.0f} GiB) in {folder}, as "
+                f"{outcome[name].removeprefix('passed, but ')}; --delete-image deletes it only after a complete run")
         else:
             log(f"{name}: the generated image ({size:.0f} GiB) stays in {folder} for further runs, such as an LLM "
                 f"comparison; --delete-image removes it after a passing run")
@@ -533,12 +563,40 @@ def run_images(names: list[str], llm: dict | None, root: Path | None = None, res
     return 1
 
 
+def verdict(row: dict) -> str:
+    """How one image's run ended: passed only when it completed and every S3' call it scheduled was answered."""
+    if stopped := row.get("stopped"):
+        return "the pipeline stopped" + (f" at {stopped['at']}" if stopped.get("at") else "")
+    if row["admission"] != "passed":
+        return f"admission {row['admission']}"
+    gaps = []
+    for condition in row.get("llm_requested", []):
+        done, planned = row.get("llm", {}).get(condition, {}).get("answered", [0, 0])
+        if done < planned or not planned:
+            gaps.append(f"S3' {condition} answered {done} of {planned} calls" if planned else f"S3' {condition} not sent")
+    return "passed, but " + "; ".join(gaps) if gaps else "passed"
+
+
+def delete(name: str, folder: Path, size: float, output: Path) -> None:
+    """Deletes a generated image, its manifests first, so that what an error leaves no longer counts as generated."""
+    try:
+        for manifest in sorted((folder / "generation").glob("**/manifest.json")):
+            manifest.unlink()
+        shutil.rmtree(folder)
+    except OSError as error:
+        warn(f"{name}: the generated image was not deleted completely ({error}); delete {folder} by hand")
+        return
+    log(f"{name}: deleted the generated image ({size:.0f} GiB); its result stays in {output}")
+
+
 def closing(names: list[str], outcome: dict[str, str]) -> str:
     """The last line of fmb run: which images passed and what stopped the others."""
     groups: dict[str, list[str]] = {}
     for name in names:
         groups.setdefault(outcome.get(name, "not run"), []).append(name)
-    passed = groups.pop("passed", [])
+    groups.pop("passed", None)
+    passed = [name for name in names if outcome.get(name, "").startswith("passed")]
     return "; ".join([f"{len(passed)} of {len(names)} images passed admission"
                       + (f" ({', '.join(passed)})" if passed else ""),
-                      *(f"{', '.join(group)}: {reason}" for reason, group in groups.items())])
+                      *(f"{', '.join(group)}: {reason.removeprefix('passed, but ')}"
+                        for reason, group in groups.items())])
