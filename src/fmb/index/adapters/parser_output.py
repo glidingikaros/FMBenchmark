@@ -242,6 +242,17 @@ def apply_host_processor_status(
     return parser_run
 
 
+def unavailable_coverage(parser_run: dict[str, Any]) -> str | None:
+    """'parser (module): reason' for a run that certifies no coverage, None for any other run."""
+    if parser_run.get("coverage_status") != COVERAGE_STATUS_UNAVAILABLE:
+        return None
+    provenance = parser_run.get("provenance") or {}
+    reason = (provenance.get("unavailable_reason") or (provenance.get("host_processor_run") or {}).get("detail")
+              or "no reason recorded")
+    module = str(parser_run.get("source_module")).split("#")[0]
+    return f"{parser_run.get('parser')} ({module}): {reason}"
+
+
 def write_observation_index(
     *,
     normalized_output_dir: Path,
@@ -289,6 +300,7 @@ def parser_run_from_observations(
     coverage_families: list[str] | None = None,
     additional_raw_outputs: list[Path] | None = None,
     coverage_scope: dict[str, Any] | None = None,
+    unavailable_reason: str | None = None,
 ) -> dict[str, Any]:
     observations = source_bound_observations(observations, raw_output)
     normalized_output = write_observation_index(
@@ -314,6 +326,7 @@ def parser_run_from_observations(
         coverage_status=coverage_status,
         coverage_families=coverage_families,
         coverage_scope=coverage_scope,
+        unavailable_reason=unavailable_reason,
     )
 
 

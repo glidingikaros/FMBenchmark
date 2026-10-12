@@ -165,7 +165,7 @@ def test_scope_only_run_reports_retention_without_observations(collection: dict[
     assert run["command_line"] == "python driver --logfile x"
 
 
-def test_unavailable_runtime_yields_a_partial_scope_only_run(collection: dict[str, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unavailable_runtime_yields_an_unavailable_scope_only_run(collection: dict[str, Path], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         logfile_adapters, "logfile_runtime_availability",
         lambda: {"available": False, "reason": "dfir_ntfs_environment_mismatch", "detail": "package_missing", "tool_identity": None},
@@ -183,7 +183,8 @@ def test_unavailable_runtime_yields_a_partial_scope_only_run(collection: dict[st
     )
 
     for run in (scoped, unscoped):
-        assert run["observation_count"] == 0 and run["coverage_status"] == "partial"
+        assert run["observation_count"] == 0 and run["coverage_status"] == "unavailable"
+        assert run["provenance"]["unavailable_reason"] == "dfir_ntfs_environment_mismatch: package_missing"
         assert run["coverage_scope"]["parser_status"] == "unavailable"
         assert run["coverage_scope"]["reason"] == "dfir_ntfs_environment_mismatch"
         normalized = json.loads(Path(run["normalized_output"]["path"]).read_text(encoding="utf-8"))

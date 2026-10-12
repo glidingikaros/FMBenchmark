@@ -39,6 +39,7 @@ from fmb.collection.tools.host.modules import (
     ProcessorRun,
     processor_deferral,
     processor_run_record,
+    record_data_rows,
     run_module_processors,
 )
 from fmb.collection.tools.host.ntfs_index import NtfsIndexError, VolumeIndex
@@ -362,6 +363,7 @@ def run_host_collector_extraction(
             + "\n",
             encoding="utf-8",
         )
+        _record_appliance_runs(module_runs, appliance_record, bundle_root=output_root)
         ended = _utc_now()
         stdout_path = tool_logs / "host-collector.stdout.txt"
         stderr_path = tool_logs / "host-collector.stderr.txt"
@@ -501,6 +503,22 @@ def _count_reasons(skipped) -> dict[str, int]:
     return counts
 
 
+def _record_appliance_runs(module_runs: list[ProcessorRun], appliance: dict[str, Any], *, bundle_root: Path) -> None:
+    # The parser appliance ran the modules the host deferred. Their runs take its results, so an empty output
+    # certifies no coverage there just as it does for a module the host ran.
+    results = {str(item.get("label")): item for item in appliance.get("results") or []}
+    for run in module_runs:
+        result = results.get(run.module_name)
+        if run.status != "deferred" or result is None:
+            continue
+        run.status, run.exit_code = STATUS_COMPLETED, int(result["exit_code"])
+        run.outputs = sorted(result.get("outputs") or [])
+        run.console_log_relative_path = result.get("console_log")
+        run.input_file_count = int(result.get("input_file_count") or 0)
+        run.input_byte_count = int(result.get("input_byte_count") or 0)
+        record_data_rows(run, run.module_name, bundle_root=bundle_root)
+
+
 def _windows_only_modules(processors, toolchain: HostToolchain) -> list[str]:
     names: list[str] = []
     for item in processors:
@@ -628,7 +646,7 @@ def validate_host_collector_bundle(
     empty_check: dict[str, Any] = {
         "check_id": "host_processor_empty_outputs",
         "status": "warn" if empty_runs or empty_appliance else "pass",
-        "modules": [str(run.get("module")) for run in empty_runs] + empty_appliance,
+        "modules": list(dict.fromkeys([str(run.get("module")) for run in empty_runs] + empty_appliance)),
         "outputs": [str(item) for run in empty_runs for item in (run.get("outputs") or [])],
     }
     if empty_runs or empty_appliance:

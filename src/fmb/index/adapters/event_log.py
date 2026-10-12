@@ -299,12 +299,12 @@ def evtxecmd_parser_run(
             or projected_scope[1].endswith("\\security.evtx")
         )
     )
-    retained_ids = None
+    retained_ids = projection_error = None
     if len(security_paths) == 1 and security_paths[0].stat().st_size <= MAX_RAW_SECURITY_EVTX_BYTES:
         try:
             retained_ids = retained_record_ids(security_paths[0].read_bytes())
-        except (OSError, ValueError):
-            pass
+        except ValueError as error:
+            projection_error = f"{security_paths[0].name} could not be parsed: {error}"
     projection_proven = bool(
         retained_ids is not None
         and security_scope_bound
@@ -377,6 +377,7 @@ def evtxecmd_parser_run(
         collector_run=collector_run,
         raw_output=csv_path,
         observations=observations,
+        index_extra={"native_record_projection_error": projection_error} if projection_error else None,
         coverage_status=coverage_status,
         additional_raw_outputs=security_paths,
         coverage_scope={

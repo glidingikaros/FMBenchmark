@@ -775,6 +775,7 @@ def normalize_parser_output(
     coverage_status: str = "partial",
     coverage_families: list[str] | None = None,
     coverage_scope: dict[str, Any] | None = None,
+    unavailable_reason: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(parser, str) or not parser.strip():
         raise ValueError("parser name is required")
@@ -784,8 +785,10 @@ def normalize_parser_output(
         raise ValueError("parser coverage_scope must be an object with a kind")
     if not isinstance(parser_kind, str) or not parser_kind.strip():
         raise ValueError("parser_kind is required")
-    if coverage_status not in {"complete", "partial"}:
-        raise ValueError("parser coverage_status must be complete or partial")
+    if coverage_status not in {"complete", "partial", COVERAGE_STATUS_UNAVAILABLE}:
+        raise ValueError("parser coverage_status must be complete, partial or unavailable")
+    if (coverage_status == COVERAGE_STATUS_UNAVAILABLE) != bool(unavailable_reason):
+        raise ValueError("a parser run is unavailable exactly when it gives the reason")
     try:
         canonical_parser = parser_tool_for_contract(parser, label="parser")
     except ValueError as error:
@@ -888,6 +891,7 @@ def normalize_parser_output(
             "adapter": "fmb.parser_output_adapter",
             "adapter_scope": PARSER_ADAPTER_SCOPE,
             "truth_sources_used": [],
+            **({"unavailable_reason": unavailable_reason} if unavailable_reason else {}),
         },
     }
 

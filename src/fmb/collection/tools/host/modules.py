@@ -356,11 +356,11 @@ def _run_processor(
         if path != console
     )
     run.status = STATUS_COMPLETED
-    _record_data_rows(run, binding, bundle_root=modules_root.parent)
+    record_data_rows(run, binding.tool_name, bundle_root=modules_root.parent)
     return run
 
 
-def _record_data_rows(run: ProcessorRun, binding: ToolBinding, *, bundle_root: Path) -> None:
+def record_data_rows(run: ProcessorRun, tool_name: str, *, bundle_root: Path) -> None:
     run.data_row_counts = {
         relative: csv_data_row_count(bundle_root / relative)
         for relative in run.outputs
@@ -370,7 +370,7 @@ def _record_data_rows(run: ProcessorRun, binding: ToolBinding, *, bundle_root: P
     if run.input_byte_count > 0 and run.data_row_count == 0:
         run.status = STATUS_COMPLETED_EMPTY_OUTPUT
         run.detail = (
-            f"{binding.tool_name} exited 0 on {run.input_file_count} non-empty input file(s) "
+            f"{tool_name} exited 0 on {run.input_file_count} non-empty input file(s) "
             f"totalling {run.input_byte_count} bytes but wrote no CSV data row "
             f"({len(run.data_row_counts)} CSV output(s)); the output certifies no coverage"
         )
@@ -438,6 +438,7 @@ __all__ = [
     "processor_deferral",
     "processor_environment",
     "processor_run_record",
+    "record_data_rows",
     "render_arguments",
     "run_module_processors",
     "targets_inventory",

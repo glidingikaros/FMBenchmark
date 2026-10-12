@@ -1523,6 +1523,11 @@
               "type": "array",
               "maxItems": 0
             },
+            "unavailable_reason": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Why the parser produced no usable output when coverage_status is unavailable."
+            },
             "host_processor_run": {
               "type": "object",
               "required": [

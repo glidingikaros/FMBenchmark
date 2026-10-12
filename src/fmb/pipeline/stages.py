@@ -136,10 +136,17 @@ def profile_coverage(analysis: Path, g2: dict) -> dict:
                            for r in usable if r.get("declared") is False]
             families[family] = {"covered": bool(usable), "runs": matching}
         coverage[question["question_id"]] = families
-    missing = [f"{qid}: {family}" for qid, families in coverage.items()
+    missing = [(qid, family) for qid, families in coverage.items()
                for family, entry in families.items() if not entry["covered"]]
     if missing:
-        raise ValueError("S2 collected no usable source for families the profile requires: " + ", ".join(missing))
+        from fmb.index.adapters.parser_output import unavailable_coverage
+
+        absent = {family for _, family in missing}
+        reasons = sorted({reason for run in runs if absent & set(run.get("coverage_families") or [])
+                          if (reason := unavailable_coverage(run))})
+        raise ValueError("S2 collected no usable source for families the profile requires: "
+                         + ", ".join(f"{qid}: {family}" for qid, family in missing)
+                         + "".join("; " + reason for reason in reasons))
     if undeclared:
         raise ValueError("S2 covered families with parsers G2 does not declare: " + ", ".join(undeclared))
     return coverage

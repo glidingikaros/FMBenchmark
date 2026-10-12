@@ -335,6 +335,12 @@ def logfile_reason_code(reason: str | None) -> str:
     return code if code in LOGFILE_UNAVAILABLE_REASON_CODES else "dfir_ntfs_runtime_unavailable"
 
 
+def logfile_unavailable_reason(availability: dict[str, Any]) -> str:
+    code = logfile_reason_code(availability.get("reason"))
+    detail = availability.get("detail")
+    return f"{code}: {detail}" if detail else code
+
+
 def logfile_unavailable_scope(
     logfile_path: Path, *, reason: str | None
 ) -> dict[str, Any]:
@@ -587,7 +593,7 @@ def raw_logfile_parser_run(
         coverage_status = "complete" if _logfile_parse_complete(document) else "partial"
     else:
         scope = logfile_unavailable_scope(logfile_path, reason=availability.get("reason"))
-        coverage_status = "partial"
+        coverage_status = "unavailable"
     normalized_output = normalized_output_path(
         normalized_output_dir, logfile_path, "raw_logfile_scope.json"
     )
@@ -635,6 +641,7 @@ def raw_logfile_parser_run(
         observation_families=[],
         coverage_status=coverage_status,
         coverage_scope=scope,
+        unavailable_reason=logfile_unavailable_reason(availability) if document is None else None,
     )
 
 
@@ -742,8 +749,9 @@ def raw_logfile_reference_parser_run(
             "scope": "ntfs_file_references",
         },
         observation_families=observed_artifact_families(observations),
-        coverage_status="complete" if complete else "partial",
+        coverage_status="unavailable" if document is None else "complete" if complete else "partial",
         coverage_scope=scope,
+        unavailable_reason=logfile_unavailable_reason(availability) if document is None else None,
     )
     parser_run["selection_scope"] = selection_scope
     return parser_run

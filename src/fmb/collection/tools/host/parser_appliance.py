@@ -707,6 +707,7 @@ def _merge_outputs(
         destination = modules_root / category
         destination.mkdir(parents=True, exist_ok=True)
         data_rows = 0
+        outputs: list[str] = []
         if source_dir.is_dir():
             for path in sorted(source_dir.rglob("*")):
                 if not path.is_file():
@@ -715,10 +716,12 @@ def _merge_outputs(
                 target = destination / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, target)
-                merged_outputs.append(target.relative_to(modules_root.parent).as_posix())
+                outputs.append(target.relative_to(modules_root.parent).as_posix())
                 if target.suffix.casefold() == ".csv":
                     data_rows += csv_data_row_count(target)
-        result["data_row_count"] = data_rows
+        merged_outputs.extend(outputs)
+        result.update(data_row_count=data_rows, outputs=outputs,
+                      input_file_count=planned.get("input_file_count"), input_byte_count=planned.get("input_byte_count"))
         if int(planned.get("input_byte_count") or 0) > 0 and data_rows == 0:
             empty_output_modules.append(label)
         for stream in ("stdout", "stderr"):
@@ -732,7 +735,8 @@ def _merge_outputs(
             + (stdout_file.read_text(encoding="utf-8", errors="replace") if stdout_file.is_file() else ""),
             encoding="utf-8",
         )
-        merged_outputs.append(console.relative_to(modules_root.parent).as_posix())
+        result["console_log"] = console.relative_to(modules_root.parent).as_posix()
+        merged_outputs.append(result["console_log"])
     if {item["label"] for item in package["commands"]} != {str(item.get("label")) for item in results}:
         raise ParserApplianceError("parser appliance receipt does not cover every planned processor")
     return {

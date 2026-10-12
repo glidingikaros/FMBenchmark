@@ -90,6 +90,7 @@ def add_native_population_surfaces(index: Mapping[str, Any], *, manifest: Mappin
         native = collect_ntfs_surfaces(evidence_image=evidence_image, raw_mft_path=raw_mft,
             records=records, output_dir=output_dir / "native-ntfs", evidence_sha256=evidence_sha256)
         from fmb.index.adapters.execution import pecmd_prefetch_parser_run
+        from fmb.index.adapters.parser_output import apply_host_processor_status
         if any(run.get("parser_kind") == "windows_prefetch" for run in runs):
             context = bind_native_volume(context, native, raw_mft)
         for position, run in enumerate(runs):
@@ -100,8 +101,8 @@ def add_native_population_surfaces(index: Mapping[str, Any], *, manifest: Mappin
                     and "pecmd" in Path(r["path"]).name.casefold()]
             if len(csvs) != 1:
                 raise ValueError("native Prefetch volume binding needs one retained parser CSV")
-            runs[position] = pecmd_prefetch_parser_run(csv_path=csvs[0], normalized_output_dir=normalized,
-                collector_run=collector, mft_context=context)
+            runs[position] = apply_host_processor_status(pecmd_prefetch_parser_run(csv_path=csvs[0],
+                normalized_output_dir=normalized, collector_run=collector, mft_context=context), collector)
         if any(item["kind"] == "directory" for item in records):
             runs[:] = [run for run in runs if run.get("parser_kind") != "ntfs_i30"]
             runs.append(bounded_i30_parser_run(mft_csv_path=csv_paths[0], raw_mft_path=raw_mft,

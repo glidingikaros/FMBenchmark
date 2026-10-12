@@ -13,7 +13,7 @@ from fmb.index.adapters.mft import (
     mftecmd_mft_context_csv_files,
     mftecmd_mft_parser_run,
 )
-from fmb.index.adapters.parser_output import source_bound_observations
+from fmb.index.adapters.parser_output import apply_host_processor_status, source_bound_observations
 from fmb.index.adapters.usn import raw_usn_observation_from_record
 from fmb.index.support.windows_identity import (
     normalize_windows_compare_path,
@@ -199,8 +199,9 @@ def add_factual_population(index: dict, *, evidence: Path, public: dict, output_
             context["indexed_volumes"] = set(context["indexed_volumes"]) | drive_letters_from_proof(drive_proof)
             context["native_drive_binding_source"] = str(drive_binding_path)
         public_paths = frozenset(m["path"] for m in members)
-        replacement = mftecmd_mft_parser_run(csv_path=csvs[0], raw_mft_path=raw_mft,
-            normalized_output_dir=output_dir, collector_run=index["collector_runs"][0], public_paths=public_paths)
+        replacement = apply_host_processor_status(mftecmd_mft_parser_run(csv_path=csvs[0], raw_mft_path=raw_mft,
+            normalized_output_dir=output_dir, collector_run=index["collector_runs"][0], public_paths=public_paths),
+            index["collector_runs"][0])
         replacement.pop("candidate_populations", None)
         prepared["parser_runs"] = [r for r in prepared["parser_runs"] if r.get("parser_kind") != "ntfs_mft"]
         prepared["parser_runs"].append(replacement)
@@ -215,9 +216,9 @@ def add_factual_population(index: dict, *, evidence: Path, public: dict, output_
                     if Path(r.get("path", "")).name.casefold().endswith(("_usrclass.csv", "_ntuser.csv"))]
             if len(csvs) != 1:
                 raise ValueError("native Shellbag ancestry needs one retained SBECmd CSV")
-            prepared["parser_runs"][position] = shellbag_parser_run(csv_path=csvs[0],
+            prepared["parser_runs"][position] = apply_host_processor_status(shellbag_parser_run(csv_path=csvs[0],
                 normalized_output_dir=output_dir, collector_run=index["collector_runs"][0],
-                mft_context=context, resolve_namespace_ancestry=True)
+                mft_context=context, resolve_namespace_ancestry=True), index["collector_runs"][0])
 
     native = {"scenarios": {k: v for k, v in original_manifest["scenarios"].items()
               if v["technique_id"] in {"i30_directory_residue", "alternate_data_stream", "ntfs_allocation_inconsistency"}
