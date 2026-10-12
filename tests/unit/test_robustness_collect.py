@@ -8,8 +8,9 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from test_logfile_adapter import collection, mft_context  # noqa: F401  (collection is a fixture)
-from test_parser_appliance_work_root import parser_case  # noqa: F401  (a fixture)
+import test_logfile_adapter
+import test_parser_appliance_work_root
+from test_logfile_adapter import mft_context
 
 from fmb.collection import analysis
 from fmb.collection.tools.host import backend as host_backend
@@ -32,8 +33,11 @@ from fmb.index.adapters.execution import pecmd_prefetch_parser_run
 from fmb.index.adapters.parser_output import apply_host_processor_status, unavailable_coverage
 from fmb.profiles import question_definitions, resolve_paper_profile
 
+collection = test_logfile_adapter.collection
+parser_case = test_parser_appliance_work_root.parser_case
 
-def _timed_out_logfile_run(collection, monkeypatch):  # noqa: F811
+
+def _timed_out_logfile_run(collection, monkeypatch):
     def timed_out(path, *, normalized_output_dir, operations=None):
         raise logfile_adapters.LogFileRuntimeError("dfir_ntfs did not finish within 600 seconds")
 
@@ -45,7 +49,7 @@ def _timed_out_logfile_run(collection, monkeypatch):  # noqa: F811
     )
 
 
-def test_a_timed_out_logfile_parse_certifies_no_coverage_and_says_why(collection, monkeypatch):  # noqa: F811
+def test_a_timed_out_logfile_parse_certifies_no_coverage_and_says_why(collection, monkeypatch):
     run = _timed_out_logfile_run(collection, monkeypatch)
 
     assert run["coverage_status"] == "unavailable"
@@ -55,7 +59,7 @@ def test_a_timed_out_logfile_parse_certifies_no_coverage_and_says_why(collection
         "dfir_ntfs ($LogFile): dfir_ntfs_driver_failed: dfir_ntfs did not finish within 600 seconds")
 
 
-def test_s2_stops_on_an_unavailable_family_naming_the_tool_and_reason(collection, monkeypatch, tmp_path):  # noqa: F811
+def test_s2_stops_on_an_unavailable_family_naming_the_tool_and_reason(collection, monkeypatch, tmp_path):
     from fmb.pipeline import stages
 
     run = _timed_out_logfile_run(collection, monkeypatch)
