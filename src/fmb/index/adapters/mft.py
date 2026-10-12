@@ -855,7 +855,7 @@ def _mft_row_scan(csv_path: Path, source_id: str) -> dict[str, Any]:
 def prescan_mftecmd_mft_csvs(root: Path) -> None:
     """Reads the MFTECmd $MFT CSV under root as the import will, so the import finds both scans cached.
 
-    It runs while the parser VM works; it opens what the import opens, so the run records the same reads.
+    It runs while the host's other parsers run; it opens what the import opens, so the run records the same reads.
     """
     build_mft_presence_context(root)
     for path in mftecmd_mft_csv_files(root):

@@ -238,12 +238,12 @@ def run_host_collector_extraction(
     run_id: str,
     progress: Callable[[str], None] | None = None,
     after_extraction: Callable[[Path], None] | None = None,
-    after_host_modules: Callable[[Path], None] | None = None,
+    after_host_module: Callable[[Path, str], None] | None = None,
     confirm_evidence: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
-    # after_extraction gets the collector output root once the target files are on disk, after_host_modules once
-    # the host's own parsers wrote their outputs; confirm_evidence, when given, raises unless the evidence matched
-    # evidence_sha256, and the result is written only after it returned.
+    # after_extraction gets the collector output root once the target files are on disk, after_host_module the root
+    # and the module name of each of the host's own parsers once it wrote its outputs; confirm_evidence, when given,
+    # raises unless the evidence matched evidence_sha256, and the result is written only after it returned.
     if extracted_dir.exists():
         raise HostCollectorError(f"refusing to overwrite existing extracted bundle: {extracted_dir}")
     evidence = Path(str(args.evidence)).expanduser().resolve()
@@ -364,10 +364,10 @@ def run_host_collector_extraction(
                 tool_logs_dir=tool_logs,
                 progress=log,
                 skip_executables=frozenset({SBECMD_EXECUTABLE}),
+                after_processor=None if after_host_module is None else (
+                    lambda processor: after_host_module(output_root, processor.module_name)),
             ),
         )
-        if after_host_modules is not None:
-            after_host_modules(output_root)
 
         def finish_parsers() -> dict[str, Any]:
             try:

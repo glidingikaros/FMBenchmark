@@ -100,3 +100,24 @@ def test_collection_validation_is_mandatory_and_failure_releases_owner(
     )
     with pytest.raises(FileExistsError):
         host.collect_host(**kwargs)
+
+
+def test_early_parses_start_after_extraction_and_after_the_mft_module(tmp_path, monkeypatch):
+    kwargs, events = mocked(tmp_path, monkeypatch)
+    started = []
+    monkeypatch.setattr(host, "parse_logfiles_early", lambda root, normalized: started.append(("logfile", root)))
+    monkeypatch.setattr(host, "scan_mft_early", lambda root: started.append(("mft", root)))
+    extract = host.run_host_collector_extraction
+    root = tmp_path / "kape-output"
+
+    def extract_with_hooks(**hooks):
+        hooks["after_extraction"](root)
+        for module in ("MFTECmd_$Boot", host.MFT_MODULE, "MFTECmd_$J", "EvtxECmd"):
+            hooks["after_host_module"](root, module)
+        return extract(**hooks)
+
+    monkeypatch.setattr(host, "run_host_collector_extraction", extract_with_hooks)
+    assert host.collect_host(**kwargs) == {"shared": "native"}
+    # collect_host waits for both before it validates the bundle.
+    assert sorted(started) == [("logfile", root), ("mft", root)]
+    assert events == ["extract", "validate", "import"]

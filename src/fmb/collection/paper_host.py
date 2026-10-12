@@ -29,6 +29,8 @@ from fmb.core.sealed_records import write_json, now
 # and a writer can restore the last-write time, so there only a second hash shows that the bytes are unchanged.
 REHASH_AFTER_COLLECTION = os.name == "nt"
 IDENTITY_FIELDS = ("device", "inode", "size", "modification time", "change time")
+# The KAPE module whose MFTECmd run writes the $MFT CSV that the import scans.
+MFT_MODULE = "MFTECmd_$MFT"
 
 
 def file_identity(path: Path) -> tuple[int, ...]:
@@ -62,7 +64,8 @@ def parse_logfiles_early(collector_output_root: Path, normalized_output_dir: Pat
 
 def scan_mft_early(collector_output_root: Path) -> None:
     # The import scans the MFTECmd $MFT CSV twice (its presence context and its rows); scanning it here, while the
-    # parser VM works, lets the import find both scans cached. A failure is left for the import, which scans again.
+    # host's other parsers run, lets the import find both scans cached. A failure is left for the import, which scans
+    # again.
     from fmb.index.adapters.mft import prescan_mftecmd_mft_csvs
 
     try:
@@ -187,8 +190,10 @@ def collect_host(
                         parse_logfiles_early, collector_output_root, normalized / "parser-normalized",
                         name="fmb-logfile-early"))
 
-            def after_host_modules(collector_output_root: Path) -> None:
-                if parser_kinds is None or "ntfs_mft" in parser_kinds:
+            def after_host_module(collector_output_root: Path, module: str) -> None:
+                # MFTECmd's $MFT CSV is complete once its module ran, so the import's scan of it runs alongside the
+                # host's other parsers.
+                if module == MFT_MODULE and (parser_kinds is None or "ntfs_mft" in parser_kinds):
                     early_parses.append(Background(scan_mft_early, collector_output_root, name="fmb-mft-scan"))
 
             write_json(output / "collection-profile.json", declared)
@@ -204,7 +209,7 @@ def collect_host(
                     evidence_sha256=expected_sha256,
                     run_id=run_id,
                     after_extraction=after_extraction,
-                    after_host_modules=after_host_modules,
+                    after_host_module=after_host_module,
                     confirm_evidence=confirm_evidence,
                 )
             except Exception:

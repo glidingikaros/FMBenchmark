@@ -4,6 +4,7 @@ import hashlib
 import shutil
 import struct
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -115,6 +116,28 @@ def _run(
     )
     assert len(runs) == 1
     return runs[0]
+
+
+def test_after_processor_gets_each_processor_that_ran_once_its_output_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The $MFT CSV is scanned in the background from this callback, so it must come after the processor's outputs.
+    case = tmp_path / "case"
+    targets_root = case / "kape-output" / "targets"
+    (targets_root / "F" / "$Extend").mkdir(parents=True)
+    (targets_root / "F" / "$Extend" / "$J").write_bytes(b"\x00\x01" * 2048)
+    monkeypatch.setenv("FMB_FAKE_TOOL_ROWS", "1")
+    modules_root = case / "kape-output" / "modules"
+    absent = replace(_processor(file_mask="$Boot"), module_name="MFTECmd_$Boot")
+    seen = []
+    runs = run_module_processors(
+        [absent, _processor(file_mask="$J")], toolchain=_toolchain(case), dotnet=sys.executable,
+        targets_root=targets_root, modules_root=modules_root, tool_logs_dir=case / "tool-logs",
+        after_processor=lambda processor: seen.append(
+            (processor.module_name, sorted(path.name for path in modules_root.rglob("*.csv")))),
+    )
+    assert [run.status for run in runs] == ["no_source_files", STATUS_COMPLETED]
+    assert seen == [("MFTECmd_$J", ["out.csv"])]
 
 
 def test_csv_data_row_count_counts_records_not_lines(tmp_path: Path) -> None:
