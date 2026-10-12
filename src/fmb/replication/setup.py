@@ -79,7 +79,7 @@ def ansible() -> None:
     home = host.ansible_home()
     private = {"UV_TOOL_DIR": str(home / "tools"), "UV_TOOL_BIN_DIR": str(home / "bin")}
     if host.WINDOWS:
-        distro, venv = host.PINS["wsl_distribution"], "/mnt/c/fmb-ansible"
+        distro, venv = host.wsl_distribution(), "/mnt/c/fmb-ansible"
         run(["wsl.exe", "-d", distro, "-u", "root", "--exec", "bash", "-c",
              "dpkg -s python3-venv > /dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq python3-venv)"])
         run(["wsl.exe", "-d", distro, "--exec", "bash", "-c",
