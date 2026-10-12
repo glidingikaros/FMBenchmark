@@ -357,8 +357,19 @@ def activate(winrm_port: int) -> dict:
     raise SystemExit(f"the evaluation licence did not activate: {facts}")
 
 
+def licence(winrm_port: int) -> dict:
+    # Just after a boot the licensing service can answer with no product at all; ask again before trusting that.
+    for _ in range(20):
+        facts = json.loads(guest(winrm_port, LICENSE))
+        if facts["name"] is not None:
+            return facts
+        log(f"no licence product yet ({facts}); asking again")
+        time.sleep(15)
+    return facts
+
+
 def licensed(facts: dict) -> bool:
-    return facts["status"] == 1 or "Eval" not in facts["name"]
+    return facts["status"] == 1 or (facts["name"] is not None and "Eval" not in facts["name"])
 
 
 def base_script(winrm_port: int, name: str) -> str:
@@ -373,7 +384,7 @@ def base_script(winrm_port: int, name: str) -> str:
 def finish(vm: Machine, work: Path, winrm_port: int, monitor_port: int, edition: str) -> None:
     if edition == "pro":
         log(guest(winrm_port, f"cscript //nologo C:\\Windows\\System32\\slmgr.vbs /ipk {PAPER_KEY}"))
-    license_facts = activate(winrm_port) if edition == "eval" else json.loads(guest(winrm_port, LICENSE))
+    license_facts = activate(winrm_port) if edition == "eval" else licence(winrm_port)
     log(f"licence: {license_facts}")
     log(f"after first logon: {guest(winrm_port, SETUP_STATE)}")
     log(base_script(winrm_port, "enable-autologon.ps1"))
@@ -382,7 +393,7 @@ def finish(vm: Machine, work: Path, winrm_port: int, monitor_port: int, edition:
     time.sleep(90)
     log(wait_ready(vm, work, winrm_port, monitor_port, time.monotonic() + 1800, "restart"))
     interactive(winrm_port)
-    license_now = json.loads(guest(winrm_port, LICENSE))
+    license_now = licence(winrm_port)
     log(f"licence after the restart: {license_now}")
     if not licensed(license_now):
         raise RuntimeError(f"the evaluation licence did not survive the restart: {license_now}")
@@ -429,7 +440,7 @@ def verify(qemu: Path, accelerator: str, cpu: str, work: Path) -> None:
         log(wait_ready(vm, work, winrm_port, monitor_port, time.monotonic() + 900, "verify"))
         interactive(winrm_port)
         state = json.loads(guest(winrm_port, SETUP_STATE))
-        license_now = json.loads(guest(winrm_port, LICENSE))
+        license_now = licence(winrm_port)
         log(f"verify: setup and autologon {state}; licence {license_now}")
         if state != SETUP_DONE or not licensed(license_now):
             raise SystemExit(f"the base does not boot finished and licensed: {state}, {license_now}")
