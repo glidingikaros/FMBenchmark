@@ -165,6 +165,20 @@ def same_lock(recipe: Path, lock: Path) -> bool:
     return frozen == json.loads(lock.read_text(encoding="utf-8"))
 
 
+def same_source(recipe: Path) -> bool:
+    """Whether the recipe was frozen from the generation source this fmb runs, which the generate step requires."""
+    from fmb.core.paths import PROJECT_ROOT
+    from fmb.generation.recipe import RECIPE_SCHEMA, source_closure, source_inventory
+
+    try:
+        frozen = json.loads((recipe / "recipe.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    if frozen.get("schema_version") == RECIPE_SCHEMA:
+        return frozen.get("source") == source_inventory(PROJECT_ROOT / "generation")
+    return frozen.get("source") == source_closure(PROJECT_ROOT)
+
+
 def set_aside(folder: Path) -> Path:
     kept = folder.with_name(f"{folder.name}-{datetime.now():%Y%m%d-%H%M%S}")
     folder.rename(kept)
@@ -250,6 +264,10 @@ def freeze(image, lock: Path, folder: Path, renew: bool = True) -> None:
     if recipe.exists() and not same_lock(recipe, lock):
         kept = set_aside(recipe)
         log(f"{image.name}: its recipe was frozen with an earlier dependency lock ({kept.name}); freezing it again")
+    if recipe.exists() and completed(folder / "generation") is None and not same_source(recipe):
+        kept = set_aside(recipe)
+        log(f"{image.name}: its recipe was frozen from an earlier version of fmb's generation code ({kept.name}); "
+            "freezing it again")
     if recipe.exists():
         return
     if step("freeze", image=image.name, provider=host.provider(), lock=lock, recipe=recipe,

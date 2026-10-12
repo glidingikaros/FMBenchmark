@@ -577,3 +577,33 @@ def test_fmbs_own_ansible_comes_first(tmp_path, monkeypatch):
     path = env["PATH"].split(os.pathsep)
     assert path.index(str(tmp_path / "ansible" / "bin")) < path.index(str(tmp_path / "user-bin"))
     assert env["FMB_ANSIBLE_COLLECTIONS"] == str(tmp_path / "ansible" / "collections")
+
+
+def recipe_folder(root, source, *, published=False):
+    (root / "recipe").mkdir(parents=True)
+    (root / "recipe" / "recipe.json").write_text(json.dumps({"schema_version": "generation_recipe.v2",
+                                                             "source": source}), encoding="utf-8")
+    if published:
+        done = root / "generation" / "attempt-1" / "full_scale" / "a"
+        done.mkdir(parents=True)
+        (done / "full_scale.vmdk").write_bytes(b"disk")
+        (done / "manifest.json").write_text("{}")
+    return root
+
+
+def test_a_recipe_frozen_from_other_generation_code_is_frozen_again(tmp_path, monkeypatch):
+    from fmb.core.paths import PROJECT_ROOT
+    from fmb.generation.recipe import source_closure
+
+    events = []
+    monkeypatch.setattr(run, "log", events.append)
+    monkeypatch.setattr(run, "step", lambda name, *, recipe, **_: events.append(name) or Path(recipe).mkdir() or 0)
+    image = SimpleNamespace(name="I1", paper=True, path=tmp_path / "I1.json")
+    run.freeze(image, tmp_path / "lock.json", recipe_folder(tmp_path / "current", source_closure(PROJECT_ROOT)))
+    run.freeze(image, tmp_path / "lock.json", recipe_folder(tmp_path / "published", [], published=True))
+    assert events == []
+    stale = recipe_folder(tmp_path / "stale", [{"path": "generation/pipeline.py", "sha256": "0" * 64}])
+    run.freeze(image, tmp_path / "lock.json", stale)
+    assert events[-1] == "freeze" and "an earlier version of fmb's generation code" in events[0]
+    assert [path.name.startswith("recipe-") for path in stale.iterdir() if path.name != "recipe"] == [True]
+
