@@ -6,6 +6,7 @@ from typing import Any
 
 from fmb.analysis.inputs import population_ntfs_scope_and_references
 from fmb.analysis.population_binding import bind_population_manifest
+from fmb.core.errors import FmbInputError
 from fmb.core.json_io import write_json
 from fmb.core.schemas import validate_payload
 from fmb.core.truth_guard import is_disk_image
@@ -372,7 +373,7 @@ def collect_evidence_index(evidence: Path, *, profile: dict, output_dir: Path, r
     from fmb.analysis.population_binding import bind_population_manifest, load_generated_population_bundle
     from fmb.collection.alignment import add_native_population_surfaces
     from fmb.collection.factual_challenge import load_public_population, add_factual_population
-    from fmb.collection.paper_host import collect_host
+    from fmb.collection.paper_host import collect_host, evidence_change, file_identity
 
     evidence = evidence.expanduser().absolute()
     if not evidence.is_file() or not is_disk_image(evidence.name):
@@ -395,6 +396,7 @@ def collect_evidence_index(evidence: Path, *, profile: dict, output_dir: Path, r
         if public is not None:
             limit += sum(member['path'].casefold().endswith('.bmp') for member in public['members']
                          if not selective or member['question_id'] in questions)
+    identity = file_identity(evidence)
     collected = collect_host(profile=profile, evidence=evidence, output=output_dir, run_id=run_id,
         windows_parsers=windows_parsers, host_toolchain_root=host_toolchain_root,
         vm_work_root=vm_work_root, expected_sha256=generated.evidence_sha256,
@@ -415,4 +417,7 @@ def collect_evidence_index(evidence: Path, *, profile: dict, output_dir: Path, r
         prepared = add_factual_population(prepared, evidence=evidence, public=public,
                                          output_dir=output_dir / 'factual-supplement',
                                          **({"questions": questions} if selective else {}))
+    # Checked after the last read of the image, so every step above read the image that was hashed.
+    if changed := evidence_change(evidence, identity, generated.evidence_sha256):
+        raise FmbInputError(f"evidence image changed during collection ({changed})")
     return prepared

@@ -286,3 +286,107 @@ def test_the_run_lock_names_its_holder_and_dies_with_it(tmp_path):
         lock_path.write_text(leftover, encoding="utf-8")
         with run_lock.acquire_evidence_image_run_lock(current_root=tmp_path, requested_run_id="run-next") as lock:
             assert run_lock.read_lock_payload(lock.lock_path)["requested_run_id"] == "run-next"
+
+
+@pytest.fixture
+def identity_case(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from fmb.analysis import population_binding
+    from fmb.collection import alignment, factual_challenge, paper_host
+
+    evidence = tmp_path / "evidence.vmdk"
+    evidence.write_bytes(b"small public test evidence")
+    hashed: list[Path] = []
+    case = SimpleNamespace(evidence=evidence, hashed=hashed, during_host=lambda: None, during_factual=lambda: None,
+                           digest=lambda: "b" * 64)
+    generated = SimpleNamespace(content_subject_limit=None, i30_directory_paths=(), evidence_sha256="b" * 64,
+                                population_manifest={"scenarios": {}})
+    monkeypatch.setattr(population_binding, "load_generated_population_bundle", lambda *_, **__: generated)
+    monkeypatch.setattr(factual_challenge, "load_public_population", lambda _: {"members": []})
+    monkeypatch.setattr(paper_host, "sha256_file", lambda path: hashed.append(path) or case.digest())
+
+    def collect_host(**kwargs):
+        case.during_host()
+        return {"parser_runs": []}
+
+    def add_factual_population(index, **kwargs):
+        case.during_factual()
+        return index
+
+    monkeypatch.setattr(paper_host, "collect_host", collect_host)
+    monkeypatch.setattr(factual_challenge, "add_factual_population", add_factual_population)
+    for module, name in [(alignment, "add_native_population_surfaces"),
+                         (population_binding, "bind_population_manifest"),
+                         (analysis, "add_reference_scoped_usn"), (analysis, "add_reference_scoped_ads")]:
+        monkeypatch.setattr(module, name, lambda index, *_, **__: index)
+    case.invoke = lambda: analysis.collect_evidence_index(
+        evidence, profile=resolve_paper_profile(["BQ-LOG-01"]), output_dir=tmp_path / "analysis", run_id="test",
+        windows_parsers=None)
+    return case
+
+
+def test_an_image_changed_by_a_late_collection_step_is_refused(identity_case, monkeypatch):
+    from fmb.collection import paper_host
+    from fmb.core.errors import FmbInputError
+
+    monkeypatch.setattr(paper_host, "REHASH_AFTER_COLLECTION", False)
+
+    def append():
+        with identity_case.evidence.open("ab") as handle:
+            handle.write(b"appended during collection")
+
+    identity_case.during_factual = append
+    with pytest.raises(FmbInputError, match=r"evidence image changed during collection \(size, "):
+        identity_case.invoke()
+    assert identity_case.hashed == []
+
+
+@pytest.mark.parametrize(("rehash", "rewritten", "hashes"), [
+    (False, False, 0), (True, False, 1), (True, True, 1),
+])
+def test_an_image_whose_metadata_can_be_restored_is_hashed_again(identity_case, monkeypatch, rehash, rewritten,
+                                                                  hashes):
+    from fmb.collection import paper_host
+    from fmb.core.errors import FmbInputError
+
+    monkeypatch.setattr(paper_host, "REHASH_AFTER_COLLECTION", rehash)
+    # What Windows reports: st_ctime is the creation time, so only the size and the restorable last-write time remain.
+    monkeypatch.setattr(paper_host, "file_identity", lambda path: (path.stat().st_size, path.stat().st_mtime_ns))
+    evidence = identity_case.evidence
+
+    def rewrite():
+        status = evidence.stat()
+        evidence.write_bytes(b"SMALL PUBLIC TEST EVIDENCE")
+        os.utime(evidence, ns=(status.st_atime_ns, status.st_mtime_ns))
+        identity_case.digest = lambda: "c" * 64
+
+    if rewritten:
+        identity_case.during_host = rewrite
+        with pytest.raises(FmbInputError, match=r"changed during collection \(content\)"):
+            identity_case.invoke()
+    else:
+        assert identity_case.invoke() == {"parser_runs": []}
+    assert identity_case.hashed == [evidence] * hashes
+
+
+@pytest.mark.skipif(os.name == "nt", reason="st_ctime is the creation time on Windows")
+@pytest.mark.parametrize("same_bytes", [True, False])
+def test_a_change_time_alone_is_settled_by_hashing_again(identity_case, monkeypatch, same_bytes):
+    from fmb.collection import paper_host
+    from fmb.core.errors import FmbInputError
+
+    monkeypatch.setattr(paper_host, "REHASH_AFTER_COLLECTION", False)
+
+    def chmod():
+        identity_case.evidence.chmod(0o444)
+        if not same_bytes:
+            identity_case.digest = lambda: "c" * 64
+
+    identity_case.during_host = chmod
+    if same_bytes:
+        assert identity_case.invoke() == {"parser_runs": []}
+    else:
+        with pytest.raises(FmbInputError, match=r"changed during collection \(content\)"):
+            identity_case.invoke()
+    assert identity_case.hashed == [identity_case.evidence]
