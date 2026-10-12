@@ -7,6 +7,14 @@ from typing import Any
 
 RECEIPT_NAME = "logfile-retention-receipt.json"
 SCHEMA_VERSION = "generation_logfile_retention_receipt.v1"
+# Why a target is not retained; only no_candidate_update after a complete parse is a wrap (the log lost the change).
+NOT_RETAINED = {
+    "parse_coverage_unverified": "dfir_ntfs could not parse the whole exported $LogFile",
+    "target_not_in_image": "a file whose timestamps were changed is not in the exported image",
+    "transition_not_committed": "a timestamp change is in the $LogFile but its transaction was not committed",
+    "transition_mismatch": "the $LogFile records another timestamp change than the intended one",
+    "no_targets": "there was no timestamp change to check",
+}
 
 
 def _same_instant(left: str | None, right: str | None) -> bool:
@@ -186,16 +194,36 @@ def check_logfile_retention(
                         row.update(retained=bool(committed), transition_lsn=update.get("lsn"), committed=committed)
                         if committed:
                             break
+            if not row["retained"]:
+                row["not_retained_reason"] = _not_retained(complete, entry, row)
             all_retained = all_retained and bool(row["retained"])
             receipt["targets"].append(row)
         receipt["status"] = "retained" if all_retained and targets else "not_retained"
+        if receipt["status"] != "retained":
+            reasons = [row["not_retained_reason"] for row in receipt["targets"] if not row["retained"]]
+            receipt["not_retained_reason"] = next((reason for reason in reasons if reason != "no_candidate_update"),
+                                                  "no_candidate_update" if reasons else "no_targets")
     _write(output_dir, receipt)
     if require and receipt["status"] != "retained":
-        raise ValueError(
-            "the intended timestamp transitions are not retained in the exported $LogFile; "
-            "the attempt is a failure record (see logfile-retention-receipt.json)"
-        )
+        reason = receipt["not_retained_reason"]
+        if reason == "no_candidate_update":
+            raise ValueError(
+                "the intended timestamp transitions are not retained in the exported $LogFile; "
+                "the attempt is a failure record (see logfile-retention-receipt.json)"
+            )
+        raise ValueError(f"{NOT_RETAINED[reason]}, so the $LogFile check counts the intended timestamp changes as "
+                         f"not retained ({reason}); the attempt is a failure record (see logfile-retention-receipt.json)")
     return receipt
+
+
+def _not_retained(complete: bool, entry: int | None, row: dict[str, Any]) -> str:
+    if not complete:
+        return "parse_coverage_unverified"
+    if entry is None:
+        return "target_not_in_image"
+    if not row["candidate_update_count"]:
+        return "no_candidate_update"
+    return "transition_not_committed" if row["committed"] is False else "transition_mismatch"
 
 
 def _write(output_dir: Path, receipt: dict[str, Any]) -> None:
