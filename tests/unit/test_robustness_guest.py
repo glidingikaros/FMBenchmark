@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 
@@ -87,4 +88,44 @@ $script:timeouts -join ','
                              str(FILES / "native_shellbag.ps1")],
                             capture_output=True, text=True, check=True, timeout=PWSH_TIMEOUT)
     assert int(result.stdout) >= 30
+
+
+# Runs the pilot's BQ-EXEC-01 step on a fake clock: the .pf appears after the given number of seconds.
+PILOT_PREFETCH = r'''
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$tokens,[ref]$errors)
+$step=$ast.Find({param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -ceq "`$q -eq 'BQ-EXEC-01'"},$true)
+$body=$step.Clauses[0].Item2.Extent.Text
+$script:start=[DateTime]'2026-01-01T00:00:00';$script:clock=$script:start;$script:appears=[int]$args[1];$script:pfFile=$args[2]
+function Get-Date {$script:clock}
+function Start-Sleep {param([int]$Seconds) $script:clock=$script:clock.AddSeconds($Seconds)}
+function Start-Process {}
+function Get-ChildItem {if(($script:clock-$script:start).TotalSeconds -ge $script:appears){Get-Item -LiteralPath $script:pfFile}}
+function Get-Service {[PSCustomObject]@{Status='Running'}}
+function Get-ItemProperty {[PSCustomObject]@{EnablePrefetcher=3}}
+$p='C:\Pilot\f_PRIVATE_DO_NOT_EMIT.exe'
+try {
+ . ([scriptblock]::Create($body.Substring(1,$body.Length-2)))
+ [ordered]@{ok=$true;waited=($script:clock-$script:start).TotalSeconds;witnesses=@($witnesses).Count}|ConvertTo-Json -Compress
+} catch {
+ [ordered]@{ok=$false;message=$_.Exception.Message}|ConvertTo-Json -Compress
+}
+'''
+
+
+@pytest.mark.pwsh
+@requires_pwsh
+@pytest.mark.parametrize("appears", [100, 10_000])
+def test_pilot_waits_like_prefetch_wipe_and_fails_with_counts_only(tmp_path, appears):
+    pf = tmp_path / "F_PRIVATE_DO_NOT_EMIT.EXE-0123ABCD.pf"
+    pf.write_bytes(b"MAM")
+    result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-CommandWithArgs", PILOT_PREFETCH,
+                             str(FILES / "pilot_challenge.ps1"), str(appears), str(pf)],
+                            capture_output=True, text=True, check=True, timeout=PWSH_TIMEOUT)
+    outcome = json.loads(result.stdout)
+    if appears == 100:
+        assert outcome == {"ok": True, "waited": 100, "witnesses": 1}
+    else:
+        assert outcome == {"ok": False, "message": "Pilot executable has no native Prefetch record: 0 of 1 .pf files "
+                                                   "after 180 s (SysMain: Running, EnablePrefetcher: 3)"}
 
