@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fmb.core.paths import workspace
-from fmb.replication import host, terminal
+from fmb.replication import awake, host, terminal
 from fmb.replication.setup import log, windows_parsers
 
 RETRYABLE = re.compile(r'"outcome": "error", "phase": "(qemu_boot|vagrant_boot|ansible_provisioning)"')
@@ -436,8 +436,13 @@ def generate_one(image, lock: Path, root: Path, attempts: int, again: bool = Fal
     (folder / "image.json").write_bytes(definition)
     if busy := host.load_warning():
         log(f"{image.name}: {busy}")
-    started = time.monotonic()
-    done = generate_image(image, lock, folder, attempts)
+    started, asleep = time.monotonic(), awake.asleep()
+    try:
+        done = generate_image(image, lock, folder, attempts)
+    except SystemExit as error:
+        if note := awake.slept(asleep):
+            raise SystemExit(f"{error}{note}") from error
+        raise
     log(f"{image.name}: generated in {terminal.duration(time.monotonic() - started)}: {done / 'full_scale.vmdk'}")
     return done
 

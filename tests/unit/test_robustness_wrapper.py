@@ -2,7 +2,9 @@ import _thread
 import email.message
 import io
 import json
+import os
 import shutil
+import subprocess
 import threading
 import time
 import urllib.error
@@ -283,3 +285,130 @@ def test_ctrl_c_reaches_fmb_while_a_provider_call_waits_for_its_answer(monkeypat
     finally:
         released.set()
         timer.cancel()
+
+
+def fake_inhibitor(folder: Path, body: str) -> Path:
+    tool = folder / "bin" / "systemd-inhibit"
+    tool.parent.mkdir()
+    tool.write_text(f"#!/bin/sh\n{body}\n")
+    tool.chmod(0o755)
+    return tool
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="a shell-script stand-in for systemd-inhibit")
+def test_linux_holds_a_sleep_inhibitor_until_fmb_is_done(tmp_path, monkeypatch):
+    from fmb.replication import awake
+
+    record = tmp_path / "inhibitor.txt"
+    tool = fake_inhibitor(tmp_path, f'echo "$@" > {record}; exec cat')
+    started, popen = [], subprocess.Popen
+    monkeypatch.setattr(host, "WINDOWS", False)
+    monkeypatch.setattr(host, "MACOS", False)
+    monkeypatch.setattr(awake.shutil, "which", lambda name: str(tool) if name == "systemd-inhibit" else None)
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **options: started.append(popen(*args, **options))
+                        or started[-1])
+    with awake.kept_awake():
+        deadline = time.monotonic() + 10
+        while not record.is_file() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert record.read_text().split() == ["--what=sleep:idle", "--who=fmb", "--why=generating", "or",
+                                              "analysing", "a", "disk", "image", "--mode=block", "cat"]
+        assert started[0].poll() is None
+    assert started[0].poll() is not None
+
+
+def test_no_inhibitor_or_a_failing_one_never_stops_fmb(tmp_path, monkeypatch):
+    from fmb.replication import awake
+
+    monkeypatch.setattr(host, "WINDOWS", False)
+    monkeypatch.setattr(host, "MACOS", False)
+    monkeypatch.setattr(awake.shutil, "which", lambda name: None)
+    with awake.kept_awake():
+        pass
+    monkeypatch.setattr(awake.shutil, "which", lambda name: str(tmp_path / "missing"))
+    with awake.kept_awake():
+        pass
+    if hasattr(os, "fork"):
+        tool = fake_inhibitor(tmp_path, "echo 'Failed to inhibit: no logind' >&2; exit 1")
+        monkeypatch.setattr(awake.shutil, "which", lambda name: str(tool))
+        with awake.kept_awake():
+            pass
+
+
+def test_macos_and_windows_take_their_own_sleep_assertions(monkeypatch):
+    from types import SimpleNamespace
+
+    from fmb.replication import awake
+
+    started = []
+
+    class Process:
+        def __init__(self, command, **options):
+            started.append(command)
+            self.stdin, self.ended = io.BytesIO(), False
+
+        def terminate(self):
+            self.ended = True
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(host, "WINDOWS", False)
+    monkeypatch.setattr(host, "MACOS", True)
+    monkeypatch.setattr(awake.subprocess, "Popen", Process)
+    with awake.kept_awake():
+        assert started == [["/usr/bin/caffeinate", "-i", "-w", str(os.getpid())]]
+    states = []
+    kernel = SimpleNamespace(SetThreadExecutionState=lambda state: states.append(state.value) or 1)
+    monkeypatch.setattr(host, "WINDOWS", True)
+    monkeypatch.setattr(awake.ctypes, "windll", SimpleNamespace(kernel32=kernel), raising=False)
+    with awake.kept_awake():
+        assert states == [0x80000001]
+    assert states == [0x80000001, 0x80000000]
+
+
+def test_fmb_generate_and_fmb_run_keep_the_computer_awake(monkeypatch):
+    from contextlib import contextmanager
+
+    from fmb.cli.app import main
+    from fmb.replication import awake
+
+    held = []
+
+    @contextmanager
+    def kept_awake():
+        held.append("taken")
+        yield
+        held.append("released")
+
+    monkeypatch.setattr(awake, "kept_awake", kept_awake)
+    monkeypatch.setattr(run, "generate_images", lambda *_, **__: held.append("generate") or 0)
+    monkeypatch.setattr(run, "run_images", lambda *_, **__: held.append("run") or 0)
+    assert main(["generate", "I1"]) == 0 and main(["run", "I1"]) == 0
+    assert held == ["taken", "generate", "released", "taken", "run", "released"]
+
+
+def test_a_generation_that_failed_after_the_computer_slept_says_so(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from fmb.replication import awake
+
+    clocks = iter([(1000.0, 500.0), (4000.0, 1300.0), (1000.0, 500.0), (1003.0, 503.0)])
+    monkeypatch.setattr(awake, "_clocks", lambda: next(clocks))
+    monkeypatch.setattr(run, "disk_space", lambda name, root: None)
+
+    def failed(*_):
+        raise SystemExit("I1: generation failed at 'user activity and manipulations in the guest': clock offset")
+
+    monkeypatch.setattr(run, "generate_image", failed)
+    image = SimpleNamespace(name="I1", paper=True, path=tmp_path / "I1.json")
+    image.path.write_text("{}")
+    (tmp_path / "generated").mkdir()
+    with pytest.raises(SystemExit) as error:
+        run.generate_one(image, tmp_path / "lock.json", tmp_path / "generated", attempts=3)
+    assert str(error.value) == (
+        "I1: generation failed at 'user activity and manipulations in the guest': clock offset. The computer slept, "
+        "or its clock was set, for about 36m40s during the generation, which needs the guest's clock within 2 s of "
+        "the host's: keep the computer awake, on power and with its lid open while fmb generates")
+    with pytest.raises(SystemExit, match=r"clock offset$"):
+        run.generate_one(image, tmp_path / "lock.json", tmp_path / "generated", attempts=3)
