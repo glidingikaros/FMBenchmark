@@ -26,7 +26,16 @@ def test_stdout_and_stderr_remain_separate():
 
 
 @pytest.mark.parametrize("capture", [False, True])
-def test_silent_command_obeys_deadline(capture):
+def test_silent_command_obeys_deadline(capture, monkeypatch):
+    stop_group = owned_process._stop_group
+    stopped = []
+
+    def timed_stop(process):
+        stopped.append(time.monotonic())
+        stop_group(process)
+
+    # Time the deadline only: the cleanup after it runs taskkill, which has taken 9-10 s on a loaded Windows runner.
+    monkeypatch.setattr(owned_process, "_stop_group", timed_stop)
     start = time.monotonic()
     with pytest.raises(subprocess.TimeoutExpired):
         run_owned(
@@ -34,7 +43,7 @@ def test_silent_command_obeys_deadline(capture):
             timeout=0.2,
             capture_output=capture,
         )
-    assert time.monotonic() - start < 3
+    assert stopped and stopped[0] - start < 3
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process group assertion")
