@@ -32,9 +32,10 @@ def log(message: str) -> None:
     print(f"[fmb] {message}", flush=True)
 
 
-def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
+def run(command: list[str], env: dict[str, str] | None = None, **kwargs) -> subprocess.CompletedProcess:
     log(" ".join(str(part) for part in command))
-    return subprocess.run([str(part) for part in command], check=True, env=host.environment(), **kwargs)
+    return subprocess.run([str(part) for part in command], check=True, env={**host.environment(), **(env or {})},
+                          **kwargs)
 
 
 def fetch(url: str) -> bytes:
@@ -71,9 +72,12 @@ def dotnet_runtime() -> None:
 
 
 def ansible() -> None:
+    """Installs fmb's Ansible under the cache, apart from the user's own Ansible and collections."""
     pins = host.PINS["ansible"]
     if host.MACOS:
         return
+    home = host.ansible_home()
+    private = {"UV_TOOL_DIR": str(home / "tools"), "UV_TOOL_BIN_DIR": str(home / "bin")}
     if host.WINDOWS:
         distro, venv = host.PINS["wsl_distribution"], "/mnt/c/fmb-ansible"
         run(["wsl.exe", "-d", distro, "-u", "root", "--exec", "bash", "-c",
@@ -82,11 +86,13 @@ def ansible() -> None:
              f"test -x {venv}/bin/ansible || python3 -m venv {venv} && "
              f"{venv}/bin/pip install -q ansible-core=={pins['ansible-core']} pywinrm=={pins['pywinrm']} && "
              f"{venv}/bin/ansible-galaxy collection install ansible.windows:=={pins['ansible.windows']} -p {venv}/collections"])
-        run(["uv", "tool", "install", "--force", "--python", platform.python_version(), host.REPO / "tools" / "wsl-ansible"])
+        run(["uv", "tool", "install", "--force", "--python", platform.python_version(), host.REPO / "tools" / "wsl-ansible"],
+            env=private)
         return
     run(["uv", "tool", "install", "--force", "--python", platform.python_version(), f"ansible-core=={pins['ansible-core']}",
-         "--with", f"pywinrm=={pins['pywinrm']}"])
-    run([host.which("ansible-galaxy"), "collection", "install", f"ansible.windows:=={pins['ansible.windows']}"])
+         "--with", f"pywinrm=={pins['pywinrm']}"], env=private)
+    run([home / "bin" / "ansible-galaxy", "collection", "install", f"ansible.windows:=={pins['ansible.windows']}",
+         "-p", home / "collections"], env={"ANSIBLE_COLLECTIONS_PATH": str(home / "collections")})
 
 
 def toolchain() -> Path:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -467,3 +468,112 @@ def test_a_slow_winrm_reply_is_waited_for_well_past_the_operation_timeout():
     winrm = ansible_winrm_vars(5985)
     assert len(pipeline) == 2 and all(value >= winrm["ansible_winrm_read_timeout_sec"] for value in pipeline)
     assert winrm["ansible_winrm_read_timeout_sec"] >= winrm["ansible_winrm_operation_timeout_sec"] + 120
+
+
+PINNED = {"ANSIBLE_STDOUT_CALLBACK": "default", "ANSIBLE_CALLBACK_RESULT_FORMAT": "json", "ANSIBLE_NOCOLOR": "1",
+          "ANSIBLE_FORCE_COLOR": "0"}
+
+
+def pinned(env):
+    return {key: env.get(key) for key in [*PINNED, "ANSIBLE_CONFIG"]}
+
+
+@pytest.mark.parametrize("macos", [False, True])
+def test_every_ansible_run_gets_fmbs_config_and_output_format(tmp_path, monkeypatch, macos):
+    from fmb.generation import backends, recipe
+    from fmb.generation.pipeline import GenerationPipeline
+
+    config = Path(backends.__file__).parent / "ansible" / "ansible.cfg"
+    expected = {**PINNED, "ANSIBLE_CONFIG": str(config)}
+    assert "ansible/ansible.cfg" in {row["path"] for row in recipe.source_inventory(config.parents[1])}
+    instance = GenerationPipeline.__new__(GenerationPipeline)
+    instance.is_macos, instance.provider, instance.scenario = macos, "qemu", "ads_payload_01"
+    instance.population_inputs_path, instance.recipe_bundle = None, None
+    instance.get_ansible_connection = lambda: {"host": "127.0.0.1", "port": 5985, "user": "u", "password": "p"}
+    seen = []
+    instance.run_streaming_command = lambda command, env=None, **_: seen.append(env) or ""
+    instance.run_command = lambda command, env=None, **_: seen.append(env)
+    instance.run_ansible_playbook()
+    instance.validate_vmware_ansible_winrm("10.0.0.5")
+    monkeypatch.setattr(subprocess, "run", lambda command, env=None, **_: seen.append(env))
+    backends.ansible_adhoc("ansible", 5985, "ansible.windows.win_ping", {}, timeout=10)
+    assert [pinned(env) for env in seen] == [expected] * 3
+
+
+def test_fmbs_own_collections_are_used_alone_once_setup_installed_them(tmp_path, monkeypatch):
+    from fmb.generation.backends import ansible_settings
+
+    monkeypatch.setenv("FMB_ANSIBLE_COLLECTIONS", str(tmp_path / "collections"))
+    assert "ANSIBLE_COLLECTIONS_PATH" not in ansible_settings()
+    (tmp_path / "collections").mkdir()
+    assert ansible_settings()["ANSIBLE_COLLECTIONS_PATH"] == str(tmp_path / "collections")
+
+
+def test_the_lock_reads_ansible_as_the_playbook_sees_it(tmp_path, monkeypatch):
+    from fmb.generation import dependency_lock
+
+    monkeypatch.setenv("FMB_ANSIBLE_COLLECTIONS", str(tmp_path))
+    seen = []
+
+    def run_owned(command, *, env=None, **_):
+        seen.append(env)
+        text = ("ansible [core 2.20.5]\n  ansible python module location = /x/ansible\n" if "--version" in command
+                else json.dumps({"/c/ansible_collections": {"ansible.windows": {"version": "3.5.0"}}}))
+        return subprocess.CompletedProcess(command, 0, text, "")
+
+    monkeypatch.setattr("fmb.core.owned_process.run_owned", run_owned)
+    layout = dependency_lock.ansible_layout(str(tmp_path / "ansible"))
+    assert layout["collections"]["ansible.windows"]["version"] == "3.5.0"
+    assert [env["ANSIBLE_COLLECTIONS_PATH"] for env in seen] == [str(tmp_path)] * 2
+    assert all(pinned(env)["ANSIBLE_STDOUT_CALLBACK"] == "default" for env in seen)
+
+
+def test_the_wsl_shim_passes_the_output_format_and_config_on(monkeypatch):
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "tools/wsl-ansible/fmb_wsl_ansible.py"
+    spec = importlib.util.spec_from_file_location("robustness_wsl_ansible", path)
+    shim = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shim)
+    commands = []
+    monkeypatch.setattr(shim.subprocess, "call", lambda command: commands.append(command) or 0)
+    monkeypatch.setattr(shim, "HOME", "/mnt/c/fmb-ansible")
+    monkeypatch.setattr(shim.sys, "argv", ["ansible-playbook", "play.yml"])
+    monkeypatch.setenv("ANSIBLE_CONFIG", "/mnt/c/fmb/src/fmb/generation/ansible/ansible.cfg")
+    shim.ansible_playbook()
+    variables = dict(part.split("=", 1) for part in commands[0][5:-2])
+    assert {key: variables.get(key) for key in [*PINNED, "ANSIBLE_CONFIG"]} == {
+        **PINNED, "ANSIBLE_CONFIG": "/mnt/c/fmb/src/fmb/generation/ansible/ansible.cfg"}
+
+
+@pytest.mark.parametrize("windows", [False, True])
+def test_setup_installs_fmbs_ansible_apart_from_the_users(tmp_path, monkeypatch, windows):
+    from fmb.replication import host, setup
+
+    monkeypatch.setenv("FMB_CACHE", str(tmp_path))
+    monkeypatch.setattr(host, "MACOS", False)
+    monkeypatch.setattr(host, "WINDOWS", windows)
+    runs = []
+    monkeypatch.setattr(setup, "run", lambda command, env=None, **_: runs.append((command, env or {})))
+    setup.ansible()
+    installs = [(command, env) for command, env in runs if command[:3] == ["uv", "tool", "install"]]
+    assert installs and all(env == {"UV_TOOL_DIR": str(tmp_path / "ansible" / "tools"),
+                                    "UV_TOOL_BIN_DIR": str(tmp_path / "ansible" / "bin")} for _, env in installs)
+    if not windows:
+        galaxy = runs[-1][0]
+        assert galaxy[0] == tmp_path / "ansible" / "bin" / "ansible-galaxy"
+        assert galaxy[-2:] == ["-p", tmp_path / "ansible" / "collections"]
+
+
+def test_fmbs_own_ansible_comes_first(tmp_path, monkeypatch):
+    from fmb.replication import host
+
+    monkeypatch.setenv("FMB_CACHE", str(tmp_path))
+    monkeypatch.delenv("FMB_ANSIBLE_COLLECTIONS", raising=False)
+    (tmp_path / "ansible" / "bin").mkdir(parents=True)
+    (tmp_path / "user-bin").mkdir()
+    monkeypatch.setattr(host, "uv_tool_bin", lambda: tmp_path / "user-bin")
+    env = host.environment()
+    path = env["PATH"].split(os.pathsep)
+    assert path.index(str(tmp_path / "ansible" / "bin")) < path.index(str(tmp_path / "user-bin"))
+    assert env["FMB_ANSIBLE_COLLECTIONS"] == str(tmp_path / "ansible" / "collections")

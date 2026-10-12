@@ -79,9 +79,15 @@ def uv_tool_bin() -> Path | None:
     return Path(completed.stdout.strip()) if completed.returncode == 0 and completed.stdout.strip() else None
 
 
+def ansible_home() -> Path:
+    """fmb's own Ansible: its tools, their commands and its collections, apart from the user's."""
+    return cache() / "ansible"
+
+
 def environment() -> dict[str, str]:
     env = dict(os.environ)
-    front = [str(path) for path in (dotnet_home(), uv_tool_bin(), QEMU_WINDOWS_DIR if WINDOWS else None)
+    front = [str(path) for path in (dotnet_home(), ansible_home() / "bin", uv_tool_bin(),
+                                    QEMU_WINDOWS_DIR if WINDOWS else None)
              if path and Path(path).is_dir()]
     env["PATH"] = os.pathsep.join(front + [env.get("PATH", "")])
     if dotnet_home().is_dir():
@@ -89,6 +95,7 @@ def environment() -> dict[str, str]:
     env.setdefault("FMB_QEMU_BASE_HOME", str(base_home()))
     env.setdefault("FMB_HOST_TOOLCHAIN_ROOT", str(cache() / "eztools" / "net9"))
     env.setdefault("FMB_DFIR_NTFS_ENV", str(cache() / "dfir-ntfs" / "venv"))
+    env.setdefault("FMB_ANSIBLE_COLLECTIONS", str(ansible_home() / "collections"))
     env.setdefault("PYTHONUTF8", "1")
     return env
 

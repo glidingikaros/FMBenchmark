@@ -230,6 +230,23 @@ def ansible_winrm_vars(port: int) -> dict:
             "ansible_winrm_operation_timeout_sec": 120, "ansible_winrm_read_timeout_sec": 300}
 
 
+ANSIBLE_CONFIG = Path(__file__).parent / "ansible" / "ansible.cfg"
+# The host reads its receipts from Ansible's output, so the format must not follow the user's Ansible settings.
+ANSIBLE_OUTPUT = {"ANSIBLE_STDOUT_CALLBACK": "default", "ANSIBLE_CALLBACK_RESULT_FORMAT": "json",
+                  "ANSIBLE_NOCOLOR": "1", "ANSIBLE_FORCE_COLOR": "0"}
+
+
+def ansible_settings() -> dict[str, str]:
+    """What fmb's Ansible runs set over the environment: fmb's config and output format, and the collections fmb setup
+    installed (FMB_ANSIBLE_COLLECTIONS); a machine set up before those existed keeps Ansible's default places."""
+    settings = {**ANSIBLE_OUTPUT, "ANSIBLE_CONFIG": str(ANSIBLE_CONFIG)}
+    private = os.environ.get("FMB_ANSIBLE_COLLECTIONS")
+    if private and Path(private).is_dir():
+        # Alone: `ansible-galaxy collection list`, which the lock reads, sorts by path, not by search order.
+        settings["ANSIBLE_COLLECTIONS_PATH"] = private
+    return settings
+
+
 def ansible_adhoc(ansible: str, port: int, module: str, args: dict, *, timeout: int):
     import json
     import subprocess
@@ -237,7 +254,7 @@ def ansible_adhoc(ansible: str, port: int, module: str, args: dict, *, timeout: 
     module_args = ["-a", json.dumps(args)] if args else []
     return subprocess.run([ansible, "all", "-i", "127.0.0.1,", "-m", module, *module_args,
                            "-e", json.dumps(ansible_winrm_vars(port))],
-                          capture_output=True, text=True, timeout=timeout)
+                          capture_output=True, text=True, timeout=timeout, env={**os.environ, **ansible_settings()})
 
 
 def qemu_guest_command(qemu: Path, state: Path, *, winrm_port: int, monitor_port: int,

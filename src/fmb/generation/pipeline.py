@@ -1193,9 +1193,12 @@ class GenerationPipeline:
             "ansible_winrm_operation_timeout_sec": 120,
             "ansible_winrm_read_timeout_sec": 300,
         }
+        from fmb.generation.backends import ansible_settings
+
         env = {
             "ANSIBLE_HOST_KEY_CHECKING": "False",
             "ANSIBLE_FORKS": "1",
+            **ansible_settings(),
         }
         if sys.platform == "darwin":
             env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
@@ -1406,12 +1409,14 @@ class GenerationPipeline:
         ]
         if self.population_inputs_path is not None:
             cmd.extend(["-e", f"@{self.population_inputs_path}"])
-        env = None
+        from fmb.generation.backends import ansible_settings
+
+        env = ansible_settings()
         if self.is_macos:
             ansible_tags = os.environ.get("GENERATION_ANSIBLE_TAGS")
             if ansible_tags:
                 cmd.extend(["--tags", ansible_tags])
-            env = {
+            env |= {
                 "ANSIBLE_HOST_KEY_CHECKING": "False",
                 "ANSIBLE_FORKS": "1",
             }
