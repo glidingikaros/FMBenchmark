@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,3 +39,35 @@ def test_again_never_deletes_an_image_another_fmb_is_generating(tmp_path):
     with run.generating(tmp_path / "I1"), pytest.raises(SystemExit, match="another fmb is generating this image"):
         run.generate_one(image, tmp_path / "lock.json", tmp_path, attempts=1, again=True)
     assert disk.is_file()
+
+
+def test_two_fmb_runs_that_find_the_lock_stale_together_renew_it_once(tmp_path):
+    import json
+    import subprocess
+    import sys
+
+    lock = tmp_path / "lock.json"
+    lock.write_text(json.dumps({"old": True}))
+    script = (
+        "import json, sys, time\n"
+        "from pathlib import Path\n"
+        "from fmb.replication import run\n"
+        "lock = Path(sys.argv[1])\n"
+        "seen = b'{\"old\": true}'\n"  # the lock both found stale
+        "def dependency_lock(root):\n"
+        "    time.sleep(1.0)\n"
+        "    with (root / 'lock.json').open('x') as stream:\n"  # as the lock step: never over an existing lock
+        "        json.dump({'by': sys.argv[2]}, stream)\n"
+        "run.dependency_lock = dependency_lock\n"
+        "time.sleep(float(sys.argv[3]))\n"
+        "run.renew_lock(lock, seen)\n"
+    )
+    environment = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
+    runs = [subprocess.Popen([sys.executable, "-c", script, str(lock), name, delay], env=environment,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            for name, delay in (("A", "0"), ("B", "0.3"))]
+    outputs = [process.communicate(timeout=60)[0] for process in runs]
+    assert [process.returncode for process in runs] == [0, 0], outputs
+    assert len(list(tmp_path.glob("lock-*.json"))) == 1  # renewed once, by whichever came first
+    assert json.loads(lock.read_text()) in ({"by": "A"}, {"by": "B"})
+    assert sum("another fmb wrote a new dependency lock meanwhile; using it" in output for output in outputs) == 1

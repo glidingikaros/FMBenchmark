@@ -155,16 +155,56 @@ def dependency_lock(root: Path) -> Path:
     return lock
 
 
-def renew_lock(lock: Path) -> None:
-    """Writes a new lock for this machine, keeping the earlier one next to it."""
-    kept = lock.with_name(f"lock-{datetime.now():%Y%m%d-%H%M%S}.json")
-    lock.rename(kept)
+@contextmanager
+def renewing(lock: Path):
+    """An OS lock held while the dependency lock is renewed, so that two fmb runs found stale together renew it once;
+    the system drops it if fmb dies."""
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with (lock.parent / ".lock-renewal").open("a+b") as stream:
+        stream.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            while True:
+                try:
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    time.sleep(1)
+        else:
+            import fcntl
+
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def lock_bytes(lock: Path) -> bytes | None:
     try:
-        dependency_lock(lock.parent)
-    except BaseException:
-        if not lock.exists():
-            kept.rename(lock)
-        raise
+        return lock.read_bytes()
+    except OSError:
+        return None
+
+
+def renew_lock(lock: Path, seen: bytes | None = None) -> None:
+    """Writes a new lock for this machine, keeping the earlier one next to it. seen: the lock that was found stale;
+    when another fmb has replaced it since, its new lock is used as it is."""
+    with renewing(lock):
+        if seen is not None and lock_bytes(lock) not in {seen, None}:
+            log("another fmb wrote a new dependency lock meanwhile; using it")
+            return
+        kept = lock.with_name(f"lock-{datetime.now():%Y%m%d-%H%M%S}.json")
+        lock.rename(kept)
+        try:
+            dependency_lock(lock.parent)
+        except BaseException:
+            if not lock.exists():
+                kept.rename(lock)
+            raise
     log(f"wrote a new dependency lock; the earlier one is kept as {kept}")
 
 
@@ -283,6 +323,7 @@ def freeze(image, lock: Path, folder: Path, renew: bool = True) -> None:
             "freezing it again")
     if recipe.exists():
         return
+    seen = lock_bytes(lock)
     if step("freeze", image=image.name, provider=host.provider(), lock=lock, recipe=recipe,
             log_path=folder / "freeze.log", label=image.name,
             **({} if image.paper else {"image_file": image.path})) == 0:
@@ -292,7 +333,7 @@ def freeze(image, lock: Path, folder: Path, renew: bool = True) -> None:
     if not (found and renew):
         raise SystemExit(f"{image.name}: freezing the recipe failed; see {folder / 'freeze.log'}")
     log(stale(image.name, found.group(1)))
-    renew_lock(lock)
+    renew_lock(lock, seen)
     freeze(image, lock, folder, renew=False)
 
 
@@ -348,6 +389,7 @@ def generate_attempts(image, lock: Path, folder: Path, attempts: int) -> Path:
         output, log_path = folder / "generation" / f"attempt-{attempt}", folder / f"generate-{attempt}.log"
         keep_log(log_path)
         log(f"{image.name}: generating, attempt {attempt}; its whole output goes to {log_path}")
+        seen = lock_bytes(lock)
         try:
             code = step("generate", recipe=recipe, output_root=output, vm_work_root=vm_work_root(), log_path=log_path,
                         label=image.name)
@@ -362,7 +404,7 @@ def generate_attempts(image, lock: Path, folder: Path, attempts: int) -> Path:
         text = log_path.read_text(encoding="utf-8", errors="replace")
         if (found := STALE_LOCK.search(text)) and not renewed:
             log(stale(image.name, found.group(1)))
-            renew_lock(lock)
+            renew_lock(lock, seen)
             renewed = True
             freeze(image, lock, folder, renew=False)
             continue
