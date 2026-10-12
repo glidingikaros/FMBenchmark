@@ -27,7 +27,7 @@ from fmb.collection.tools.host.modules import csv_data_row_count
 from fmb.collection.tools.host import vmware as runner
 from fmb.collection.tools.host.toolchain import DEFAULT_LOCK_PATH
 from fmb.core.hashing import sha256_bytes, sha256_file
-from fmb.core.json_io import write_json
+from fmb.core.json_io import json_text, write_json
 
 GUEST_ROOT = "C:\\FMB-Parsers"
 WINDOWS_PARSERS = ("PECmd.exe", "SBECmd.exe")
@@ -332,30 +332,46 @@ def assert_no_running_vm(provider: str) -> None:
                       f"{shlex.join(runner.vmrun_command(provider, 'stop', vmx, 'hard'))}" for vmx in running))
 
 
-def _write_owner(folder: Path, run_id: str) -> None:
-    from fmb.collection.run.lock import current_host
+def _write_owner(folder: Path, run_id: str) -> int:
+    # The run keeps the owner file open and locked until close(); the OS drops the lock when the run dies.
+    from fmb.collection.run.lock import _try_lock, current_host
 
-    write_json(folder / PARSER_OWNER_FILE, {"pid": os.getpid(), "host": current_host(), "run_id": run_id,
-                                            "started_at": _utc_now().isoformat()})
+    fd = os.open(folder / PARSER_OWNER_FILE, os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+    try:
+        if not _try_lock(fd):
+            raise ParserApplianceError(f"could not lock the owner file of the new parser VM folder {folder}")
+        os.lseek(fd, 0, os.SEEK_SET)  # Windows locks a byte further on
+        os.write(fd, json_text({"pid": os.getpid(), "host": current_host(), "run_id": run_id,
+                                "started_at": _utc_now().isoformat()}).encode("utf-8"))
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def reap_dead_parser_clones(work_root: Path, provider: str, log: Callable[[str], None]) -> None:
-    """Remove the parser VM clones of fmb runs on this host that are gone (killed, crashed, power lost)."""
-    from fmb.collection.run.lock import current_host, process_is_running
+    """Remove the parser VM clones of fmb runs that are gone (killed, crashed, power lost)."""
+    from fmb.collection.run.lock import _try_lock
 
     for folder in sorted(work_root.glob(PARSER_PREFIX + "*")):
+        owner_file = folder / PARSER_OWNER_FILE
         try:
-            owner = json.loads((folder / PARSER_OWNER_FILE).read_text(encoding="utf-8"))
+            owner = json.loads(owner_file.read_text(encoding="utf-8"))
             pid = int(owner["pid"])
+            fd = os.open(owner_file, os.O_RDWR | getattr(os, "O_BINARY", 0))
         except (OSError, ValueError, KeyError, TypeError):
             continue
-        if owner.get("host") != current_host() or process_is_running(pid):
-            continue
-        vmx = folder / ".vmrun-appliance" / "box.vmx"
-        if vmx.parent.exists():
-            runner.cleanup_disposable_appliance_vm(vmx_path=vmx, provider=provider, graceful=False)
-        (folder / PARSER_OWNER_FILE).unlink()
-        folder.rmdir()
+        try:
+            # Only the lock tells: the Mac's hostname changes with its network, and a pid is reused after a restart.
+            if not _try_lock(fd):
+                continue
+            vmx = folder / ".vmrun-appliance" / "box.vmx"
+            if vmx.parent.exists():
+                runner.cleanup_disposable_appliance_vm(vmx_path=vmx, provider=provider, graceful=False)
+        finally:
+            os.close(fd)
+        # The whole folder, so that a file someone else left in it (Finder's .DS_Store) does not fail this run.
+        shutil.rmtree(folder)
         log(f"parser appliance: removed the parser VM of run {owner.get('run_id')} (pid {pid} is gone): {folder}")
 
 
@@ -410,6 +426,7 @@ class ParserVM:
         self.timings = [] if timings is None else timings
         self.vmx_path: Path | None = None
         self.owned_work_dir: Path | None = None
+        self._owner_fd: int | None = None
         self.state: Path | None = None
         self.process: subprocess.Popen | None = None
         self.command: list[str] = []
@@ -472,7 +489,7 @@ class ParserVM:
                 raise ParserApplianceError("parser VM work directory overlaps its protected source")
             work_root.mkdir(parents=True, exist_ok=True)
             self.owned_work_dir = Path(tempfile.mkdtemp(prefix=PARSER_PREFIX, dir=work_root))
-            _write_owner(self.owned_work_dir, self.run_id)
+            self._owner_fd = _write_owner(self.owned_work_dir, self.run_id)
         worker_dir = self.owned_work_dir if self.owned_work_dir is not None else self.appliance_dir
         vmx_path = worker_dir / ".vmrun-appliance" / "box.vmx"
         if vmx_path.parent.exists():
@@ -626,6 +643,9 @@ class ParserVM:
             cleanup = runner.cleanup_disposable_appliance_vm(vmx_path=self.vmx_path, provider=self.provider,
                                                              graceful=graceful)
         if self.owned_work_dir is not None:
+            if self._owner_fd is not None:
+                fd, self._owner_fd = self._owner_fd, None
+                os.close(fd)
             (self.owned_work_dir / PARSER_OWNER_FILE).unlink(missing_ok=True)
             self.owned_work_dir.rmdir()
         return cleanup

@@ -527,14 +527,17 @@ def test_a_new_run_removes_parser_clones_of_gone_runs_and_names_a_running_vm(tmp
     from fmb.collection.run import lock as run_lock
     from fmb.collection.tools.host import vmware
 
-    monkeypatch.setattr(run_lock, "current_host", lambda: "this-mac")
-    monkeypatch.setattr(run_lock, "process_is_running", lambda pid: pid == 111)
     monkeypatch.setattr(vmware, "vmrun_is_running", lambda **kwargs: False)
     work_root = tmp_path / "vm-work"
-    gone = _clone_folder(work_root, "gone", {"pid": 222, "host": "this-mac", "run_id": "I1"})
+    gone = _clone_folder(work_root, "gone", {"pid": 222, "host": run_lock.current_host(), "run_id": "I1"})
+    (gone / ".DS_Store").write_bytes(b"\0\0\0\1Bud1")
+    # The Mac took another hostname on another network, and a restart gave the dead run's pid to a live process.
+    renamed = _clone_folder(work_root, "renamed", {"pid": 222, "host": "Francescas-MBP.fritz.box", "run_id": "I0"})
+    reused = _clone_folder(work_root, "reused", {"pid": os.getpid(), "host": run_lock.current_host(), "run_id": "I3"})
     alive = _clone_folder(work_root, "alive", {"pid": 111, "host": "this-mac"})
-    elsewhere = _clone_folder(work_root, "elsewhere", {"pid": 222, "host": "other-mac"})
     unowned = _clone_folder(work_root, "unowned", None)
+    held = os.open(alive / appliance.PARSER_OWNER_FILE, os.O_RDWR)
+    assert run_lock._try_lock(held)
     listing = "Total running VMs: 1\n/Users/me/vm-work/fmb-parser-alive/.vmrun-appliance/box.vmx\n"
     monkeypatch.setattr(appliance.subprocess, "run",
                         lambda *a, **k: subprocess.CompletedProcess(a, 0, listing, ""))
@@ -545,8 +548,11 @@ def test_a_new_run_removes_parser_clones_of_gone_runs_and_names_a_running_vm(tmp
     logged: list[str] = []
     vm = appliance.ParserVM(args=args, stage_dir=tmp_path / "analysis", progress=logged.append)
 
-    with pytest.raises(appliance.ParserApplianceError) as raised:
-        vm.start()
+    try:
+        with pytest.raises(appliance.ParserApplianceError) as raised:
+            vm.start()
+    finally:
+        os.close(held)
     assert vm._thread is None
     assert str(raised.value) == (
         "another VM is running; the parser appliance needs the single VM slot\n"
@@ -554,8 +560,11 @@ def test_a_new_run_removes_parser_clones_of_gone_runs_and_names_a_running_vm(tmp
         "If it is not in use (for example left by an fmb run that was killed), stop it with: "
         "'/Applications/VMware Fusion.app/Contents/Library/vmrun' -T fusion stop "
         "/Users/me/vm-work/fmb-parser-alive/.vmrun-appliance/box.vmx hard")
-    assert not gone.exists() and alive.is_dir() and elsewhere.is_dir() and unowned.is_dir()
-    assert logged == [f"parser appliance: removed the parser VM of run I1 (pid 222 is gone): {gone}"]
+    assert not gone.exists() and not renamed.exists() and not reused.exists()
+    assert alive.is_dir() and unowned.is_dir()
+    assert logged == [f"parser appliance: removed the parser VM of run I1 (pid 222 is gone): {gone}",
+                      f"parser appliance: removed the parser VM of run I0 (pid 222 is gone): {renamed}",
+                      f"parser appliance: removed the parser VM of run I3 (pid {os.getpid()} is gone): {reused}"]
 
 
 def test_the_parser_clone_names_its_owner_and_keeps_its_vmware_log(parser_case, monkeypatch):
@@ -565,7 +574,15 @@ def test_the_parser_clone_names_its_owner_and_keeps_its_vmware_log(parser_case, 
 
     def clone(**kwargs):
         vmx = parser_case.clone(**kwargs)
-        owners.append(json.loads((kwargs["vm_work_dir"] / appliance.PARSER_OWNER_FILE).read_text(encoding="utf-8")))
+        from fmb.collection.run import lock as run_lock
+
+        owner_file = kwargs["vm_work_dir"] / appliance.PARSER_OWNER_FILE
+        owners.append(json.loads(owner_file.read_text(encoding="utf-8")))
+        probe = os.open(owner_file, os.O_RDWR)
+        try:
+            owners[-1]["locked_while_running"] = not run_lock._try_lock(probe)
+        finally:
+            os.close(probe)
         (vmx.parent / "vmware.log").write_text("vmx| Power on\n", encoding="utf-8")
         return vmx
 
@@ -573,6 +590,7 @@ def test_the_parser_clone_names_its_owner_and_keeps_its_vmware_log(parser_case, 
     parser_case.run(parser_case.work_root)
 
     assert owners[0]["pid"] == os.getpid() and owners[0]["run_id"] == "analysis" and owners[0]["host"]
+    assert owners[0]["locked_while_running"] is True
     assert list(parser_case.work_root.iterdir()) == []
     kept = parser_case.stage / appliance.APPLIANCE_DIR_NAME / "parser-vm-vmware.log"
     assert kept.read_text(encoding="utf-8") == "vmx| Power on\n"
