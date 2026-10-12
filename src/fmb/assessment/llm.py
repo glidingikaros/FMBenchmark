@@ -2,7 +2,7 @@ from dataclasses import asdict
 from decimal import Decimal
 from pathlib import Path
 import time
-from fmb.core import paper_contract
+from fmb.core import paper_contract, progress
 from fmb.core.paper_artifacts import condition_options
 from fmb.core.paper_protocol import SAFETY_RESERVE_TOKENS
 from fmb.core.paper_results import IDENTITY_FIELDS
@@ -200,7 +200,17 @@ def execute_schedule(
         )
 
     try:
+        worst, covered = Decimal(0), 0
         for row in schedule:
+            request = read_json(root / "requests" / (row["request_id"] + ".kwargs.json"))
+            worst += cost(len(wire(request)), request["max_output_tokens"])
+            covered += worst <= cap
+        progress.emit("llm_plan", condition=root.name, requests=len(schedule), worst_usd=f"{worst:.2f}",
+                      cap_usd=f"{cap:.2f}", covered=covered)
+    except Exception:
+        pass
+    try:
+        for number, row in enumerate(schedule, 1):
             folder = run / f"call-{row['call']:03d}"
             folder.mkdir()
             previous = prior.get((row["request_id"], row["pass"]))
@@ -317,6 +327,8 @@ def execute_schedule(
             write_json(folder / "outcome.json", outcome)
             outcomes.append(outcome)
             active = None
+            progress.emit("llm_call", condition=root.name, call=number, of=len(schedule), status=outcome["status"],
+                          spent_usd=f"{spent:.2f}")
     except BaseException as error:
         interrupted = {"type": type(error).__name__, "message": str(error)[:500]}
         if active:

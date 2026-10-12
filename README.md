@@ -18,32 +18,52 @@ FMBenchmark does three tasks:
 | Command | Function |
 |---|---|
 | `fmb setup --check` | Checks the host. Shows the missing items and the commands that install them. |
-| `fmb setup` | Installs the pinned tools. On Linux and Windows, builds the Windows base from the ISO (approximately 30 min). |
-| `fmb generate NAME` | Generates `images/NAME.json` into `generated/NAME/` (approximately 1 h). |
-| `fmb run NAME` | Runs S1 to S4 on `generated/NAME/`. Writes `results/NAME/<time>/`. |
+| `fmb setup --iso ISO` | Checks the host, installs the pinned tools and builds the Windows base from the ISO (approximately 30 min). |
+| `fmb generate NAME` | Generates `images/NAME.json` into `generated/NAME/` (approximately 12 min on an M2 Pro Mac, 18 to 22 min on a Linux or Windows cloud machine with 4 CPUs). |
+| `fmb run NAME` | Generates `NAME` first if it is not generated yet. Runs S1 to S4 on `generated/NAME/`. Writes `results/NAME/<time>/` (approximately 4 min on the Mac, 5 to 7 min on the cloud machines). |
 
 Without `NAME`, `fmb generate` and `fmb run` show the choices and ask.
+
+The terminal shows one line for each step, with its time. The full output is in `generated/NAME/generate-<attempt>.log`
+and `results/NAME/<time>/pipeline.log`. Add `--verbose` to show the full output in the terminal as well.
+
+`fmb` uses the `images/`, `generated/` and `results/` folders of the repository, from any folder. To use another
+folder, set `FMB_HOME`. The images of the paper and the template stay available from the repository.
 
 ## Procedure
 
 1. Install [uv](https://docs.astral.sh/uv/). Clone this repository.
 2. Install the host requirements (see [Hosts](#hosts)).
 3. Run `uv sync --locked --all-extras`.
-4. Run `uv run fmb setup --check`. Correct each item that shows `NO`.
-5. Run `uv run fmb setup`. On Linux and Windows, add `--iso <path of the ISO>`.
+4. Run `uv run fmb setup --check`. Correct each item that shows `NO`, except the items that `fmb setup` installs.
+5. Run `uv run fmb setup --iso <path of the ISO>` (see [Hosts](#hosts) for the ISO; on a Mac with the box of the
+   paper, run `uv run fmb setup`). It stops before it installs anything if an item that it cannot install is
+   missing.
 6. Run `uv run fmb generate I1`.
 7. Run `uv run fmb run I1`.
 
-To replicate the paper, generate and run I1, I2 and I3. An image replicates when its admission passes. For
-admission, S3 must be exact on all the questions of the image (nine for the images of the paper).
+To replicate the paper, run `uv run fmb run I1 I2 I3 --delete-image`. It generates, runs and deletes one image
+at a time, so only one image is on the disk. It then writes the results table of the paper for the three images.
+An image replicates when its admission passes. For admission, S3 must be exact on all the questions of the image
+(nine for the images of the paper).
+
+Before each image, `fmb generate` and `fmb run` check the free disk. They stop before the guest boots if it is
+not sufficient. To generate an image again, run `uv run fmb generate NAME --again`. It deletes
+`generated/NAME/` first.
 
 The first image after a base build waits until approximately 5 min after the build, or 63 min after a Mac box built in
 summer (Pacific daylight time). The guest clock must be after the last event of the base build.
 
 If you stop `fmb generate` (Ctrl-C, closing the terminal or `kill`), it removes its virtual machine first. If a
-crash leaves one behind, `fmb setup --check` lists it and the next `fmb generate` removes it. On macOS, Windows
+crash leaves one behind on Linux or macOS, `fmb setup --check` lists it and the next `fmb generate` removes it. On
+Windows, end `qemu-system-x86_64.exe` in the Task Manager, then run `uv run fmb generate NAME --again`. On macOS, Windows
 activity in the guest sometimes overwrites a timestamp change in the `$LogFile` before the export. `fmb generate`
 then deletes the disk of that attempt and tries again with the same recipe.
+
+`generated/lock.json` records the tools that generate the images: the hypervisor, the Windows base, Ansible and
+the Python libraries. After an update of one of them, or a new base, `fmb generate` writes a new lock, keeps the
+old one as `generated/lock-<time>.json`, freezes the recipe of the image again and tries again. Each result
+records the lock of its image.
 
 ## Images
 
@@ -111,20 +131,27 @@ same disk. `fmb run` asks only the questions of the image.
 
 ## LLM comparison
 
-`fmb run` asks for the stage of Figure 1 where it compares an LLM. At this time, only S3 is available.
+`fmb run` compares an LLM with S3 (S3′ in Figure 1) when you give `--llm`. At this time, only S3 has an LLM.
+Without `NAME`, `fmb run` asks for the conditions, the cap and a missing price.
 
 | Option | Function |
 |---|---|
-| `--compare S3` | Compares an LLM (S3′) with S3. |
 | `--llm CONDITION` | Selects an LLM condition: one of the eight conditions of the paper, or one of yours (`fmb run --help`). |
+| `--compare S3` | Optional: `--llm` compares at S3. |
 | `--conditions FILE` | Declares your own LLM conditions (see [Your conditions](#your-conditions)). |
 | `--passes N` | Sets the number of passes of S3′, from 1 to 10. The default is 3, as in the paper. |
 | `--cap-usd N` | Sets the maximum cost of the LLM requests for one image, in USD. Necessary with `--llm`. |
 | `--price CONDITION=INPUT,OUTPUT` | Sets the price (USD for each million tokens) of a condition without a recorded price. |
+| `--recollect` | Collects the evidence (S2) again. See below. |
 
 - The conditions need `OPENAI_API_KEY` or `OPENROUTER_API_KEY`.
 - S3′ uses three passes, as in the paper, unless `--passes` sets another number.
-- FMBenchmark does not send a request that can make the cost more than the cap.
+- FMBenchmark does not send a request that can make the cost more than the cap. Until the cost of an answer is
+  known, its request reserves the cost of its input and of all its `max_output_tokens`. Before it sends, `fmb run`
+  shows the number of requests, their maximum cost and how many of them the cap covers for sure.
+- On an image that already has a result, `fmb run NAME --llm ...` uses the collection (S2) of its latest result
+  with the same image and code again. S3 and S3′ then read the same evidence cards as before, and S2 takes no
+  time. `--recollect` collects again.
 - FMBenchmark sends LLM requests only for an image that passes admission.
 - Without `--llm`, FMBenchmark sends no request.
 
@@ -168,8 +195,9 @@ For example: `uv run fmb run I1 --conditions conditions/mine.json --llm mistrals
 
 ## Results
 
-The terminal shows a headline for each image: the admission, the exact questions and F1 of S3, and the
-range and cost of each S3′ condition. `results/NAME/<time>/` contains:
+The terminal shows a headline for each image: the admission, the exact questions and F1 (in percent, as in
+the paper) of S3, and the range over the passes and the cost of each S3′ condition. `results/NAME/<time>/`
+contains:
 
 | Item | Content |
 |---|---|
@@ -177,6 +205,9 @@ range and cost of each S3′ condition. `results/NAME/<time>/` contains:
 | `receipts/` | The image definition, the generation recipe, `ground_truth.json`, `finding_reference.json`, and the receipt of each generation task. |
 | `run/` | The data interfaces G1 to G5, `run-manifest.json` and the sealed stage outputs. |
 | `summary.json` | The headline in JSON. |
+
+With two images or more, `fmb run` also writes `results/summary-<time>/`: the results table of the paper for all
+the images (`results.md`, `table-results.csv`) and the data of the F1 and cost figure (`figure-f1-cost.csv`).
 
 ## Hosts
 
@@ -201,7 +232,8 @@ base takes approximately 10 GB. A generated image keeps approximately 25 GB and 
 
 A minimal or server installation may also need `git`, `curl`, `tar` and the ICU library (`libicu`, `icu` on
 Arch). Your user needs read and write access to `/dev/kvm`. If it does not have it, run
-`sudo usermod -aG kvm $USER` and log in again.
+`sudo usermod -aG kvm $USER` and log in again. If `/dev/kvm` does not exist, turn on virtualisation (Intel VT-x
+or AMD-V) in the firmware settings, or nested virtualisation in a virtual machine.
 
 **Windows.** Use Windows 11 x64. In an administrator PowerShell, run these commands, then restart Windows:
 
@@ -224,13 +256,14 @@ from time to time. If the page offers a newer build, add `--unpinned-iso`. Each 
 and the SHA-256 of the ISO. The results of the paper were checked on build 26300 (Linux, Windows and macOS)
 and build 22000 (macOS, the box of the paper) only.
 
-**macOS.** Install VMware Fusion 13, Vagrant with the `vagrant-vmware-desktop` plugin, and Ansible
-(`brew install ansible`). Without the box of the paper, build a box from the Windows 11 ARM64 ISO: on
+**macOS.** Install VMware Fusion 13, Vagrant with the `vagrant-vmware-desktop` plugin, Ansible and QEMU
+(`brew install ansible qemu`). FMBenchmark uses `qemu-img` and `qemu-io` from QEMU to export the disk and to make
+the USB media. Without the box of the paper, build a box from the Windows 11 ARM64 ISO: on
 [microsoft.com/software-download/windows11arm64](https://www.microsoft.com/software-download/windows11arm64),
-select *Windows 11 (multi-edition ISO for Arm64)*, then *English (United States)*. `fmb setup --check` names
-the pinned file, `Windows11_Client_arm64_en-us_26300_9457.iso`, and the command that builds the box:
-`tools/base-image/windows11-arm64/build-vmware-box.sh <ISO> <its SHA-256>`. The build needs Packer and
-approximately 60 GB of free disk, and takes approximately 30 min. The box records its Windows build and its
+select *Windows 11 (multi-edition ISO for Arm64)*, then *English (United States)*. Then run
+`uv run fmb setup --iso <ISO>`. It checks the SHA-256 of `Windows11_Client_arm64_en-us_26300_9457.iso`, as on
+Linux and Windows, and builds the box with `tools/base-image/windows11-arm64/build-vmware-box.sh`. The build
+needs Packer and approximately 60 GB of free disk, and takes approximately 30 min. The box records its Windows build and its
 ISO, and each result names them. I1, I2 and I3 replicate on a box built from the pinned ISO as on the box of
 the paper.
 

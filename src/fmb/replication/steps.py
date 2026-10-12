@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import signal
 import sys
+import traceback
 from pathlib import Path
 
 from fmb.core.errors import run_cli
@@ -150,7 +151,12 @@ def main(argv: list[str] | None = None) -> int:
     sys.stdout, sys.stderr = Tolerant(sys.stdout), Tolerant(sys.stderr)
 
     def call() -> int:
-        result = STEPS[name](**json.loads(arguments))
+        try:
+            result = STEPS[name](**json.loads(arguments))
+        except Exception:
+            # The step's log keeps where it failed; fmb's terminal shows only the fmb: line that follows.
+            traceback.print_exc()
+            raise
         sys.stdout.write(json_text(result, sort_keys=True))
         return 0 if result.get("status") == "completed" else 1
 

@@ -259,14 +259,16 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
         count = item.get("configured_count")
         manipulation_count = item.get("manipulation_count")
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-            raise PopulationError(f"scenario {scenario_id!r} has an invalid count")
+            raise PopulationError(f"scenario {scenario_id!r} has an invalid count: configured_count is a whole "
+                                  f"number, 0 or more (it is {count!r})")
         if (
             isinstance(manipulation_count, bool)
             or not isinstance(manipulation_count, int)
             or not min(count, 1) <= manipulation_count <= count
         ):
             raise PopulationError(
-                f"scenario {scenario_id!r} has an invalid manipulation count"
+                f"scenario {scenario_id!r} has an invalid manipulation count: manipulation_count is "
+                f"{min(count, 1)} to {count}, at most the configured_count (it is {manipulation_count!r})"
             )
         assignment_pool_count = item.get("assignment_pool_count", count)
         if (
@@ -275,7 +277,9 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
             or not manipulation_count <= assignment_pool_count <= count
         ):
             raise PopulationError(
-                f"scenario {scenario_id!r} has an invalid assignment pool count"
+                f"scenario {scenario_id!r} has an invalid assignment pool count: assignment_pool_count is "
+                f"{manipulation_count} to {count}, from the manipulation_count to the configured_count "
+                f"(it is {assignment_pool_count!r})"
             )
 
     timestamp = scenarios.get("timestomp_01")
@@ -288,7 +292,10 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
             or endpoints != sorted(set(endpoints))
             or endpoints[-1] != timestamp["configured_count"]
         ):
-            raise PopulationError("timestamp restoration strata are invalid")
+            raise PopulationError(
+                "timestamp restoration strata are invalid: restore_stratum_end_indexes rises from 1 and its last "
+                f"value is the configured_count ({timestamp['configured_count']}); it is {endpoints!r}"
+            )
 
     directory = scenarios.get("directory_cleaning_i30_01")
     if directory is not None and "directory_child_counts" in directory:
@@ -301,7 +308,12 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
                 "assignment_pool_count", directory["configured_count"]
             )]) < directory["manipulation_count"]
         ):
-            raise PopulationError("directory child-count strata are invalid")
+            raise PopulationError(
+                "directory child-count strata are invalid: directory_child_counts has one value from 1 to "
+                f"{MAXIMUM_DIRECTORY_CHILDREN} per object ({directory['configured_count']}), and at least the "
+                f"manipulation_count ({directory['manipulation_count']}) of those in the assignment pool are "
+                f"{ORDERED_LEAF_COUNT} or more; it is {child_counts!r}"
+            )
 
     allocation = scenarios.get("ntfs_allocation_01")
     if allocation is not None and "storage_modes" in allocation:
@@ -318,7 +330,12 @@ def validate_population_contract(value: Any) -> dict[str, Any]:
                 )]
             ) < allocation["manipulation_count"]
         ):
-            raise PopulationError("NTFS allocation storage modes are invalid")
+            raise PopulationError(
+                "NTFS allocation storage modes are invalid: storage_modes has one of "
+                f"{', '.join(sorted(allowed_modes))} per object ({allocation['configured_count']}), and at least "
+                f"the manipulation_count ({allocation['manipulation_count']}) of those in the assignment pool are "
+                f"ordinary; it is {storage_modes!r}"
+            )
 
     for scenario_id, maximum, reason in SCENARIO_MAXIMUM_COUNTS:
         if scenario_id in scenarios and scenarios[scenario_id]["configured_count"] > maximum:

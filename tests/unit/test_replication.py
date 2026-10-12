@@ -202,7 +202,7 @@ def test_setup_names_the_mac_box_it_finds_and_the_pinned_iso_to_build_one(tmp_pa
     monkeypatch.setenv("VAGRANT_HOME", str(tmp_path))
     iso = host.PINS["windows_iso_arm64"]
     ok, detail = mac_box_row(monkeypatch)
-    assert not ok and iso["file"] in detail and iso["sha256"] in detail and "build-vmware-box.sh" in detail
+    assert not ok and iso["file"] in detail and "fmb setup --iso" in detail
     box = tmp_path / "boxes" / "fmb-VAGRANTSLASH-windows-11-arm64" / "0"
     box.mkdir(parents=True)
     assert mac_box_row(monkeypatch) == (True, "the box of the paper, build 22000")

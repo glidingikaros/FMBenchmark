@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fmb.core.json_io import load_json
@@ -14,8 +15,13 @@ RUNTIME_DIR_NAME = ".fmb"
 RUNS_DIR_NAME = "outputs"
 
 
+def workspace() -> Path:
+    """Where fmb keeps images/, generated/, results/ and .fmb/: FMB_HOME when set, else the repository."""
+    return Path(os.environ.get("FMB_HOME") or PROJECT_ROOT.parents[1]).expanduser().absolute()
+
+
 def default_current_root() -> Path:
-    return Path.cwd() / RUNTIME_DIR_NAME
+    return workspace() / RUNTIME_DIR_NAME
 
 
 def _schema_ref_parts(schema_name: str) -> tuple[str, str | None]:
