@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import ctypes
 from collections.abc import Callable
 from concurrent.futures import Future
@@ -470,6 +471,8 @@ def _copy_with_vmrun_retries(
             return copy()
         except KapeApplianceError as error:
             errors.append(f"attempt {attempt}: {error}")
+            if not vmx_path.exists():
+                break  # removed meanwhile, by a collection that failed: it will not take another copy
             if attempt < attempts:
                 try:
                     wait_for_vmrun_guest(
@@ -543,12 +546,15 @@ def wait_for_vmrun_guest(
     vmx_path: Path,
     provider: str,
     timeout_seconds: int = 600,
-    poll_seconds: int = 5,
+    poll_seconds: int = 1,
     probe_timeout_seconds: int = DEFAULT_VMRUN_GUEST_PROBE_TIMEOUT_SECONDS,
 ) -> None:
     deadline = time.monotonic() + timeout_seconds
     last_error: KapeApplianceError | None = None
     while time.monotonic() < deadline:
+        if not vmx_path.exists():
+            # Removed meanwhile, by a collection that failed: it will not come up.
+            raise KapeApplianceError(f"the VM was removed while waiting for VMware Tools: {vmx_path}")
         try:
             completed = vmrun_guest_command(
                 vmx_path=vmx_path,
@@ -783,33 +789,17 @@ def copy_host_file_to_guest_with_vmrun_retries(
     )
 
 
-def create_guest_directory_with_vmrun(
+def run_powershell_command_with_vmrun(
     *,
     vmx_path: Path,
     provider: str,
-    guest_path: str,
-    timeout_seconds: int | None = DEFAULT_VMRUN_GUEST_COMMAND_TIMEOUT_SECONDS,
-) -> None:
-    vmrun_guest_command(
-        vmx_path=vmx_path,
-        provider=provider,
-        command="createDirectoryInGuest",
-        args=[guest_path],
-        check=False,
-        timeout_seconds=timeout_seconds,
-    )
-
-
-def run_powershell_file_with_vmrun(
-    *,
-    vmx_path: Path,
-    provider: str,
-    script_path: str,
-    args: list[str] | None = None,
+    command: str,
     check: bool = True,
     timeout_seconds: int | None = DEFAULT_VMRUN_GUEST_POWERSHELL_TIMEOUT_SECONDS,
     retry_tools_unavailable: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    # Encoded, so that vmrun hands the guest one word without quotes or spaces to rewrite.
+    encoded = base64.b64encode(command.encode("utf-16-le")).decode("ascii")
     return vmrun_guest_command(
         vmx_path=vmx_path,
         provider=provider,
@@ -819,9 +809,8 @@ def run_powershell_file_with_vmrun(
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
-            "-File",
-            script_path,
-            *(args or []),
+            "-EncodedCommand",
+            encoded,
         ],
         check=check,
         timeout_seconds=timeout_seconds,

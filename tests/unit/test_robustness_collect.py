@@ -533,6 +533,23 @@ def test_repeatable_qemu_parser_steps_are_retried(tmp_path, monkeypatch):
     assert calls.count("ansible.windows.win_command") == 1
 
 
+def test_a_qemu_step_is_not_retried_once_its_vm_was_closed(tmp_path, monkeypatch):
+    from fmb.generation import backends
+
+    vm, _, _ = _qemu_vm(tmp_path, monkeypatch)
+    monkeypatch.setattr(appliance, "QEMU_STEP_RETRY_DELAY_SECONDS", 600)
+    calls: list[str] = []
+    monkeypatch.setattr(backends, "ansible_adhoc", lambda ansible, port, module, args, *, timeout: (
+        calls.append(module), subprocess.CompletedProcess([], 2, "UNREACHABLE! connection reset", ""))[1])
+    # Closed by a collection that failed while the parsers ran: the step fails at once, without its retries.
+    vm.close()
+    started = time.monotonic()
+    with pytest.raises(appliance.ParserApplianceError, match="no longer needed"):
+        vm.run_qemu_parsers(package_path=tmp_path / "inputs.zip", script_path=tmp_path / "run.ps1",
+                            outputs_zip=tmp_path / "outputs.zip")
+    assert len(calls) == 1 and time.monotonic() - started < 60
+
+
 def _clone_folder(work_root: Path, name: str, owner: dict | None) -> Path:
     folder = work_root / f"fmb-parser-{name}"
     (folder / ".vmrun-appliance").mkdir(parents=True)

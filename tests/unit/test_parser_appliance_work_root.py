@@ -54,7 +54,7 @@ def parser_case(tmp_path, monkeypatch):
     monkeypatch.setattr(vmware, "vmrun_start_and_wait", lambda **kwargs: None)
     monkeypatch.setattr(vmware, "vmrun_is_running", lambda **kwargs: False)
     monkeypatch.setattr(appliance, "_stage_inputs", lambda **kwargs: None)
-    monkeypatch.setattr(vmware, "run_powershell_file_with_vmrun", lambda **kwargs: subprocess.CompletedProcess([], 0, "", ""))
+    monkeypatch.setattr(vmware, "run_powershell_command_with_vmrun", lambda **kwargs: subprocess.CompletedProcess([], 0, "", ""))
     monkeypatch.setattr(vmware, "copy_guest_file_to_host_with_vmrun_retries", outputs)
     monkeypatch.setattr(appliance, "_merge_outputs", lambda **kwargs: {"status": "completed"})
 
@@ -521,3 +521,296 @@ def test_an_early_booted_qemu_vm_runs_the_parsers_then_is_killed(tmp_path, monke
         "start_appliance", "build_input_package", "await_appliance", "run_qemu_parsers", "stop_and_cleanup",
         "merge_outputs"]
     assert record["vm_cleanup"]["removed"] is True and record["guest_root"] == appliance.GUEST_ROOT
+
+
+def _processor(name: str, category: str):
+    from fmb.collection.tools.host.definitions import ModuleProcessor
+
+    return ModuleProcessor(name, name, f"{name}.mkape", f"id-{name}", category, "csv", None, f"{name}.exe",
+                           "-d %sourceDirectory% --csv %destinationDirectory%")
+
+
+class _Definitions:
+    tree_sha256 = "d" * 64
+
+    def __init__(self, bundled_targets=None):
+        pass
+
+    def target_rules(self, targets):
+        return []
+
+    def module_processors(self, modules):
+        return [_processor("MFTECmd", "FileSystem"), _processor("PECmd", "ProgramExecution"),
+                _processor("SBECmd", "FileFolderAccess")]
+
+
+class _Toolchain:
+    lock_sha256 = "e" * 64
+
+    @classmethod
+    def load(cls, *, root):
+        return cls()
+
+    def verify(self, *, dotnet, executables):
+        return []
+
+    def describe(self, *, verification):
+        return None
+
+    def binding_for(self, executable):
+        return SimpleNamespace(host_runnable=executable != "PECmd.exe", host_runnable_note="Windows only",
+                               tool_name=executable.removesuffix(".exe"))
+
+
+def _parser_threads() -> list[str]:
+    import threading
+
+    return [thread.name for thread in threading.enumerate()
+            if thread.name in {"fmb-windows-parsers", "fmb-parser-vm"} and thread.is_alive()]
+
+
+@pytest.fixture
+def host_case(parser_case, monkeypatch, tmp_path):
+    """A host extraction whose own parsers and the parser VM are stand-ins: run(host_parsers) runs it."""
+    from fmb.collection.tools.host import backend
+    from fmb.collection.tools.host.extractor import ExtractionResult
+    from fmb.collection.tools.host.modules import ProcessorRun
+
+    monkeypatch.setattr(backend, "KapeDefinitions", _Definitions)
+    monkeypatch.setattr(backend, "HostToolchain", _Toolchain)
+    monkeypatch.setattr(backend, "resolve_dotnet", lambda *args: "dotnet")
+    monkeypatch.setattr(backend, "VolumeIndex", lambda evidence, progress: SimpleNamespace(
+        partition_offset=1048576, entries={}, geometry={}))
+
+    def extract(index, rules, *, output_root, drive_letter, command_line):
+        prefetch = output_root / "targets" / "C" / "Windows" / "prefetch"
+        prefetch.mkdir(parents=True)
+        (prefetch / "RUNNER.EXE-AAAA1111.pf").write_bytes(b"prefetch")
+        return ExtractionResult(targets_root=output_root / "targets", drive_letter=drive_letter)
+
+    monkeypatch.setattr(backend, "extract_targets", extract)
+    evidence = tmp_path / "image.raw"
+    evidence.write_bytes(b"public test image")
+
+    def run(host_parsers):
+        def run_modules(processors, *, progress, **kwargs):
+            host_parsers()
+            progress("running MFTECmd: -f targets/C/$MFT --csv modules/FileSystem")
+            return [ProcessorRun(module_name=item.module_name, requested_module=item.requested_module,
+                                 executable=item.executable, tool_name=item.module_name, category=item.category,
+                                 argv=[], command_line=item.command_line, working_directory=None, source_file=None,
+                                 started_at="2026-10-12T00:00:00+00:00",
+                                 status="completed" if item.module_name == "MFTECmd" else "deferred")
+                    for item in processors]
+
+        monkeypatch.setattr(backend, "run_module_processors", run_modules)
+        args = Namespace(evidence=str(evidence), windows_parsers=str(tmp_path / "windows-parsers"),
+                         selected_modules=None, expected_definitions_sha256=None, host_toolchain_root=tmp_path,
+                         vm_work_root=parser_case.work_root, run_id="analysis",
+                         collection_provider="vmware_desktop", windows_box="fmb/windows-11-arm64")
+        return backend.run_host_collector_extraction(
+            args=args, stage_dir=parser_case.stage, extracted_dir=parser_case.stage / "extracted",
+            targets=["Prefetch"], modules=["MFTECmd", "PECmd", "SBECmd"], question_id="FULL-SCALE",
+            question_text="Collect everything.", evidence_sha256="a" * 64, run_id="analysis")
+
+    return SimpleNamespace(run=run, stage=parser_case.stage, work_root=parser_case.work_root)
+
+
+def test_the_parser_vm_parses_while_the_host_runs_its_own_parsers(host_case, monkeypatch):
+    import threading
+
+    guest_ran = threading.Event()
+    monkeypatch.setattr(vmware, "run_powershell_command_with_vmrun",
+                        lambda **kwargs: guest_ran.set() or subprocess.CompletedProcess([], 0, "", ""))
+    overlapped = []
+    summary = host_case.run(lambda: overlapped.append(guest_ran.wait(10)))
+
+    assert overlapped == [True] and summary["status"] == "completed"
+    assert [row["phase"] for row in summary["phase_timings"]] == [
+        "load_kape_definitions", "load_toolchain", "verify_toolchain", "index_volume", "extract_targets",
+        "run_modules", "parser_appliance"]
+    record = json.loads((host_case.stage / appliance.APPLIANCE_DIR_NAME / "parser-appliance-record.json").read_text())
+    assert [row["phase"] for row in record["phase_timings"]] == [
+        "clone_appliance", "start_appliance", "build_input_package", "await_appliance", "stage_inputs",
+        "run_guest_parsers", "collect_outputs", "stop_and_cleanup", "merge_outputs"]
+    # The parser VM's line was logged first, at its own time, and still follows the host's as when it ran after them.
+    lines = (host_case.stage / "extracted" / "tool-logs" / "host-collector.stdout.txt").read_text().splitlines()
+    host = next(index for index, line in enumerate(lines) if "running MFTECmd" in line)
+    parsers = next(index for index, line in enumerate(lines) if "parser appliance: 2 processors" in line)
+    assert parsers == host + 1 == len(lines) - 1
+    assert lines[parsers].split()[0] < lines[host].split()[0]
+    assert list(host_case.work_root.iterdir()) == [] and _parser_threads() == []
+
+
+@pytest.mark.parametrize("failure", [KeyboardInterrupt, "host parser"])
+def test_a_host_failure_stops_the_parser_vm_at_once_and_reports_only_itself(host_case, monkeypatch, failure):
+    import threading
+
+    from fmb.collection.tools.host import backend
+    from fmb.collection.tools.host.modules import HostModuleError
+
+    guest_started, stopped, collected = threading.Event(), threading.Event(), []
+    remove = vmware.cleanup_disposable_appliance_vm
+
+    def cleanup(**kwargs):
+        stopped.set()
+        return remove(**kwargs)
+
+    def guest_parsers(**kwargs):
+        guest_started.set()
+        # Still parsing when the host fails: only stopping the VM ends the guest command.
+        assert stopped.wait(10)
+        raise vmware.KapeApplianceError("vmrun runProgramInGuest failed with exit 255: the VM is not powered on")
+
+    def host_parsers():
+        assert guest_started.wait(10)
+        if failure is KeyboardInterrupt:
+            raise KeyboardInterrupt
+        raise HostModuleError("MFTECmd exited 1 for module MFTECmd; see MFTECmd.stderr.txt")
+
+    monkeypatch.setattr(vmware, "cleanup_disposable_appliance_vm", cleanup)
+    monkeypatch.setattr(vmware, "run_powershell_command_with_vmrun", guest_parsers)
+    monkeypatch.setattr(vmware, "copy_guest_file_to_host_with_vmrun_retries", lambda **kwargs: collected.append(1))
+    expected = KeyboardInterrupt if failure is KeyboardInterrupt else backend.HostCollectorError
+    with pytest.raises(expected) as raised:
+        host_case.run(host_parsers)
+    if failure is not KeyboardInterrupt:
+        assert str(raised.value) == "MFTECmd exited 1 for module MFTECmd; see MFTECmd.stderr.txt"
+    assert not getattr(raised.value, "__notes__", None)
+    assert collected == [] and list(host_case.work_root.iterdir()) == [] and _parser_threads() == []
+
+
+def test_a_parser_vm_failure_surfaces_once_the_host_parsers_are_done(host_case, monkeypatch):
+    primary = appliance.ParserApplianceError("guest copy failed")
+    finished = []
+
+    def fail(**kwargs):
+        raise primary
+
+    monkeypatch.setattr(appliance, "_stage_inputs", fail)
+    with pytest.raises(appliance.ParserApplianceError) as raised:
+        host_case.run(lambda: finished.append(True))
+    assert raised.value is primary and finished == [True] and not getattr(primary, "__notes__", None)
+    assert list(host_case.work_root.iterdir()) == [] and _parser_threads() == []
+
+
+def test_a_boot_failure_is_noted_on_the_host_failure_that_came_with_it(host_case, monkeypatch):
+    import threading
+
+    from fmb.collection.tools.host import backend
+    from fmb.collection.tools.host.modules import HostModuleError
+
+    failing = threading.Event()
+
+    def fail(**kwargs):
+        failing.set()
+        raise RuntimeError("worker did not boot")
+
+    def host_parsers():
+        # A host that failed sooner stops the boot before it can fail: then there is no boot failure to note.
+        assert failing.wait(10)
+        raise HostModuleError("MFTECmd exited 1 for module MFTECmd")
+
+    monkeypatch.setattr(vmware, "vmrun_start_and_wait", fail)
+    with pytest.raises(backend.HostCollectorError) as raised:
+        host_case.run(host_parsers)
+    assert raised.value.__notes__ == ["The parser VM had also failed to boot: RuntimeError: worker did not boot"]
+    assert list(host_case.work_root.iterdir()) == [] and _parser_threads() == []
+
+
+def _parsers(parser_case, vm):
+    args = Namespace(vm_work_root=parser_case.work_root, run_id="analysis", windows_parsers="windows-parsers",
+                     collection_provider="vmware_desktop", windows_box="fmb/windows-11-arm64")
+    return appliance.ParserRun(processors=[object()], args=args, stage_dir=parser_case.stage,
+                               targets_root=parser_case.stage / "targets", modules_root=parser_case.stage / "modules",
+                               tool_logs=parser_case.stage / "logs", vm=vm)
+
+
+def test_the_parsers_thread_keeps_the_run_read_audit(parser_case, monkeypatch, tmp_path):
+    from fmb.pipeline import reads
+
+    marker = tmp_path / "prefetch.pf"
+    marker.write_bytes(b"prefetch")
+    package = appliance.build_input_package
+
+    def reading_package(**kwargs):
+        marker.read_bytes()
+        return package(**kwargs)
+
+    monkeypatch.setattr(appliance, "build_input_package", reading_package)
+    with reads.measured() as opened:
+        record = _parsers(parser_case, _early_vm(parser_case, parser_case.work_root).start()).start().finish()
+    assert str(marker) in opened and record["status"] == "completed"
+
+
+def test_a_failed_vm_cleanup_is_noted_once(parser_case, monkeypatch):
+    def uncertain_cleanup(**kwargs):
+        raise vmware.KapeApplianceError("worker state unavailable")
+
+    monkeypatch.setattr(vmware, "cleanup_disposable_appliance_vm", uncertain_cleanup)
+    # The parsers ended and failed to remove their VM while the host failed: the host's error says so.
+    parsers = _parsers(parser_case, _early_vm(parser_case, parser_case.work_root).start()).start()
+    parsers._background._thread.join()
+    failure = RuntimeError("host collection failed")
+    parsers.discard(failure)
+    assert len(failure.__notes__) == 1 and "worker state unavailable" in failure.__notes__[0]
+    # The cleanup failure is itself the error: no note repeats it.
+    parsers = _parsers(parser_case, _early_vm(parser_case).start()).start()
+    with pytest.raises(vmware.KapeApplianceError, match="worker state unavailable") as raised:
+        parsers.finish()
+    parsers.discard(raised.value)
+    assert not getattr(raised.value, "__notes__", None) and _parser_threads() == []
+
+
+def test_the_guest_gets_its_inputs_in_one_copy_and_runs_them_in_one_command(tmp_path, monkeypatch):
+    import base64
+    import zipfile
+
+    package = tmp_path / "inputs.zip"
+    package.write_bytes(b"pinned test inputs")
+    copies, commands = [], []
+
+    def copy(*, vmx_path, provider, host_path, guest_path):
+        with zipfile.ZipFile(host_path) as archive:
+            copies.append((guest_path, {name: archive.read(name) for name in archive.namelist()}, host_path))
+
+    monkeypatch.setattr(vmware, "copy_host_file_to_guest_with_vmrun_retries", copy)
+    appliance._stage_inputs(vmx_path=tmp_path / "box.vmx", provider="vmware_desktop", package_path=package)
+    [(guest_path, members, host_path)] = copies
+    assert guest_path == appliance.GUEST_TRANSPORT and not host_path.parent.exists()
+    assert members == {"inputs.zip": b"pinned test inputs", "run_parsers.ps1": appliance.GUEST_SCRIPT.encode()}
+
+    monkeypatch.setattr(vmware, "vmrun_guest_command", lambda **kwargs: commands.append(kwargs))
+    vmware.run_powershell_command_with_vmrun(vmx_path=tmp_path / "box.vmx", provider="vmware_desktop",
+                                             command=appliance.GUEST_BOOTSTRAP, check=False)
+    [command] = commands
+    assert command["command"] == "runProgramInGuest" and command["args"][-2] == "-EncodedCommand"
+    bootstrap = base64.b64decode(command["args"][-1]).decode("utf-16-le")
+    assert bootstrap == appliance.GUEST_BOOTSTRAP and " " not in command["args"][-1]
+    assert f"ExtractToDirectory('{appliance.GUEST_TRANSPORT}', $root)" in bootstrap
+    assert f"$root = '{appliance.GUEST_ROOT}'" in bootstrap
+
+
+def test_vmware_tools_are_asked_every_second_and_never_for_a_removed_vm(tmp_path, monkeypatch):
+    vmx = tmp_path / "box.vmx"
+    vmx.write_text("config.version = \"8\"\n")
+    answers = iter([255, 255, 0])
+    probes, sleeps = [], []
+    monkeypatch.setattr(vmware, "vmrun_guest_command", lambda **kwargs: probes.append(kwargs) or
+                        subprocess.CompletedProcess([], next(answers), "", ""))
+    monkeypatch.setattr(vmware.time, "sleep", sleeps.append)
+    vmware.wait_for_vmrun_guest(vmx_path=vmx, provider="vmware_desktop")
+    assert len(probes) == 3 and sleeps == [1, 1]
+
+    vmx.unlink()
+    probes.clear()
+    with pytest.raises(vmware.KapeApplianceError, match="removed"):
+        vmware.wait_for_vmrun_guest(vmx_path=vmx, provider="vmware_desktop")
+
+    def copy():
+        probes.append("copy")
+        raise vmware.KapeApplianceError("vmrun CopyFileFromHostToGuest failed")
+
+    with pytest.raises(vmware.KapeApplianceError, match="host file copy failed after retries"):
+        vmware._copy_with_vmrun_retries("host file copy", copy, vmx_path=vmx, provider="vmware_desktop")
+    assert probes == ["copy"] and sleeps == [1, 1]
