@@ -15,13 +15,12 @@ from fmb.index.adapters.mft import (
     mftecmd_mft_parser_run,
 )
 from fmb.index.adapters.parser_output import apply_host_processor_status, portable_path, source_bound_observations
-from fmb.index.adapters.usn import raw_usn_observation_from_record
+from fmb.index.adapters.usn import raw_usn_observation_from_record, raw_usn_record_table
 from fmb.index.support.windows_identity import (
     normalize_windows_compare_path,
     windows_compare_path_parts,
 )
 from fmb.index.contract.evidence_index import normalize_parser_output
-from fmb.index.scanners.usn import DEFAULT_SCAN_CHUNK_SIZE, _iter_usn_v2_records
 
 
 def load_public_population(evidence: Path) -> dict | None:
@@ -69,15 +68,19 @@ def _membership_usn_run(index: dict, public: dict, output: Path, context: dict) 
     paths = {normalize_windows_compare_path(m["path"]) for m in public["members"]
              if m["question_id"] in {"BQ-DELETE-01", "BQ-TIME-01"}}
     names = {p.rsplit("\\", 1)[-1] for p in paths}
-    observations, scan = [], {}
+    observations = []
+    # The journal's records as the run's other scans of it parsed them; only those named like a
+    # public path are parsed again.
+    table = raw_usn_record_table(journal)
+    scan = dict(table.scan)
     with journal.open("rb") as handle:
         def reader(offset, size):
             handle.seek(offset)
             return handle.read(size)
-        for record in _iter_usn_v2_records(reader, stream_size_bytes=journal.stat().st_size,
-                                           chunk_size_bytes=DEFAULT_SCAN_CHUNK_SIZE, scan=scan):
-            if str(record.get("file_name", "")).casefold() not in names:
+        for row, file_name in enumerate(table.file_names):
+            if file_name.casefold() not in names:
                 continue
+            record = table.record(reader, row)
             observation = raw_usn_observation_from_record(
                 journal_path=journal, record_index=len(observations) + 1, record=record,
                 scan_strategy="public_path_membership_scan", mft_context=context,

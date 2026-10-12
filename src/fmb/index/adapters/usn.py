@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from fmb.core.coercion import parse_integral_int
+from fmb.core.hashing import sha256_file
 from fmb.core.json_io import write_json
 from fmb.index.adapters.mft import (
     mft_active_presence_fields,
@@ -25,11 +26,13 @@ from fmb.index.adapters.parser_output import (
 from fmb.index.contract.evidence_index import normalize_parser_output
 from fmb.index.scanners.usn import (
     USN_REASON_SCANNER,
+    UsnRecordTable,
     parse_usn_max,
     scan_usn_records_by_reason,
     scan_usn_records_for_references,
     usn_journal_timestamp_order,
     usn_journal_window,
+    usn_record_table,
 )
 from fmb.index.support.windows_artifacts import (
     canonical_mftecmd_timestamp,
@@ -366,6 +369,28 @@ def raw_usn_observation_type(record: dict[str, Any]) -> str | None:
     return None
 
 
+# The record table of the last raw $J scanned, keyed on its SHA-256: a run scans the same journal
+# by reason, for its order, for each reference scope and for the public membership.
+_USN_RECORD_TABLES: dict[str, UsnRecordTable] = {}
+
+
+def raw_usn_record_table(journal_path: Path) -> UsnRecordTable:
+    # Hashing the journal reads it, so a step that finds its table here still records the read.
+    key = sha256_file(journal_path)
+    table = _USN_RECORD_TABLES.get(key)
+    if table is None:
+        with journal_path.open("rb") as handle:
+
+            def reader(offset: int, size: int) -> bytes:
+                handle.seek(offset)
+                return handle.read(size)
+
+            table = usn_record_table(reader, stream_size_bytes=journal_path.stat().st_size)
+        _USN_RECORD_TABLES.clear()
+        _USN_RECORD_TABLES[key] = table
+    return table
+
+
 def raw_usn_journal_parser_run(
     *,
     journal_path: Path,
@@ -374,13 +399,16 @@ def raw_usn_journal_parser_run(
     mft_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     size_bytes = journal_path.stat().st_size
+    table = raw_usn_record_table(journal_path)
     with journal_path.open("rb") as handle:
 
         def reader(offset: int, size: int) -> bytes:
             handle.seek(offset)
             return handle.read(size)
 
-        records, scan = scan_usn_records_by_reason(reader, stream_size_bytes=size_bytes)
+        records, scan = scan_usn_records_by_reason(
+            reader, stream_size_bytes=size_bytes, table=table
+        )
 
     observations: list[dict[str, Any]] = []
     for record_index, record in enumerate(records, start=1):
@@ -438,11 +466,13 @@ def raw_usn_journal_parser_run(
             and not scan.get("unsupported_record_count")
             else "partial"
         ),
-        coverage_scope=raw_usn_journal_scope(journal_path, collector_run=collector_run),
+        coverage_scope=raw_usn_journal_scope(journal_path, collector_run=collector_run, table=table),
     )
 
 
-def raw_usn_journal_scope(journal_path: Path, *, collector_run: dict[str, Any]) -> dict[str, Any]:
+def raw_usn_journal_scope(
+    journal_path: Path, *, collector_run: dict[str, Any], table: UsnRecordTable | None = None
+) -> dict[str, Any]:
     control = usn_max_scope(collector_run, journal_path=journal_path)
     minimum = _verified_usn_minimum(control)
     try:
@@ -450,7 +480,7 @@ def raw_usn_journal_scope(journal_path: Path, *, collector_run: dict[str, Any]) 
     except (OSError, ValueError):
         window = {"first_usn": None, "first_timestamp": None, "last_usn": None, "last_timestamp": None}
     try:
-        order = usn_journal_timestamp_order(journal_path, minimum_usn=minimum)
+        order = usn_journal_timestamp_order(journal_path, minimum_usn=minimum, table=table)
     except (OSError, ValueError):
         order = {"order_checked": False, "timestamp_reversal_count": 0}
     return usn_journal_scope(
@@ -491,6 +521,7 @@ def raw_usn_reference_parser_run(
     ):
         raise ValueError("reference-scoped USN filesystem scope does not match MFT")
     size_bytes = journal_path.stat().st_size
+    table = raw_usn_record_table(journal_path)
     with journal_path.open("rb") as handle:
 
         def reader(offset: int, size: int) -> bytes:
@@ -501,6 +532,7 @@ def raw_usn_reference_parser_run(
             reader,
             stream_size_bytes=size_bytes,
             references=references,
+            table=table,
         )
     reference_sha256 = str(scan["reference_sha256"])
     observations: list[dict[str, Any]] = []

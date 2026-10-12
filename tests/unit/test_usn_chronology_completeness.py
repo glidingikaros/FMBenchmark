@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import struct
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,6 +32,25 @@ def journal(tmp_path: Path, data: bytes, minimum: int = 0):
     path.write_bytes(data)
     path.with_name('$Max').write_bytes(struct.pack('<QQQQ', 33554432, 8388608, 123456, minimum))
     return path, {'collector': 'kape', 'output_root': str(root)}
+
+
+@pytest.fixture(autouse=True)
+def order_from_a_record_table_too(monkeypatch):
+    # Every order check below also runs on the record table of a scan of the same bytes, as a
+    # run's journal parser hands it over, and must find the same.
+    original = usn.usn_journal_timestamp_order
+
+    @functools.wraps(original)
+    def both(path, **options):
+        result = original(path, **options)
+        if path.stat().st_size <= options.get('max_bytes', 1024**3):
+            data = path.read_bytes()
+            table = usn.usn_record_table(lambda offset, size: data[offset:offset + size],
+                                         stream_size_bytes=len(data))
+            assert original(path, **options, table=table) == result
+        return result
+
+    monkeypatch.setattr(usn, 'usn_journal_timestamp_order', both)
 
 
 def rule_window(scope):
