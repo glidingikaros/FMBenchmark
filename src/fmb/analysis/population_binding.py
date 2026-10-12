@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -215,6 +215,18 @@ def _observation_labels(observation: Observation) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
+def _observed_channel(observation: Observation) -> str:
+    return str(observation.fields.get("channel") or observation.subject_ref).strip().casefold()
+
+
+def _observed_instance(observation: Observation) -> str:
+    return (
+        str(observation.fields.get("device_instance_id") or observation.subject_ref)
+        .replace("/", "\\")
+        .casefold()
+    )
+
+
 def _matches_hint(observation: Observation, hint: Mapping[str, str]) -> bool:
     labels = _observation_labels(observation)
     if "canonical_path" in hint and any(
@@ -231,21 +243,11 @@ def _matches_hint(observation: Observation, hint: Mapping[str, str]) -> bool:
             return True
     if "channel" in hint:
         expected = hint["channel"].strip().casefold()
-        observed = (
-            str(observation.fields.get("channel") or observation.subject_ref)
-            .strip()
-            .casefold()
-        )
-        if expected == observed:
+        if expected == _observed_channel(observation):
             return True
     if "device_instance_id" in hint:
         expected_instance = hint["device_instance_id"].replace("/", "\\").casefold()
-        observed_instance = (
-            str(observation.fields.get("device_instance_id") or observation.subject_ref)
-            .replace("/", "\\")
-            .casefold()
-        )
-        if expected_instance != observed_instance:
+        if expected_instance != _observed_instance(observation):
             return False
         expected_serial = hint.get("serial_number")
         return (
@@ -254,6 +256,57 @@ def _matches_hint(observation: Observation, hint: Mapping[str, str]) -> bool:
             == str(observation.fields.get("serial_number") or "").casefold()
         )
     return False
+
+
+class _HintIndex:
+    # The observations of one binding by each form _matches_hint compares, so a member's hint
+    # looks up the few observations it can match instead of testing every observation. A lookup
+    # returns every observation _matches_hint accepts, in index order, and _matches_hint decides.
+
+    def __init__(self, observations: tuple[Observation, ...]) -> None:
+        self.observations = observations
+        self._path_indexes: tuple[dict[str, list[int]], ...] | None = None
+        self._indexes: dict[Callable[[Observation], str], dict[str, list[int]]] = {}
+
+    def _by(self, form: Callable[[Observation], str]) -> dict[str, list[int]]:
+        index = self._indexes.get(form)
+        if index is None:
+            index = self._indexes[form] = {}
+            for position, observation in enumerate(self.observations):
+                index.setdefault(form(observation), []).append(position)
+        return index
+
+    def _paths(self) -> tuple[dict[str, list[int]], ...]:
+        if self._path_indexes is None:
+            # The full, drive-relative and name forms of every label, each a lookup of its own.
+            self._path_indexes = ({}, {}, {})
+            for position, observation in enumerate(self.observations):
+                for label in _observation_labels(observation):
+                    for index, form in zip(self._path_indexes, _path_forms(label)):
+                        index.setdefault(form, []).append(position)
+        return self._path_indexes
+
+    def candidates(self, hint: Mapping[str, str]) -> tuple[Observation, ...]:
+        positions: set[int] = set()
+        for key in ("canonical_path", "base_path"):
+            if key in hint:
+                full, relative, _names = self._paths()
+                expected_full, expected_relative, _name = _path_forms(hint[key])
+                positions.update(full.get(expected_full, ()))
+                positions.update(relative.get(expected_relative, ()))
+        if "canonical_name" in hint:
+            expected = normalized_subject_label(hint["canonical_name"]).rsplit("\\", 1)[-1]
+            positions.update(self._paths()[2].get(expected, ()))
+        if "channel" in hint:
+            positions.update(self._by(_observed_channel).get(hint["channel"].strip().casefold(), ()))
+        if "device_instance_id" in hint:
+            expected_instance = hint["device_instance_id"].replace("/", "\\").casefold()
+            positions.update(self._by(_observed_instance).get(expected_instance, ()))
+        return tuple(
+            observation
+            for observation in map(self.observations.__getitem__, sorted(positions))
+            if _matches_hint(observation, hint)
+        )
 
 
 def _member_hint(definition: TechniqueDefinition, member: Mapping[str, Any]) -> dict:
@@ -280,11 +333,11 @@ def _member_hint(definition: TechniqueDefinition, member: Mapping[str, Any]) -> 
 def _member_identity(
     definition: TechniqueDefinition,
     member: Mapping[str, Any],
-    observations: tuple[Observation, ...],
+    index: _HintIndex,
 ) -> tuple[dict[str, str], tuple[str, ...]]:
     raw_hint = _member_hint(definition, member)
     if "attachment_kind" in raw_hint:
-        native = tuple(item for item in observations
+        native = tuple(item for item in index.observations
             if item.observation_type == "usb_volume_reference_history"
             and item.fields.get("native_binding_hash_verified") is True
             and item.fields.get("attachment_kind") == raw_hint["attachment_kind"]
@@ -302,10 +355,9 @@ def _member_identity(
     hint = {str(key): str(value) for key, value in raw_hint.items()}
     matches = tuple(
         observation
-        for observation in observations
+        for observation in index.candidates(hint)
         if observation.artifact_family in definition.projected_artifact_families
         and observation_matches_technique(definition, observation)
-        and _matches_hint(observation, hint)
     )
     if not matches:
         raise ValueError(
@@ -377,7 +429,7 @@ def bind_population_manifest(
         parser_runs=raw_parser_runs,
     )
     public = verify_population_manifest(manifest)
-    observations = tuple(iter_observations(bound))
+    index = _HintIndex(tuple(iter_observations(bound)))
     definitions = {(item.question_id, item.technique_id): item for item in TECHNIQUES}
     candidate_ids: set[str] = set()
     populations: list[dict[str, Any]] = []
@@ -424,7 +476,7 @@ def bind_population_manifest(
             identity, observation_ids = _member_identity(
                 definition,
                 member,
-                observations,
+                index,
             )
             subjects.append(
                 {

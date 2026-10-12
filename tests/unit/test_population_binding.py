@@ -1288,3 +1288,31 @@ def test_generated_population_sidecars_are_read_beside_a_symlinked_image(tmp_pat
 
     assert bundle is not None
     assert bundle.evidence_sha256 == hashlib.sha256(image.read_bytes()).hexdigest()
+
+
+def test_a_hint_looks_up_exactly_the_observations_it_matches_in_index_order() -> None:
+    import random
+
+    from fmb.analysis import population_binding
+    from fmb.analysis.domain import Observation
+
+    rng = random.Random(20261012)
+    paths = ["C:\\Users\\u\\Desktop\\f1.txt", "c:/users/U/desktop/F1.TXT", "\\\\?\\C:\\Users\\u\\Desktop\\f1.txt",
+             ".\\Users\\u\\Desktop\\f1.txt", "\\??\\D:\\Users\\u\\Desktop\\f1.txt", "Users\\u\\Desktop\\f1.txt\\",
+             "D:\\data\\f1.txt", "f1.txt", "C:\\Windows\\x.exe", "x.exe", "C:", " Security ", "USBSTOR/Disk&Ven\\1",
+             "usbstor\\disk&ven\\1"]
+    fields = ["base_path", "canonical_path", "executable_name", "file_name", "path", "channel",
+              "device_instance_id", "serial_number"]
+    observations = tuple(
+        Observation(
+            observation_id=f"obs:{position}", artifact_family="ntfs.mft", observation_type="mft_file_record",
+            subject_ref=rng.choice(paths),
+            fields={key: rng.choice([*paths, "", None]) for key in rng.sample(fields, rng.randrange(0, 5))},
+            source_record_ref="")
+        for position in range(400))
+    index = population_binding._HintIndex(observations)
+    keys = ["canonical_path", "base_path", "canonical_name", "channel", "device_instance_id", "serial_number"]
+    for _attempt in range(300):
+        hint = {key: rng.choice(paths) for key in rng.sample(keys, rng.randrange(1, 4))}
+        expected = tuple(item for item in observations if population_binding._matches_hint(item, hint))
+        assert index.candidates(hint) == expected
