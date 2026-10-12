@@ -122,21 +122,30 @@ def _populations(index: dict, base_populations: list[dict], public: dict) -> lis
     observations = tuple(iter_observations(index))
     definitions = {t.technique_id: t for t in TECHNIQUES}
     seed = {p["technique_id"]: deepcopy(p) for p in base_populations}
+    # The observations that can hold a public member of each technique, by their compared path,
+    # in index order: a member takes those filed under its own path.
+    by_path: dict[str, dict[str, list]] = {}
     for member in public["members"]:
         for technique in _eligible_techniques(member):
             if technique not in seed:
                 continue
             definition = definitions[technique]
-            matches = [o for o in observations
-                if o.artifact_family in definition.candidate_artifact_families
-                and observation_matches_technique(definition, o)
-                and normalize_windows_compare_path(o.subject_ref) == normalize_windows_compare_path(member["path"])
-                and (technique != "timestamp_manipulation" or o.artifact_family == "ntfs.mft")
-                and (technique != "deleted_file_journal_residue" or o.artifact_family == "ntfs.usn")
-                and (technique != "prefetch_missing_executable" or o.artifact_family == "windows.prefetch")
-                and (technique != "shellbag_missing_directory" or o.artifact_family == "windows.registry.shellbag")
-                and (technique != "bitmap_trailing_data" or o.observation_type == "logical_allocated_size_record")
-                and (technique != "ntfs_allocation_inconsistency" or o.observation_type == "ntfs_allocation_record")]
+            if technique not in by_path:
+                by_path[technique] = {}
+                for o in observations:
+                    if (o.artifact_family in definition.candidate_artifact_families
+                            and observation_matches_technique(definition, o)
+                            and (technique != "timestamp_manipulation" or o.artifact_family == "ntfs.mft")
+                            and (technique != "deleted_file_journal_residue" or o.artifact_family == "ntfs.usn")
+                            and (technique != "prefetch_missing_executable" or o.artifact_family == "windows.prefetch")
+                            and (technique != "shellbag_missing_directory"
+                                 or o.artifact_family == "windows.registry.shellbag")
+                            and (technique != "bitmap_trailing_data"
+                                 or o.observation_type == "logical_allocated_size_record")
+                            and (technique != "ntfs_allocation_inconsistency"
+                                 or o.observation_type == "ntfs_allocation_record")):
+                        by_path[technique].setdefault(normalize_windows_compare_path(o.subject_ref), []).append(o)
+            matches = by_path[technique].get(normalize_windows_compare_path(member["path"]), [])
             identities = {}
             for observation in matches:
                 display, identity = candidate_identity(definition, observation)
@@ -150,13 +159,21 @@ def _populations(index: dict, base_populations: list[dict], public: dict) -> lis
     for technique, population in seed.items():
         definition = definitions[technique]
         subjects = {}
+        # The ids of the observations projecting onto each identity, in index order. Identities
+        # map names to strings, so their items name them as their equality does.
+        by_identity: dict[frozenset, list[str]] | None = None
         for subject in population["subjects"]:
             identity = subject["identity"]
             key = canonical_sha256(identity)
-            matches = [o.observation_id for o in observations
-                       if o.artifact_family in definition.projected_artifact_families
-                       and observation_matches_technique(definition, o)
-                       and candidate_identity(definition, o)[1] == identity]
+            if by_identity is None:
+                by_identity = {}
+                for o in observations:
+                    if (o.artifact_family in definition.projected_artifact_families
+                            and observation_matches_technique(definition, o)):
+                        by_identity.setdefault(
+                            frozenset(candidate_identity(definition, o)[1].items()), []
+                        ).append(o.observation_id)
+            matches = by_identity.get(frozenset(identity.items()), [])
             if not matches:
                 raise ValueError(f"no retained observations for a declared {technique} subject")
             subjects[key] = {**subject, "observation_ids": sorted(matches)}
