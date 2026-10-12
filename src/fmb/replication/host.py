@@ -161,12 +161,13 @@ def leftovers() -> list[tuple[str, str]]:
     found = []
     work = cache() / "vm-work"
     if MACOS and work.is_dir():
-        # A generation names its clone by its start time; fmb run's parser VM (fmb-parser-*) is not one.
+        # A generation names its clone by its start time; fmb run's parser VM (fmb-parser-*), which fmb run
+        # reaps itself, is not one, nor is its QEMU (-name fmb-parser-<pid>) below.
         found += [("clone", str(folder)) for folder in sorted(work.iterdir())
                   if folder.is_dir() and GENERATION_CLONE.fullmatch(folder.name)]
     if not MACOS:
         found += [("qemu", pid) for pid, args in processes()
-                  if "qemu-system" in args and "/.vagrant/system.qcow2" in args]
+                  if "qemu-system" in args and "/.vagrant/system.qcow2" in args and "fmb-parser-" not in args]
         found += [("overlay", str(disk.parent)) for disk in
                   sorted(generated().glob("*/generation/attempt-*/full_scale/*/.vagrant/system.qcow2"))]
     return found

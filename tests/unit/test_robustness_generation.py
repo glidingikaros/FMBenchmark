@@ -313,7 +313,8 @@ def test_only_this_users_generation_leftovers_are_removed(tmp_path, monkeypatch)
     monkeypatch.setenv("FMB_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(host.subprocess, "run", listing(
         "5 501 qemu-system-x86_64 -drive file=/w/attempt-1/.vagrant/system.qcow2",
-        "6 1000 qemu-system-x86_64 -drive file=/home/other/attempt-1/.vagrant/system.qcow2"))
+        "6 1000 qemu-system-x86_64 -drive file=/home/other/attempt-1/.vagrant/system.qcow2",
+        "7 501 qemu-system-x86_64 -name fmb-parser-4242 -pidfile /c/p.pid -drive file=/w/.vagrant/system.qcow2"))
     assert host.leftovers() == [("qemu", "5")]
 
 
