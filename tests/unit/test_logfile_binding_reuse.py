@@ -132,6 +132,11 @@ def reference_run(collection: dict[str, object], output: Path, *, fragments: boo
     )
 
 
+def masked(text: str, output: Path) -> str:
+    # The run's folder as written, and as JSON writes it (with a Windows path's backslashes escaped).
+    return text.replace(json.dumps(str(output))[1:-1], "<output>").replace(str(output), "<output>")
+
+
 def analysis_runs(collection: dict[str, object], output: Path) -> str:
     # The scope run, the analysis's reference run and the factual supplement's, as S2 makes them.
     (output / "scope").mkdir(parents=True)
@@ -144,10 +149,10 @@ def analysis_runs(collection: dict[str, object], output: Path) -> str:
         reference_run(collection, output / "factual", fragments=True),
     ]
     written = {
-        str(path.relative_to(output)): path.read_text(encoding="utf-8")
+        str(path.relative_to(output)): masked(path.read_text(encoding="utf-8"), output)
         for path in sorted(output.rglob("*")) if path.is_file()
     }
-    return json.dumps([runs, written]).replace(str(output), "<output>")
+    return masked(json.dumps([runs, written]), output)
 
 
 class Forgetful(dict):
@@ -206,7 +211,7 @@ def test_a_run_that_finds_the_binding_kept_records_the_mft_read(collection, tmp_
         with reads.measured() as files:
             analysis_runs(collection, output)
         # write_json's temporary files have random names.
-        return {name.replace(str(output), "<output>") for name in files if not name.endswith(".tmp")}
+        return {masked(name, output) for name in files if not name.endswith(".tmp")}
 
     reference_run(collection, tmp_path / "warm")
     kept = opened(tmp_path / "kept")

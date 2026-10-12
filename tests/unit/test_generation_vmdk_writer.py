@@ -326,7 +326,7 @@ def test_a_zeroed_grain_entry_reads_as_zeros_with_the_zero_grain_flag(tmp_path):
     (bytes(2 << 20), "not a VMware descriptor file"),  # a raw disk
     (b"KDMV\x01\x00\x00\x00" + bytes(4096), "single-file sparse VMDK"),  # monolithicSparse
     (None, "cannot read system.img"),
-])
+], ids=["empty", "qcow2", "raw", "monolithic-sparse", "missing"])  # Windows refuses a test name of megabytes
 def test_a_disk_that_is_no_vmware_descriptor_goes_to_qemu_img(tmp_path, content, reason):
     source = tmp_path / "system.img"
     if content is not None:

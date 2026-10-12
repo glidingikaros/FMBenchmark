@@ -69,6 +69,11 @@ def counted_tables(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     return built
 
 
+def masked(text: str, output: Path) -> str:
+    # The run's folder as written, and as JSON writes it (with a Windows path's backslashes escaped).
+    return text.replace(json.dumps(str(output))[1:-1], "<output>").replace(str(output), "<output>")
+
+
 def run_scans(path: Path, collector: dict, output: Path) -> dict:
     # The journal uses of one S2 run: the journal parser run with its order check, two
     # reference-scoped runs and the factual supplement's public membership scan.
@@ -90,9 +95,9 @@ def run_scans(path: Path, collector: dict, output: Path) -> dict:
             output / "factual", context)
     finally:
         analysis._raw_usn_journal_path = original
-    results["files"] = {path.relative_to(output).as_posix(): path.read_text(encoding="utf-8")
+    results["files"] = {path.relative_to(output).as_posix(): masked(path.read_text(encoding="utf-8"), output)
                         for path in sorted(output.rglob("*")) if path.is_file()}
-    return json.loads(json.dumps(results, default=str).replace(str(output), "<output>"))
+    return json.loads(masked(json.dumps(results, default=str), output))
 
 
 def test_a_run_scans_its_journal_once_and_writes_what_a_scan_per_use_writes(tmp_path, monkeypatch):
@@ -169,7 +174,7 @@ def test_a_step_that_finds_the_table_kept_records_the_journal_read(tmp_path, mon
         with reads.measured() as files:
             run_scans(path, collector, output)
         # write_json's temporary files have random names.
-        return {name.replace(str(output), "<output>") for name in files if not name.endswith(".tmp")}
+        return {masked(name, output) for name in files if not name.endswith(".tmp")}
 
     usn_adapters.raw_usn_record_table(path)
     kept = opened(tmp_path / "kept")
