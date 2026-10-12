@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import signal
 import sys
+import tempfile
 import traceback
 from pathlib import Path
 
 from fmb.core.errors import run_cli
 from fmb.core.json_io import json_text
 from fmb.core.paper_protocol import paper_protocol
-from fmb.core.paths import PROJECT_ROOT, default_current_root
+from fmb.core.paths import PROJECT_ROOT
 
 PAPER_GUEST = {"windows_build": "22000", "timezone": "Pacific Standard Time", "locale": "en-US"}
 
@@ -50,7 +52,13 @@ def lock(path: str, provider: str, windows_build: str | None = None) -> dict:
     built = dependency_lock.build_lock(backend_name=backend, box=box, version=version, guest=guest, imports=imports,
                                        cwd=PROJECT_ROOT / "generation")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    recipe.write_private(destination, built)
+    staging = destination.with_name(destination.name + ".partial")  # a killed write never leaves a cut lock
+    staging.unlink(missing_ok=True)
+    try:
+        recipe.write_private(staging, built)
+        os.replace(staging, destination)
+    finally:
+        staging.unlink(missing_ok=True)
     return {
         "status": "completed", "path": str(destination), "schema_version": built["schema_version"],
         "pinned_inputs_sha256": dependency_lock.pinned_digest(built),
@@ -78,18 +86,19 @@ def freeze(image: str, provider: str, lock: str, recipe: str, image_file: str | 
         guest_bias = recipes.guest_clock_bias(None if provider == "qemu" else facts.get("finished_utc"))
         config = recipes.image_config(own.seed, own.contract, provider, settings=own.settings, guest_bias=guest_bias)
         contract = own.contract
-    pipeline = _pipeline(config, default_current_root() / "generated", population_contract=contract)
-    try:
-        pipeline.prepare_population()
-        frozen = recipes.freeze_recipe(
-            Path(recipe), source_root=pipeline.work_dir, config=config,
-            population=pipeline.public_population_manifest, assignment=pipeline.private_population_assignment,
-            guest_plan=pipeline.population_guest_plan, dependency_lock=recipes.read_json(Path(lock)),
-            activity_seed=recipes.declared_seeds(config)[0], hardware_seed=recipes.declared_seeds(config)[1],
-            assignment_origin=None,
-        )
-    finally:
-        pipeline.cleanup_population_inputs()
+    with tempfile.TemporaryDirectory(prefix="fmb-freeze-") as scratch:  # the pipeline here only resolves the plan
+        pipeline = _pipeline(config, Path(scratch), population_contract=contract)
+        try:
+            pipeline.prepare_population()
+            frozen = recipes.freeze_recipe(
+                Path(recipe), source_root=pipeline.work_dir, config=config,
+                population=pipeline.public_population_manifest, assignment=pipeline.private_population_assignment,
+                guest_plan=pipeline.population_guest_plan, dependency_lock=recipes.read_json(Path(lock)),
+                activity_seed=recipes.declared_seeds(config)[0], hardware_seed=recipes.declared_seeds(config)[1],
+                assignment_origin=None,
+            )
+        finally:
+            pipeline.cleanup_population_inputs()
     return {"status": "completed", "recipe_id": frozen["recipe_id"], "path": recipe,
             "schema_version": frozen["schema_version"]}
 

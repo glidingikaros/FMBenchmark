@@ -607,3 +607,34 @@ def test_a_recipe_frozen_from_other_generation_code_is_frozen_again(tmp_path, mo
     assert events[-1] == "freeze" and "an earlier version of fmb's generation code" in events[0]
     assert [path.name.startswith("recipe-") for path in stale.iterdir() if path.name != "recipe"] == [True]
 
+
+def test_a_killed_lock_write_leaves_no_cut_lock(tmp_path, monkeypatch):
+    from fmb.generation import dependency_lock, recipe
+    from fmb.replication import steps
+
+    monkeypatch.setattr(dependency_lock, "build_lock", lambda **_: {"schema_version": "x"})
+    monkeypatch.setattr(dependency_lock, "pinned_digest", lambda lock: "0" * 64)
+
+    def killed(path, value):
+        Path(path).write_text('{"schema_vers', encoding="utf-8")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(recipe, "write_private", killed)
+    with pytest.raises(KeyboardInterrupt):
+        steps.lock(path=str(tmp_path / "lock.json"), provider="qemu")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_freezing_leaves_nothing_in_the_working_directory(tmp_path, monkeypatch):
+    from fmb.generation import recipe
+    from fmb.replication import steps
+
+    (tmp_path / "lock.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "cwd").mkdir()
+    monkeypatch.chdir(tmp_path / "cwd")
+    roots, real = [], steps._pipeline
+    monkeypatch.setattr(steps, "_pipeline", lambda config, output, **options: roots.append(output) or real(
+        config, output, **options))
+    monkeypatch.setattr(recipe, "freeze_recipe", lambda *_, **__: {"recipe_id": "r", "schema_version": "v"})
+    steps.freeze(image="I1", provider="qemu", lock=str(tmp_path / "lock.json"), recipe=str(tmp_path / "recipe"))
+    assert list((tmp_path / "cwd").iterdir()) == [] and not roots[0].exists()
