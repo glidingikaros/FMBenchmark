@@ -1,5 +1,6 @@
 import io
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -232,7 +233,7 @@ def test_fmb_finds_its_folders_from_anywhere(tmp_path, monkeypatch):
     assert run.generated_root() == ROOT / "generated"
     monkeypatch.setenv("FMB_HOME", str(tmp_path))
     assert run.results_root() == tmp_path / "results"
-    with pytest.raises(ValueError, match=f"no image I9 in {tmp_path / 'images'}"):
+    with pytest.raises(ValueError, match=re.escape(f"no image I9 in {tmp_path / 'images'}")):
         image_files.resolve("I9")
 
 

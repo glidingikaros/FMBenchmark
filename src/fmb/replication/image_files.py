@@ -252,7 +252,7 @@ def resolve(name: str) -> Path:
 def available() -> list[tuple[str, str]]:
     rows = []
     seen = set()
-    for path in sorted(path for folder in folders() for path in folder.glob("*.json")):
+    for path in (path for folder in folders() for path in sorted(folder.glob("*.json"))):
         if path.stem == TEMPLATE or path.stem in seen:
             continue
         seen.add(path.stem)
@@ -261,7 +261,7 @@ def available() -> list[tuple[str, str]]:
             rows.append((image.name, ("paper image, " if image.paper else "") + check(image).split(", ", 1)[1]))
         except ValueError as error:
             rows.append((path.stem, str(error)))
-    return rows
+    return sorted(rows, key=lambda row: row[0])
 
 
 def read_conditions(path: Path) -> dict:

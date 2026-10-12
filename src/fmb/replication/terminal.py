@@ -69,7 +69,7 @@ class Lines:
         try:
             self.stream.write(text)
             self.stream.flush()
-        except OSError:
+        except (OSError, ValueError):
             pass
 
     def line(self, text: str) -> None:
