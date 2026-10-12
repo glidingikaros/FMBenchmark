@@ -60,6 +60,17 @@ def parse_logfiles_early(collector_output_root: Path, normalized_output_dir: Pat
             return
 
 
+def scan_mft_early(collector_output_root: Path) -> None:
+    # The import scans the MFTECmd $MFT CSV twice (its presence context and its rows); scanning it here, while the
+    # parser VM works, lets the import find both scans cached. A failure is left for the import, which scans again.
+    from fmb.index.adapters.mft import prescan_mftecmd_mft_csvs
+
+    try:
+        prescan_mftecmd_mft_csvs(collector_output_root.expanduser().resolve())
+    except Exception:
+        return
+
+
 def collection_args(
     *,
     profile: dict,
@@ -168,13 +179,17 @@ def collect_host(
                 receipt["evidence_sha256"] = expected_sha256
 
             parser_kinds = set(profile["parser_outputs"]) if args.selected_modules is not None else None
-            early_logfile: list[Background] = []
+            early_parses: list[Background] = []
 
             def after_extraction(collector_output_root: Path) -> None:
                 if parser_kinds is None or "ntfs_logfile" in parser_kinds:
-                    early_logfile.append(Background(
+                    early_parses.append(Background(
                         parse_logfiles_early, collector_output_root, normalized / "parser-normalized",
                         name="fmb-logfile-early"))
+
+            def after_host_modules(collector_output_root: Path) -> None:
+                if parser_kinds is None or "ntfs_mft" in parser_kinds:
+                    early_parses.append(Background(scan_mft_early, collector_output_root, name="fmb-mft-scan"))
 
             write_json(output / "collection-profile.json", declared)
             try:
@@ -189,6 +204,7 @@ def collect_host(
                     evidence_sha256=expected_sha256,
                     run_id=run_id,
                     after_extraction=after_extraction,
+                    after_host_modules=after_host_modules,
                     confirm_evidence=confirm_evidence,
                 )
             except Exception:
@@ -199,7 +215,7 @@ def collect_host(
                 receipt["evidence_sha256"] = expected_sha256
                 raise
             confirm_evidence()
-            for parse in early_logfile:
+            for parse in early_parses:
                 parse.result()
             inputs = dict(
                 request_path=stage / "tool_run_request.json",

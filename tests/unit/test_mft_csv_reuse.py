@@ -328,3 +328,35 @@ def test_parser_run_ranks_again_when_the_csv_changes_and_keeps_callers_apart(tmp
     assert json.dumps(again["observations"]) == expected
     assert len(scans) == 1 and csv_path.stat().st_size == status.st_size
     assert "nopes.txt" in json.dumps(changed["observations"]) and "notes.txt" not in json.dumps(changed["observations"])
+
+
+def test_prescan_leaves_the_import_both_scans_with_the_same_results(tmp_path, monkeypatch):
+    root = mft_root(tmp_path, rows=RANKED_ROWS, header=MFT_HEADER)
+    csv_path = mft_adapters.mftecmd_mft_context_csv_files(root)[0]
+    expected_context = build_mft_presence_context(root)
+    expected_run = mft_parser_run(tmp_path, csv_path, "expected", PUBLIC)
+    monkeypatch.setattr(mft_adapters, "_MFT_PRESENCE_CONTEXT_CACHE", {})
+    monkeypatch.setattr(mft_adapters, "_MFT_ROW_SCANS", {})
+
+    mft_adapters.prescan_mftecmd_mft_csvs(root)
+    row_scans = counted_row_scans(monkeypatch)
+    context_scans: list[list[Path]] = []
+    original = mft_adapters._scan_mft_presence_context
+    monkeypatch.setattr(mft_adapters, "_scan_mft_presence_context",
+                        lambda paths, **options: context_scans.append(paths) or original(paths, **options))
+
+    assert build_mft_presence_context(root) == expected_context
+    after = mft_parser_run(tmp_path, csv_path, "after", PUBLIC)
+    assert row_scans == [] and context_scans == []
+    assert after["observations"] == expected_run["observations"]
+    assert after["candidate_populations"] == expected_run["candidate_populations"]
+
+
+def test_early_mft_scan_leaves_a_failure_to_the_import(tmp_path, monkeypatch):
+    from fmb.collection import paper_host
+
+    def broken(root):
+        raise ValueError("MFTECmd $MFT CSV changed while it was read")
+
+    monkeypatch.setattr(mft_adapters, "prescan_mftecmd_mft_csvs", broken)
+    assert paper_host.scan_mft_early(tmp_path) is None
