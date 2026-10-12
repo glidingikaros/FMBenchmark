@@ -19,23 +19,7 @@ def write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def test_run_lock_rejects_unknown_schema(tmp_path: Path) -> None:
-    current_root = tmp_path / "current"
-    lock_path = run_lock.evidence_image_run_lock_path(current_root)
-    lock_path.parent.mkdir(parents=True)
-    write_json(lock_path, {"schema_version": "future", "kind": run_lock.LOCK_KIND})
-
-    payload = json.loads(lock_path.read_text(encoding="utf-8"))
-    reclaimable, reason = run_lock.can_reclaim_run_lock(payload)
-
-    assert reclaimable is False
-    assert "schema" in reason
-
-
-def test_run_lock_lifecycle_and_reclaim(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_run_lock_lifecycle_and_stale_record(tmp_path: Path) -> None:
     current_root = tmp_path / "current"
 
     with run_lock.acquire_evidence_image_run_lock(
@@ -47,30 +31,23 @@ def test_run_lock_lifecycle_and_reclaim(
 
         with pytest.raises(
             run_lock.ActiveEvidenceImageRunError,
-            match="evidence-image run already active",
+            match="evidence-image run already active: run-1 at .*current",
         ):
             with run_lock.acquire_evidence_image_run_lock(
                 current_root=current_root, requested_run_id="run-2"
             ):
                 pass
 
-    assert not run_lock.evidence_image_run_lock_path(current_root).exists()
-
     stale_lock = run_lock.evidence_image_run_lock_path(current_root)
-    stale_lock.parent.mkdir(parents=True, exist_ok=True)
+    assert stale_lock.read_text(encoding="utf-8") == ""
     stale_payload = run_lock.build_run_guard_payload(
         current_root=current_root, requested_run_id="run-stale"
     )
-    stale_payload["pid"] = -1
     write_json(stale_lock, stale_payload)
-    assert run_lock.can_reclaim_run_lock(run_lock.read_lock_payload(stale_lock))[0]
-
-    monkeypatch.setattr(run_lock, "current_host", lambda: "this-host")
-    other_host_payload = {**stale_payload, "host": "other-host"}
-    assert run_lock.can_reclaim_run_lock(other_host_payload) == (
-        False,
-        "lock belongs to another host: other-host",
-    )
+    with run_lock.acquire_evidence_image_run_lock(
+        current_root=current_root, requested_run_id="run-3"
+    ) as lock:
+        assert run_lock.read_lock_payload(stale_lock)["requested_run_id"] == "run-3"
 
 
 def test_vmware_worker_source_must_be_flat_and_unlocked(tmp_path: Path) -> None:

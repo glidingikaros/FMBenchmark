@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 import socket
 import uuid
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,8 +17,8 @@ from fmb.core.provenance import record_timestamp
 
 LOCK_SCHEMA_VERSION = "fmb_evidence_image_run_lock.v1"
 LOCK_KIND = "evidence_image_run"
-ACCEPTED_LOCK_SCHEMA_VERSIONS = frozenset({LOCK_SCHEMA_VERSION})
-ACCEPTED_LOCK_KINDS = frozenset({LOCK_KIND})
+# Windows locks a byte past the owner record, so that other runs can still read who holds the lock.
+_WINDOWS_LOCK_OFFSET = 1 << 20
 
 
 class EvidenceImageRunGuardError(RuntimeError):
@@ -31,7 +32,7 @@ class ActiveEvidenceImageRunError(EvidenceImageRunGuardError):
         self.payload = payload
         self.reason = reason
         run_id = payload.get("run_id") or payload.get("requested_run_id") or "unknown"
-        output_root = payload.get("output_root") or "unknown output root"
+        output_root = payload.get("output_root") or payload.get("current_root") or "unknown output root"
         pid = payload.get("pid") or "unknown pid"
         host = payload.get("host") or "unknown host"
         super().__init__(
@@ -46,18 +47,19 @@ class EvidenceImageRunGuard:
     lock_path: Path
     token: str
     payload: dict[str, Any]
+    fd: int = -1
 
     def release(self) -> None:
-        try:
-            payload = read_lock_payload(self.lock_path)
-        except EvidenceImageRunGuardError:
+        # The operating system also drops the lock when the process dies, so a crash leaves no stale lock.
+        if self.fd < 0:
             return
-        if payload.get("token") != self.token:
-            return
+        fd, self.fd = self.fd, -1
         try:
-            self.lock_path.unlink()
-        except FileNotFoundError:
-            pass
+            with suppress(OSError):
+                os.ftruncate(fd, 0)
+                _unlock(fd)
+        finally:
+            os.close(fd)
 
 
 def evidence_image_run_lock_path(current_root: Path) -> Path:
@@ -108,44 +110,42 @@ def _windows_process_is_running(pid: int) -> bool:
 def read_lock_payload(lock_path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(lock_path.read_text(encoding="utf-8"))
-    except FileNotFoundError as error:
-        raise EvidenceImageRunGuardError(
-            f"evidence-image run lock disappeared: {lock_path}"
-        ) from error
-    except (OSError, json.JSONDecodeError) as error:
-        raise ActiveEvidenceImageRunError(
-            lock_path, {}, f"could not read lock metadata: {error}"
-        ) from error
-    if not isinstance(payload, dict):
-        raise ActiveEvidenceImageRunError(lock_path, {}, "lock metadata is not an object")
-    return payload
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
-def can_reclaim_run_lock(payload: dict[str, Any]) -> tuple[bool, str]:
-    if payload.get("schema_version") not in ACCEPTED_LOCK_SCHEMA_VERSIONS:
-        return False, "lock schema is unknown"
-    if payload.get("kind") not in ACCEPTED_LOCK_KINDS:
-        return False, "lock kind is unknown"
-    if payload.get("owner") != "cli":
-        return False, "lock owner is unknown"
-    host = str(payload.get("host") or "")
-    if host and host != current_host():
-        return False, f"lock belongs to another host: {host}"
-    pid_value = payload.get("pid")
+def _try_lock(fd: int) -> bool:
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(fd, _WINDOWS_LOCK_OFFSET, os.SEEK_SET)
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        except OSError as error:
+            if error.errno in {errno.EACCES, getattr(errno, "EDEADLOCK", errno.EDEADLK)}:
+                return False
+            raise
+        return True
+    import fcntl
+
     try:
-        pid = int(pid_value)
-    except (TypeError, ValueError):
-        return True, "lock has no valid owner pid"
-    if process_is_running(pid):
-        return False, "owner process is still running"
-    return True, "owner process is no longer running"
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    return True
 
 
-def same_lock_owner(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    return all(
-        left.get(key) == right.get(key)
-        for key in ("token", "pid", "host", "started_at")
-    )
+def _unlock(fd: int) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(fd, _WINDOWS_LOCK_OFFSET, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 def build_run_guard_payload(
@@ -169,23 +169,17 @@ def build_run_guard_payload(
 
 
 def _create_run_guard(lock_path: Path, payload: dict[str, Any]) -> EvidenceImageRunGuard:
-    fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    return EvidenceImageRunGuard(
-        lock_path=lock_path,
-        token=str(payload["token"]),
-        payload=payload,
-    )
-
-
-def _reclaim_run_lock_if_still_owned(
-    lock_path: Path, existing: dict[str, Any]
-) -> None:
-    current = read_lock_payload(lock_path)
-    if not same_lock_owner(existing, current):
-        return
-    lock_path.unlink()
+    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
+    try:
+        if not _try_lock(fd):
+            raise ActiveEvidenceImageRunError(lock_path, read_lock_payload(lock_path), "its process is still running")
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+    except BaseException:
+        os.close(fd)
+        raise
+    return EvidenceImageRunGuard(lock_path=lock_path, token=str(payload["token"]), payload=payload, fd=fd)
 
 
 @contextmanager
@@ -197,27 +191,12 @@ def acquire_evidence_image_run_lock(
 ) -> Iterator[EvidenceImageRunGuard]:
     lock_path = evidence_image_run_lock_path(current_root)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = build_run_guard_payload(
+    lock = _create_run_guard(lock_path, build_run_guard_payload(
         current_root=current_root,
         requested_run_id=requested_run_id,
         command=command,
-    )
-
-    while True:
-        try:
-            lock = _create_run_guard(lock_path, payload)
-        except FileExistsError:
-            existing = read_lock_payload(lock_path)
-            reclaimable, reason = can_reclaim_run_lock(existing)
-            if not reclaimable:
-                raise ActiveEvidenceImageRunError(lock_path, existing, reason)
-            try:
-                _reclaim_run_lock_if_still_owned(lock_path, existing)
-            except FileNotFoundError:
-                pass
-            continue
-        try:
-            yield lock
-        finally:
-            lock.release()
-        return
+    ))
+    try:
+        yield lock
+    finally:
+        lock.release()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -248,3 +249,40 @@ def test_skipped_reference_scoped_scanners_leave_a_note_saying_why(tmp_path, mon
         {"scanner": "logfile", "filesystem_scope_id": "volume:test",
          "reason": "the collected $MFT is volume volume:other, not the population's volume volume:test"},
     ]}
+
+
+def test_the_run_lock_names_its_holder_and_dies_with_it(tmp_path):
+    import subprocess
+    import sys
+
+    from fmb.collection.run import lock as run_lock
+
+    holder = subprocess.Popen(
+        [sys.executable, "-c", (
+            "import sys, time\n"
+            "from pathlib import Path\n"
+            "from fmb.collection.run.lock import acquire_evidence_image_run_lock\n"
+            "with acquire_evidence_image_run_lock(current_root=Path(sys.argv[1]), requested_run_id='run-held'):\n"
+            "    print('held', flush=True)\n"
+            "    time.sleep(120)\n"
+        ), str(tmp_path)],
+        stdout=subprocess.PIPE, text=True, env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(run_lock.ActiveEvidenceImageRunError,
+                           match=rf"already active: run-held at .*\(pid {holder.pid} on "):
+            with run_lock.acquire_evidence_image_run_lock(current_root=tmp_path, requested_run_id="run-next"):
+                pass
+    finally:
+        holder.kill()
+        holder.wait(timeout=30)
+        holder.stdout.close()
+
+    lock_path = run_lock.evidence_image_run_lock_path(tmp_path)
+    # What a dead run leaves behind: its record, an empty file, or a record naming a reused pid on a renamed host.
+    reused = {**run_lock.read_lock_payload(lock_path), "pid": os.getpid(), "host": "renamed-host"}
+    for leftover in (lock_path.read_text(encoding="utf-8"), "", json.dumps(reused)):
+        lock_path.write_text(leftover, encoding="utf-8")
+        with run_lock.acquire_evidence_image_run_lock(current_root=tmp_path, requested_run_id="run-next") as lock:
+            assert run_lock.read_lock_payload(lock.lock_path)["requested_run_id"] == "run-next"

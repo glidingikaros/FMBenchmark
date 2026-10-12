@@ -82,7 +82,7 @@ def test_collection_validation_is_mandatory_and_failure_releases_owner(
     assert receipt["status"] == ("failed" if failure else "completed")
     assert receipt["truth_sources_used"] == []
     assert receipt["elapsed_seconds"] >= 0
-    assert not list((tmp_path / "runtime").rglob("*.lock"))
+    assert [path.read_text(encoding="utf-8") for path in (tmp_path / "runtime").rglob("*.lock")] == [""]
     assert events == (
         {"hash": [], "extract": ["extract"], "validate": ["extract", "validate"]}.get(
             failure, ["extract", "validate", "import"]
