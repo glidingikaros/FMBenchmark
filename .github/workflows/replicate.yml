@@ -10,7 +10,7 @@ on:
         type: string
         required: false
       hosts:
-        description: "Windows hosts are work in progress: generation works, evidence collection does not yet"
+        description: "Where to generate and run: linux (Ubuntu with KVM), windows (Windows Server with WHPX, Ansible in WSL 1), both, or distros (Fedora, Arch and openSUSE, each in a fresh container)"
         type: choice
         options: [linux, windows, both, distros]
         default: linux
