@@ -71,31 +71,49 @@ if ($plan.file_times) {
 $logs = Join-Path $work 'logs'
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
 $targets = Join-Path $work 'targets'
-$results = @()
-foreach ($item in @($plan.commands)) {
-  $exe = Join-Path (Join-Path $work 'bin') ([string]$item.executable)
-  $outDir = Join-Path (Join-Path $work 'modules') ([string]$item.category)
-  New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-  $arguments = @()
-  foreach ($arg in @($item.arguments)) {
-    $value = ([string]$arg).Replace('%targets%', $targets).Replace('%out%', $outDir)
-    if ($value.Contains(' ')) { $value = '"' + $value + '"' }
-    $arguments += $value
+# The parsers run at the same time, each writing into its own folder (one whose folder another still writes into
+# waits for it), and the receipt lists them in the plan's order whichever ends first.
+$runs = @()
+$writing = @{}
+try {
+  foreach ($item in @($plan.commands)) {
+    $exe = Join-Path (Join-Path $work 'bin') ([string]$item.executable)
+    $outDir = Join-Path (Join-Path $work 'modules') ([string]$item.category)
+    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    $arguments = @()
+    foreach ($arg in @($item.arguments)) {
+      $value = ([string]$arg).Replace('%targets%', $targets).Replace('%out%', $outDir)
+      if ($value.Contains(' ')) { $value = '"' + $value + '"' }
+      $arguments += $value
+    }
+    $stdout = Join-Path $logs ([string]$item.label + '.stdout.txt')
+    $stderr = Join-Path $logs ([string]$item.label + '.stderr.txt')
+    if ($writing.ContainsKey($outDir)) { $writing[$outDir].WaitForExit() }
+    $started = [DateTime]::UtcNow.ToString('o')
+    $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory (Split-Path $exe -Parent) -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    # Without -Wait, the exit code and time stay readable only if the handle is taken while the process runs.
+    $null = $process.Handle
+    $writing[$outDir] = $process
+    $runs += @{ item = $item; exe = $exe; arguments = $arguments; process = $process; started = $started }
   }
-  $stdout = Join-Path $logs ([string]$item.label + '.stdout.txt')
-  $stderr = Join-Path $logs ([string]$item.label + '.stderr.txt')
-  $started = [DateTime]::UtcNow.ToString('o')
-  $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory (Split-Path $exe -Parent) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-  $ended = [DateTime]::UtcNow.ToString('o')
+} catch {
+  # A parser that could not start leaves none of the others running.
+  $failure = $_
+  foreach ($run in $runs) { if (-not $run.process.HasExited) { $run.process.Kill() } }
+  throw $failure
+}
+$results = @()
+foreach ($run in $runs) {
+  $run.process.WaitForExit()
   $results += [ordered]@{
-    label = [string]$item.label
-    category = [string]$item.category
-    executable = [string]$item.executable
-    executable_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
-    arguments = $arguments
-    exit_code = [int]$process.ExitCode
-    started_at = $started
-    ended_at = $ended
+    label = [string]$run.item.label
+    category = [string]$run.item.category
+    executable = [string]$run.item.executable
+    executable_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $run.exe).Hash.ToLowerInvariant()
+    arguments = $run.arguments
+    exit_code = [int]$run.process.ExitCode
+    started_at = $run.started
+    ended_at = $run.process.ExitTime.ToUniversalTime().ToString('o')
   }
 }
 $receipt = [ordered]@{
