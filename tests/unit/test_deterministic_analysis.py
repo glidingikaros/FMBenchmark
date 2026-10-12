@@ -2934,3 +2934,30 @@ def test_timestomp_rule_v3_late_branch_needs_a_full_minute() -> None:
 
     assert result.assessments[0].outcome == "not_supported"
     assert result.assessments[0].reason_code == "temporal_basic_info_change_not_observed"
+
+
+def test_an_install_time_written_as_utc_is_placed_in_the_setupapi_window_like_a_plain_one() -> None:
+    from fmb.index.support.usb_devices import parse_setupapi_surface, registry_filetime
+
+    ticks = (1767225600 + 11644473600) * 10_000_000  # 2026-01-01T00:00:00Z, inside the SetupAPI window below
+    first_install = registry_filetime(value_type="RegBinary",
+                                      value_data="-".join(f"{b:02X}" for b in ticks.to_bytes(8, "little")))
+    assert first_install.endswith("+00:00")  # a native FirstInstallDate property
+    _records, _count, surface = parse_setupapi_surface(enumerate([
+        ">>>  [Device Install (Hardware initiated) - SWD\\WPDBUSENUM\\x]",
+        ">>>  Section start 2025/01/01 00:00:00.000",
+        "<<<  Section end 2025/01/01 00:00:01.000",
+        "<<<  [Exit status: SUCCESS]",
+        ">>>  [Device Install (Hardware initiated) - SWD\\WPDBUSENUM\\y]",
+        ">>>  Section start 2026/12/01 00:00:00.000",
+        "<<<  Section end 2026/12/01 00:00:01.000",
+        "<<<  [Exit status: SUCCESS]",
+    ], start=1))
+    scope = {"kind": "setupapi_log", "files": ["setupapi.dev.log"],
+             "first_section_timestamp": surface["first_section_timestamp"],
+             "last_section_timestamp": surface["last_section_timestamp"],
+             "window_complete": True, "guest_utc_offset_minutes": 0}
+    utc = analyze_input(_usb_input(first_install, {"windows_setupapi": scope})).assessments[0]
+    plain = analyze_input(_usb_input(first_install.replace("+00:00", ""), {"windows_setupapi": scope})).assessments[0]
+    assert (utc.outcome, utc.reason_code) == (plain.outcome, plain.reason_code) == (
+        "supported", "usbstor_identity_missing_from_setupapi")
