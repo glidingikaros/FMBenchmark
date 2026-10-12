@@ -181,19 +181,45 @@ def si_updates_from_records(
     lifecycle_records: list[dict[str, Any]] | None = None,
     include_timestamp_fragments: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    return si_update_variants_from_records(
+        records,
+        mft_path=mft_path,
+        default_record_size=default_record_size,
+        mft_entry_sequences=mft_entry_sequences,
+        lifecycle_records=lifecycle_records,
+        variants=(include_timestamp_fragments,),
+    )[include_timestamp_fragments]
+
+
+def si_update_variants_from_records(
+    records: list[dict[str, Any]],
+    *,
+    mft_path: Path,
+    default_record_size: int = DEFAULT_MFT_RECORD_SIZE,
+    mft_entry_sequences: dict[int, tuple[int, bool]] | None = None,
+    lifecycle_records: list[dict[str, Any]] | None = None,
+    variants: tuple[bool, ...] = (False, True),
+) -> dict[bool, tuple[list[dict[str, Any]], dict[str, Any]]]:
+    # What si_updates_from_records returns for each include_timestamp_fragments in variants, from
+    # one pass over the records. An update decoded with its fragments is the same update without
+    # them, and without them it only exists when it covers a whole field; nothing else differs.
+    with_fragments = True in variants
     lifecycle: dict[int, list[tuple[int, str]]] = {}
     for record in lifecycle_records if lifecycle_records is not None else records:
         name = record.get("redo_operation_name")
         entry = record.get("mft_target_number")
         if name in (INITIALIZE_FILE_RECORD_SEGMENT, DEALLOCATE_FILE_RECORD_SEGMENT) and isinstance(entry, int):
             lifecycle.setdefault(entry, []).append((int(record["lsn"]), str(name)))
-    updates: list[dict[str, Any]] = []
-    skipped: dict[str, int] = {}
-    si_update_count = 0
+    updates: dict[bool, list[dict[str, Any]]] = {variant: [] for variant in variants}
+    skipped: dict[bool, dict[str, int]] = {variant: {} for variant in variants}
+    si_update_count = dict.fromkeys(variants, 0)
     bindings: dict[tuple[int, int], MftRecordBinding | None] = {}
 
-    def skip(reason: str) -> None:
-        skipped[reason] = skipped.get(reason, 0) + 1
+    def count(reason: str | None, among: tuple[bool, ...] = variants, *, counted: bool = True) -> None:
+        for variant in among:
+            si_update_count[variant] += counted
+            if reason is not None:
+                skipped[variant][reason] = skipped[variant].get(reason, 0) + 1
 
     with mft_path.open("rb") as handle:
         for record in sorted(records, key=lambda item: int(item.get("lsn", 0))):
@@ -217,93 +243,99 @@ def si_updates_from_records(
                 )
             binding = bindings[key]
             if binding is None:
-                si_update_count += 1
-                skip("record_unreadable")
+                count("record_unreadable")
                 continue
             if binding.si_value_offset is None:
-                si_update_count += 1
-                skip("si_value_offset_unresolved")
+                count("si_value_offset_unresolved")
                 continue
             try:
                 redo = bytes.fromhex(str(record.get("redo_hex", "")))
                 undo = bytes.fromhex(str(record.get("undo_hex", "")))
             except ValueError:
-                skip("update_bytes_malformed")
+                count("update_bytes_malformed", counted=False)
                 continue
             decoded = decode_si_timestamp_update(
                 offset_in_target=offset_in_target,
                 redo=redo,
                 undo=undo,
                 si_value_offset=binding.si_value_offset,
-                include_timestamp_fragments=(include_timestamp_fragments
+                include_timestamp_fragments=(with_fragments
                     and record.get("undo_operation_name") == UPDATE_RESIDENT_VALUE),
             )
             if decoded is None:
                 continue
-            si_update_count += 1
+            decoded_in = tuple(
+                variant for variant in variants if variant or decoded["covered_fields"]
+            )
+            if not decoded_in:
+                continue
             lsn = int(record["lsn"])
-            later_lifecycle = [
-                (event_lsn, name)
-                for event_lsn, name in lifecycle.get(entry, [])
-                if event_lsn > lsn
-            ]
-            if later_lifecycle:
-                skip("entry_reinitialised_after_update")
-                continue
-            if binding.record_lsn < lsn:
-                skip("record_lsn_precedes_update")
-                continue
-            if not binding.in_use:
-                skip("record_not_in_use")
-                continue
-            if mft_entry_sequences:
+            reason = None
+            if any(event_lsn > lsn for event_lsn, _name in lifecycle.get(entry, [])):
+                reason = "entry_reinitialised_after_update"
+            elif binding.record_lsn < lsn:
+                reason = "record_lsn_precedes_update"
+            elif not binding.in_use:
+                reason = "record_not_in_use"
+            elif mft_entry_sequences:
                 observed = mft_entry_sequences.get(entry)
                 if observed is not None and observed[0] != binding.sequence_number:
-                    skip("mft_context_sequence_disagrees")
-                    continue
+                    reason = "mft_context_sequence_disagrees"
+            count(reason, decoded_in)
+            if reason is not None:
+                continue
             si_current = binding.standard_information or {}
-            updates.append(
-                {
-                    "lsn": lsn,
-                    "transaction_id": int(record.get("transaction_id", 0)),
-                    "transaction_forgotten_lsn": record.get("transaction_forgotten_lsn"),
-                    "transaction_rolled_back": bool(record.get("transaction_rolled_back", False)),
-                    "mft_entry": binding.entry,
-                    "sequence_number": binding.sequence_number,
-                    "record_in_use": binding.in_use,
-                    "record_lsn": binding.record_lsn,
-                    "record_size": record_size,
-                    "si_value_offset": binding.si_value_offset,
-                    "offset_in_target": offset_in_target,
-                    "update_offset_in_si": decoded["update_offset_in_si"],
-                    "update_length": decoded["update_length"],
-                    "covered_fields": list(decoded["covered_fields"]),
-                    **({"si_timestamp_fragments": decoded["si_timestamp_fragments"]}
-                       if "si_timestamp_fragments" in decoded else {}),
-                    "old": {name: _iso(value) for name, value in decoded["old"].items()},
-                    "new": {name: _iso(value) for name, value in decoded["new"].items()},
-                    "old_filetime": dict(decoded["old"]),
-                    "new_filetime": dict(decoded["new"]),
-                    "current_si": {
-                        name: (si_current.get(name) or {}).get("utc")
-                        for name in ("created", "modified", "metadata_changed", "accessed")
-                    },
-                    "file_names": [
-                        {
-                            "name": item.get("name"),
-                            "namespace": item.get("namespace_name"),
-                            "parent_inode": item.get("parent_inode"),
-                            "parent_sequence": item.get("parent_sequence"),
-                            "fn_created": (item.get("file_name_timestamps") or {}).get("created", {}).get("utc"),
-                        }
-                        for item in binding.file_names
-                    ],
-                }
-            )
-    diagnostics = {
-        "si_update_count": si_update_count,
-        "bound_count": len(updates),
-        "unbound_count": si_update_count - len(updates),
-        "unbound_reasons": dict(sorted(skipped.items())),
+            update = {
+                "lsn": lsn,
+                "transaction_id": int(record.get("transaction_id", 0)),
+                "transaction_forgotten_lsn": record.get("transaction_forgotten_lsn"),
+                "transaction_rolled_back": bool(record.get("transaction_rolled_back", False)),
+                "mft_entry": binding.entry,
+                "sequence_number": binding.sequence_number,
+                "record_in_use": binding.in_use,
+                "record_lsn": binding.record_lsn,
+                "record_size": record_size,
+                "si_value_offset": binding.si_value_offset,
+                "offset_in_target": offset_in_target,
+                "update_offset_in_si": decoded["update_offset_in_si"],
+                "update_length": decoded["update_length"],
+                "covered_fields": list(decoded["covered_fields"]),
+                **({"si_timestamp_fragments": decoded["si_timestamp_fragments"]}
+                   if "si_timestamp_fragments" in decoded else {}),
+                "old": {name: _iso(value) for name, value in decoded["old"].items()},
+                "new": {name: _iso(value) for name, value in decoded["new"].items()},
+                "old_filetime": dict(decoded["old"]),
+                "new_filetime": dict(decoded["new"]),
+                "current_si": {
+                    name: (si_current.get(name) or {}).get("utc")
+                    for name in ("created", "modified", "metadata_changed", "accessed")
+                },
+                "file_names": [
+                    {
+                        "name": item.get("name"),
+                        "namespace": item.get("namespace_name"),
+                        "parent_inode": item.get("parent_inode"),
+                        "parent_sequence": item.get("parent_sequence"),
+                        "fn_created": (item.get("file_name_timestamps") or {}).get("created", {}).get("utc"),
+                    }
+                    for item in binding.file_names
+                ],
+            }
+            for variant in decoded_in:
+                updates[variant].append(
+                    update
+                    if variant or len(decoded_in) == 1
+                    else {key: value for key, value in update.items() if key != "si_timestamp_fragments"}
+                )
+    return {
+        variant: (
+            updates[variant],
+            {
+                "si_update_count": si_update_count[variant],
+                "bound_count": len(updates[variant]),
+                "unbound_count": si_update_count[variant] - len(updates[variant]),
+                "unbound_reasons": dict(sorted(skipped[variant].items())),
+            },
+        )
+        for variant in variants
     }
-    return updates, diagnostics
