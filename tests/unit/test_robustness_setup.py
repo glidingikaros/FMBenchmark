@@ -285,3 +285,37 @@ def test_a_base_install_paused_on_a_full_host_disk_says_the_disk_is_full(tmp_pat
     with pytest.raises(install.Stalled if stall_seconds else SystemExit,
                        match="no disk writes for 10 minutes" if stall_seconds else r"no WinRM \(install1\)"):
         wait()
+
+
+WSL_LIST = ("  NAME              STATE           VERSION\r\n"
+            "* Ubuntu-24.04      Stopped         1\r\n"
+            "  docker-desktop    Running         2\r\n"
+            "  Ubuntu-22.04      Stopped         2\r\n")
+
+
+def windows_rows(monkeypatch, tmp_path, listing: bytes):
+    monkeypatch.setenv("FMB_CACHE", str(tmp_path))
+    monkeypatch.setattr(host.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(host, "MACOS", False)
+    monkeypatch.setattr(host, "image_need_gib", lambda: 1.0)
+    monkeypatch.setattr(host, "leftovers", lambda: [])
+    monkeypatch.setattr(host, "which", lambda name: None)
+    monkeypatch.setattr(host, "long_paths", lambda: True)
+    monkeypatch.setattr(host.subprocess, "run", lambda command, **kwargs: SimpleNamespace(
+        stdout=listing if command[:3] == ["wsl.exe", "--list", "--verbose"] else b"", returncode=0))
+    return {name: (ok, detail) for name, ok, detail in host.checks() if "WSL" in name}
+
+
+@pytest.mark.parametrize("encoding", ["utf-16-le", "utf-8"])
+def test_setup_check_reads_wsl_in_either_encoding_and_requires_wsl_1(tmp_path, monkeypatch, encoding):
+    monkeypatch.delenv("FMB_WSL_DISTRO", raising=False)
+    rows = windows_rows(monkeypatch, tmp_path, WSL_LIST.encode(encoding))
+    assert rows == {"WSL distribution Ubuntu-24.04": (True, "found"),
+                    "WSL 1 for Ubuntu-24.04 (Ansible there reaches the guest at Windows' 127.0.0.1)": (True, "found")}
+    monkeypatch.setenv("FMB_WSL_DISTRO", "Ubuntu-22.04")
+    rows = windows_rows(monkeypatch, tmp_path, WSL_LIST.encode(encoding))
+    assert rows["WSL 1 for Ubuntu-22.04 (Ansible there reaches the guest at Windows' 127.0.0.1)"] == (
+        False, "wsl --set-version Ubuntu-22.04 1 (it runs under WSL 2)")
+    monkeypatch.setenv("FMB_WSL_DISTRO", "Debian")
+    assert windows_rows(monkeypatch, tmp_path, WSL_LIST.encode(encoding)) == {
+        "WSL distribution Debian": (False, "wsl --install -d Debian --no-launch; wsl --set-version Debian 1")}

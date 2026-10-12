@@ -191,6 +191,21 @@ def long_paths() -> bool:
         return False
 
 
+def wsl_distribution() -> str:
+    return os.environ.get("FMB_WSL_DISTRO") or PINS["wsl_distribution"]
+
+
+def wsl_versions() -> dict[str, str]:
+    """Each WSL distribution's WSL version; wsl.exe writes UTF-16, or UTF-8 when WSL_UTF8=1 is set."""
+    try:
+        data = subprocess.run(["wsl.exe", "--list", "--verbose"], capture_output=True, check=False).stdout
+    except OSError:
+        return {}
+    text = data.decode("utf-16-le" if b"\0" in data else "utf-8", "replace").replace("\ufeff", "")
+    rows = [line.lstrip("* ").split() for line in text.splitlines()]
+    return {row[0]: row[-1] for row in rows if len(row) >= 3 and row[-1].isdigit()}
+
+
 def load_warning() -> str | None:
     """A warning when other work leaves the generation guest's 2 vCPUs short; None when idle or unknown (Windows)."""
     if not hasattr(os, "getloadavg"):
@@ -271,10 +286,12 @@ def checks() -> list[tuple[str, bool, str]]:
     else:
         check(rows, "Windows Hypervisor Platform (QEMU starts with WHPX)", qemu and accelerates(qemu, "whpx"),
               "admin PowerShell: Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform; reboot")
-        listed = subprocess.run(["wsl.exe", "--list", "--quiet"], capture_output=True, check=False).stdout
-        distro = PINS["wsl_distribution"]
-        check(rows, f"WSL distribution {distro}", distro in listed.decode("utf-16-le", "replace"),
+        distro, versions = wsl_distribution(), wsl_versions()
+        check(rows, f"WSL distribution {distro}", distro in versions,
               f"wsl --install -d {distro} --no-launch; wsl --set-version {distro} 1")
+        if distro in versions:
+            check(rows, f"WSL 1 for {distro} (Ansible there reaches the guest at Windows' 127.0.0.1)",
+                  versions[distro] == "1", f"wsl --set-version {distro} 1 (it runs under WSL {versions[distro]})")
         check(rows, "long paths (collection writes paths over 260 characters)", long_paths(), LONG_PATHS)
     check(rows, "Ansible with WinRM", which("ansible-playbook"), "run: fmb setup")
     base = windows_base()
