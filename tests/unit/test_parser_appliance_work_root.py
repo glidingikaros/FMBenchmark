@@ -468,7 +468,7 @@ def test_an_early_booted_qemu_vm_runs_the_parsers_then_is_killed(tmp_path, monke
                      collection_provider="qemu", windows_box="fmb/windows-11-x64")
     vm = appliance.ParserVM(args=args, stage_dir=stage).start()
     vm.wait()
-    state = Path(vm.state.name)
+    state = vm.state
     assert state.is_dir()
     record = appliance.run_parser_appliance(
         processors=[object()], args=args, stage_dir=stage, targets_root=stage / "targets",

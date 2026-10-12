@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import subprocess
 import zipfile
 from pathlib import Path
 
 import pytest
 from test_logfile_adapter import collection, mft_context  # noqa: F401  (collection is a fixture)
+from test_parser_appliance_work_root import parser_case  # noqa: F401  (a fixture)
 
 from fmb.collection import analysis
 from fmb.collection.tools.host import backend as host_backend
@@ -390,3 +393,237 @@ def test_a_change_time_alone_is_settled_by_hashing_again(identity_case, monkeypa
         with pytest.raises(FmbInputError, match=r"changed during collection \(content\)"):
             identity_case.invoke()
     assert identity_case.hashed == [identity_case.evidence]
+
+
+def _qemu_vm(tmp_path, monkeypatch, *, exit_code=None):
+    from fmb.generation import backends
+
+    stage = tmp_path / "analysis"
+    stage.mkdir()
+
+    class Process:
+        returncode = exit_code
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    launched = []
+
+    def popen(command, *, stdout, stderr):
+        launched.append(command)
+        stdout.write("qemu-system-x86_64: Could not set up host forwarding rule 'tcp:127.0.0.1:5000-:5985'\n")
+        stdout.flush()
+        return Process()
+
+    def guest_command(qemu, state, **kwargs):
+        (state / "serial.log").write_text("serial console\n", encoding="utf-8")
+        return ["qemu-system-x86_64"]
+
+    monkeypatch.setattr(backends.QemuBackend, "discover_tools", staticmethod(
+        lambda: {"qemu-system": "qemu-system-x86_64", "qemu-img": "qemu-img", "ansible": "ansible"}))
+    monkeypatch.setattr(backends.QemuBackend, "base_location", staticmethod(lambda box, version: {}))
+    monkeypatch.setattr(backends.QemuBackend, "base_directory", staticmethod(lambda location: tmp_path / "base"))
+    monkeypatch.setattr(backends, "prepare_overlay", lambda *args: None)
+    monkeypatch.setattr(backends, "qemu_guest_command", guest_command)
+    monkeypatch.setattr(backends, "winrm_listening", lambda port: exit_code is None)
+    monkeypatch.setattr(backends, "ansible_adhoc", lambda *a, **k: subprocess.CompletedProcess([], 0, "ok", ""))
+    monkeypatch.setattr(appliance.subprocess, "Popen", popen)
+    monkeypatch.setattr(appliance, "_parser_qemus", lambda: [])
+    args = argparse.Namespace(vm_work_root=None, run_id="analysis", windows_parsers="windows-parsers",
+                              collection_provider="qemu", windows_box="fmb/windows-11-x64")
+    return appliance.ParserVM(args=args, stage_dir=stage), stage / appliance.APPLIANCE_DIR_NAME, launched
+
+
+def test_a_parser_qemu_that_dies_during_boot_says_how_and_keeps_its_logs(tmp_path, monkeypatch):
+    vm, appliance_dir, launched = _qemu_vm(tmp_path, monkeypatch, exit_code=-9)
+
+    with pytest.raises(appliance.ParserApplianceError) as raised:
+        vm.boot()
+    message = str(raised.value)
+    assert "exited during boot with exit code -9 (killed" in message
+    assert "Could not set up host forwarding rule" in message
+    state = appliance_dir / appliance.QEMU_STATE_DIR
+    assert vm.state == state and state.is_dir()
+    command = launched[0]
+    assert command[command.index("-name") + 1] == f"fmb-parser-{os.getpid()}"
+    assert command[command.index("-pidfile") + 1] == str(state / "qemu.pid")
+
+    vm.close()
+    assert not state.exists()
+    assert (appliance_dir / "parser-vm-serial.log").read_text(encoding="utf-8") == "serial console\n"
+    assert "host forwarding" in (appliance_dir / "parser-vm-qemu.log").read_text(encoding="utf-8")
+
+
+def test_repeatable_qemu_parser_steps_are_retried(tmp_path, monkeypatch):
+    from fmb.generation import backends
+
+    vm, _, _ = _qemu_vm(tmp_path, monkeypatch)
+    monkeypatch.setattr(appliance, "QEMU_STEP_RETRY_DELAY_SECONDS", 0)
+    pings = []
+    monkeypatch.setattr(vm, "_answered", lambda: pings.append(True) or True)
+    calls: list[str] = []
+    failures = {"ansible.windows.win_copy": 1, "ansible.builtin.fetch": 1}
+
+    def adhoc(ansible, port, module, args, *, timeout):
+        calls.append(module)
+        if failures.get(module):
+            failures[module] -= 1
+            if module == "ansible.builtin.fetch":
+                raise subprocess.TimeoutExpired(["ansible"], timeout)
+            return subprocess.CompletedProcess([], 2, "UNREACHABLE! connection reset", "")
+        if module == "ansible.builtin.fetch":
+            Path(args["dest"]).write_bytes(b"outputs")
+        return subprocess.CompletedProcess([], 0, "ok", "")
+
+    monkeypatch.setattr(backends, "ansible_adhoc", adhoc)
+    outputs = tmp_path / "outputs.zip"
+    completed = vm.run_qemu_parsers(package_path=tmp_path / "inputs.zip", script_path=tmp_path / "run.ps1",
+                                    outputs_zip=outputs)
+    assert completed.returncode == 0 and outputs.read_bytes() == b"outputs"
+    assert calls == ["ansible.windows.win_file", "ansible.windows.win_copy", "ansible.windows.win_copy",
+                     "ansible.windows.win_copy", "ansible.windows.win_command", "ansible.builtin.fetch",
+                     "ansible.builtin.fetch"]
+    assert len(pings) == 2
+
+    calls.clear()
+    failures.update({"ansible.windows.win_file": 5})
+    with pytest.raises(appliance.ParserApplianceError,
+                       match="win_file failed 3 times; last: UNREACHABLE! connection reset"):
+        vm.run_qemu_parsers(package_path=tmp_path / "inputs.zip", script_path=tmp_path / "run.ps1",
+                            outputs_zip=outputs)
+    assert calls == ["ansible.windows.win_file"] * 3
+
+    monkeypatch.setattr(backends, "ansible_adhoc", lambda ansible, port, module, args, *, timeout: (
+        calls.append(module), subprocess.CompletedProcess([], 1 if module.endswith("win_command") else 0, "x", ""))[1])
+    calls.clear()
+    assert vm.run_qemu_parsers(package_path=tmp_path / "inputs.zip", script_path=tmp_path / "run.ps1",
+                               outputs_zip=outputs).returncode == 1
+    assert calls.count("ansible.windows.win_command") == 1
+
+
+def _clone_folder(work_root: Path, name: str, owner: dict | None) -> Path:
+    folder = work_root / f"fmb-parser-{name}"
+    (folder / ".vmrun-appliance").mkdir(parents=True)
+    (folder / ".vmrun-appliance" / "box.vmx").write_text("config.version = \"8\"\n", encoding="utf-8")
+    if owner is not None:
+        write_json(folder / appliance.PARSER_OWNER_FILE, owner)
+    return folder
+
+
+def test_a_new_run_removes_parser_clones_of_gone_runs_and_names_a_running_vm(tmp_path, monkeypatch):
+    from fmb.collection.run import lock as run_lock
+    from fmb.collection.tools.host import vmware
+
+    monkeypatch.setattr(run_lock, "current_host", lambda: "this-mac")
+    monkeypatch.setattr(run_lock, "process_is_running", lambda pid: pid == 111)
+    monkeypatch.setattr(vmware, "vmrun_is_running", lambda **kwargs: False)
+    work_root = tmp_path / "vm-work"
+    gone = _clone_folder(work_root, "gone", {"pid": 222, "host": "this-mac", "run_id": "I1"})
+    alive = _clone_folder(work_root, "alive", {"pid": 111, "host": "this-mac"})
+    elsewhere = _clone_folder(work_root, "elsewhere", {"pid": 222, "host": "other-mac"})
+    unowned = _clone_folder(work_root, "unowned", None)
+    listing = "Total running VMs: 1\n/Users/me/vm-work/fmb-parser-alive/.vmrun-appliance/box.vmx\n"
+    monkeypatch.setattr(appliance.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0, listing, ""))
+    monkeypatch.setattr(vmware, "vmrun_executable", lambda: "/Applications/VMware Fusion.app/Contents/Library/vmrun")
+    monkeypatch.setattr(vmware, "vmrun_target_for_provider", lambda provider: "fusion")
+    args = argparse.Namespace(vm_work_root=work_root, run_id="I2", collection_provider="vmware_desktop",
+                              windows_box="fmb/windows-11-arm64")
+    logged: list[str] = []
+    vm = appliance.ParserVM(args=args, stage_dir=tmp_path / "analysis", progress=logged.append)
+
+    with pytest.raises(appliance.ParserApplianceError) as raised:
+        vm.start()
+    assert vm._thread is None
+    assert str(raised.value) == (
+        "another VM is running; the parser appliance needs the single VM slot\n"
+        "  running: /Users/me/vm-work/fmb-parser-alive/.vmrun-appliance/box.vmx\n"
+        "If it is not in use (for example left by an fmb run that was killed), stop it with: "
+        "'/Applications/VMware Fusion.app/Contents/Library/vmrun' -T fusion stop "
+        "/Users/me/vm-work/fmb-parser-alive/.vmrun-appliance/box.vmx hard")
+    assert not gone.exists() and alive.is_dir() and elsewhere.is_dir() and unowned.is_dir()
+    assert logged == [f"parser appliance: removed the parser VM of run I1 (pid 222 is gone): {gone}"]
+
+
+def test_the_parser_clone_names_its_owner_and_keeps_its_vmware_log(parser_case, monkeypatch):
+    from fmb.collection.tools.host import vmware
+
+    owners = []
+
+    def clone(**kwargs):
+        vmx = parser_case.clone(**kwargs)
+        owners.append(json.loads((kwargs["vm_work_dir"] / appliance.PARSER_OWNER_FILE).read_text(encoding="utf-8")))
+        (vmx.parent / "vmware.log").write_text("vmx| Power on\n", encoding="utf-8")
+        return vmx
+
+    monkeypatch.setattr(vmware, "clone_vagrant_box_for_vmrun", clone)
+    parser_case.run(parser_case.work_root)
+
+    assert owners[0]["pid"] == os.getpid() and owners[0]["run_id"] == "analysis" and owners[0]["host"]
+    assert list(parser_case.work_root.iterdir()) == []
+    kept = parser_case.stage / appliance.APPLIANCE_DIR_NAME / "parser-vm-vmware.log"
+    assert kept.read_text(encoding="utf-8") == "vmx| Power on\n"
+
+
+def test_a_boot_failure_is_kept_when_the_collection_fails_first(parser_case, monkeypatch):
+    from fmb.collection.tools.host import vmware
+
+    def fail(**kwargs):
+        raise RuntimeError("worker did not boot")
+
+    monkeypatch.setattr(vmware, "vmrun_start_and_wait", fail)
+    args = argparse.Namespace(vm_work_root=parser_case.work_root, run_id="analysis",
+                              collection_provider="vmware_desktop", windows_box="fmb/windows-11-arm64")
+    vm = appliance.ParserVM(args=args, stage_dir=parser_case.stage).start()
+    failure = RuntimeError("host collection failed")
+    vm._thread.join()
+    vm.discard(failure)
+    assert failure.__notes__ == ["The parser VM had also failed to boot: RuntimeError: worker did not boot"]
+    assert list(parser_case.work_root.iterdir()) == []
+
+
+@pytest.mark.skipif(not Path("/proc/self/cmdline").is_file(), reason="needs /proc")
+def test_an_orphaned_parser_qemu_is_stopped_and_its_overlay_removed(tmp_path, monkeypatch):
+    import signal
+    import sys
+
+    from fmb.collection.run import lock as run_lock
+
+    import time
+
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "-name", "fmb-parser-999999"])
+    try:
+        deadline = time.monotonic() + 30
+        while sleeper.pid not in (found := dict(appliance._parser_qemus())) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert found[sleeper.pid][-3:-1] == ["-name", "fmb-parser-999999"]
+    finally:
+        sleeper.kill()
+        sleeper.wait(timeout=30)
+
+    states = {}
+    for owner in ("222", "111"):
+        state = tmp_path / owner / "parser-appliance" / appliance.QEMU_STATE_DIR
+        state.mkdir(parents=True)
+        (state / "system.qcow2").write_bytes(b"overlay")
+        states[owner] = state
+    monkeypatch.setattr(appliance, "_parser_qemus", lambda: [
+        (4000 + int(owner), ["qemu-system-x86_64", "-name", f"fmb-parser-{owner}",
+                             "-pidfile", str(state / "qemu.pid"), ""]) for owner, state in states.items()])
+    monkeypatch.setattr(run_lock, "process_is_running", lambda pid: pid == 111)
+    killed = []
+    monkeypatch.setattr(appliance.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    logged: list[str] = []
+
+    appliance.reap_orphan_parser_qemus(logged.append)
+
+    assert killed == [(4222, signal.SIGKILL)]
+    assert not states["222"].exists() and states["111"].is_dir()
+    assert logged == ["parser appliance: stopped the parser QEMU (pid 4222) of a gone fmb run (pid 222)"]
+
