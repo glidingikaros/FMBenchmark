@@ -489,3 +489,31 @@ def test_allocation_interventions_exclude_native_mode_confounders():
         assert order[22:] != list(range(22, 80))
 
 
+
+
+def test_a_spread_over_uneven_folders_takes_from_the_folders_that_still_have_files():
+    import copy
+    import json
+
+    from fmb.generation import population
+
+    template = json.loads((Path(population.__file__).parents[3] / "images" / "template.json").read_text())
+    template.pop("seed"), template.pop("generation")
+    scenario = template["scenarios"]["timestomp_01"]
+    scenario.update(configured_count=8, manipulation_count=3)  # an image of one's own: 8 files, 3 stomped
+    scenario.pop("assignment_pool_count"), scenario.pop("restore_stratum_end_indexes")
+    contract = population.register_population_contract(copy.deepcopy(template))
+    uneven = 0
+    for seed in range(1, 41):
+        manifest = population.build_public_manifest(experiment="full_scale", seed=seed, contract=contract)
+        restored = set(population.archive_restore_paths(manifest))
+        eligible = [m["identity_hint"]["canonical_path"] for m in manifest["scenarios"]["timestomp_01"]["members"]
+                    if m["identity_hint"]["canonical_path"] not in restored]
+        folders = sorted({path.rsplit("\\", 1)[0] for path in eligible})
+        if len(eligible) < 3 or len(folders) < 2:
+            continue
+        smallest_first = sum(path.startswith(folders[0] + "\\") for path in eligible) == 1
+        uneven += smallest_first
+        picked = population.select_private_assignment(manifest, entropy=bytes(32))["bindings"]["timestomp_01"]
+        assert len(picked) == 3 and len({member["identity_hint"]["canonical_path"] for member in picked}) == 3
+    assert uneven

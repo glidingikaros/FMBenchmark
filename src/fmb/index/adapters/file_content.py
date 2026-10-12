@@ -467,6 +467,8 @@ def build_file_observations(
             suffix = _subject_suffix(_subject_ref(csv_row))
             if suffix not in content_by_suffix:
                 continue
+            if str(csv_row.get("InUse") or "").strip().casefold() == "false":
+                continue
             if suffix in selected_rows:
                 raise ValueError("MFTECmd output has duplicate bounded subject rows")
             selected_rows[suffix] = csv_row

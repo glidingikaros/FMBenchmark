@@ -51,6 +51,7 @@ from fmb.collection.usb_volume import usb_volume_source_manifests
 
 
 from fmb.core.hashing import sha256_file
+from datetime import datetime, timezone
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -559,3 +560,19 @@ def test_pilot_allocation_executes_exact_frozen_shape_with_native_api_doubles(
         assert len(result["preallocation_close_controls"]) == 1
 
 
+def test_generation_refuses_the_days_when_the_same_year_case_would_cross_into_the_previous_year():
+    from fmb.generation import pilot_profile
+
+    members = [{"operation_class": "same_year",
+                "timestamp_deltas": dict(pilot_profile.DEFAULT_TIMESTAMP_DELTAS["same_year"])},
+               {"operation_class": "forward", "timestamp_deltas": {"modified_filetime": pilot_profile.DAY_FILETIME}}]
+
+    def utc(*parts):
+        return datetime(*parts, tzinfo=timezone.utc)
+
+    blocked = pilot_profile.same_year_blocked_until
+    assert blocked(members, utc(2027, 1, 3, 12)) == utc(2027, 1, 15, 0, 0, 0, 1)
+    assert blocked(members, utc(2027, 1, 15, 0, 0, 0, 1)) is None
+    assert blocked(members, utc(2026, 10, 12)) is None
+    assert blocked(members, utc(2026, 12, 31, 18)) == utc(2027, 1, 15, 0, 0, 0, 1)
+    assert blocked(members[1:], utc(2027, 1, 3)) is None

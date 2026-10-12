@@ -329,3 +329,19 @@ def test_verified_population_bound_can_expand_the_content_subject_limit(
 
     selected = file_content.collected_bmp_paths(tmp_path, max_subjects=190)
     assert len(selected) == file_content.MAX_CONTENT_SUBJECTS + 1
+
+
+def test_a_deleted_record_with_the_path_of_a_collected_bmp_is_left_out(tmp_path, monkeypatch):
+    volume = tmp_path / "targets" / "C"
+    target = volume / "Users" / "alice" / "Documents"
+    target.mkdir(parents=True)
+    (target / "sample.bmp").write_bytes(bmp_bytes())
+    (volume / "$MFT").write_bytes(bytes(80 * 1024))
+    csv_path = tmp_path / "mft.csv"
+    csv_path.write_text(  # the live file (entry 42) and an older deleted file of the same name (entry 77)
+        "EntryNumber,SequenceNumber,InUse,ParentPath,FileName,FileSize\n"
+        "77,5,False,.\\Users\\alice\\Documents,sample.bmp,58\n"
+        "42,3,True,.\\Users\\alice\\Documents,sample.bmp,58\n", encoding="utf-8")
+    monkeypatch.setattr(file_content, "parse_mft_record", lambda *a, **k: raw_mft_record())
+    bundle = file_content.build_file_observations(root=tmp_path, mftecmd_csv_path=csv_path)
+    assert bundle is not None and bundle["matched_count"] == 1

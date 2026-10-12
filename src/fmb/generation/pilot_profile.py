@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import base64
 import gzip
 import hashlib
@@ -177,6 +177,21 @@ def _adjust_media(inputs: dict, public: dict) -> None:
             })
         for name in ("file_name", "replacement_name", "before_name", "after_name", "shortcut_name"):
             del item[name]
+
+
+def same_year_blocked_until(members, now: datetime) -> datetime | None:
+    """When a same_year file created about now would be moved back into the previous year, the earliest safe start."""
+    deltas = [d for m in members if m.get("operation_class") == "same_year" for d in m["timestamp_deltas"].values()]
+    if not deltas:
+        return None
+    reach = timedelta(microseconds=-(min(deltas) // 10))     # FILETIME ticks are 100 ns; rounds the extra tick up
+    this_year = datetime(now.year, 1, 1, tzinfo=timezone.utc)
+    next_year = datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
+    if now < this_year + reach:
+        return this_year + reach
+    if now >= next_year - timedelta(hours=12):              # a run started late on 31 Dec creates its files in January
+        return next_year + reach
+    return None
 
 
 def _year(filetime: int) -> int:

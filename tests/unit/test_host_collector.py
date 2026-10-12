@@ -1152,3 +1152,21 @@ def test_required_artifact_patterns_ignore_case_as_windows_paths_do(tmp_path):
     assert_required_kape_artifacts(tmp_path, ["targets/*/Windows/System32/winevt/Logs/*.evtx"], checks=checks)
     assert checks[-1]["status"] == "pass"
     assert any_case("targets/*/$MFT") == "[tT][aA][rR][gG][eE][tT][sS]/*/$[mM][fF][tT]"
+
+
+def test_a_name_longer_than_255_utf8_bytes_is_skipped_on_every_host(tmp_path):
+    long_name = "\u6587" * 90 + ".bmp"  # 94 UTF-16 units, legal on NTFS; 274 UTF-8 bytes, too long for ext4 and APFS
+    ok, long = _fn("ok.bmp", 22), _fn(long_name, 22)
+    index = _index(tmp_path, {
+        5: _directory(5, ".", 5, (_reference(20, 1), _fn("Users", 5))),
+        20: _directory(20, "Users", 5, (_reference(21, 1), _fn("alice", 20))),
+        21: _directory(21, "alice", 20, (_reference(22, 1), _fn("Documents", 21))),
+        22: _directory(22, "Documents", 21, (_reference(30, 1), ok), (_reference(31, 1), long)),
+        30: _record(30, [_resident(0x30, ok), _resident(0x80, b"BM-ok")]),
+        31: _record(31, [_resident(0x30, long), _resident(0x80, b"BM-long")]),
+    })
+    result = extract_targets(index, [_rule("C:\\Users\\*\\Documents\\", "*.bmp", recursive=True)],
+                             output_root=tmp_path / "out")
+    assert [copied.relative_path for copied in result.copied] == ["targets/C/Users/alice/Documents/ok.bmp"]
+    assert [(skipped.reason, skipped.source_path.rsplit("\\", 1)[-1]) for skipped in result.skipped] == [
+        (SKIP_REASON_UNSAFE_PATH, long_name)]

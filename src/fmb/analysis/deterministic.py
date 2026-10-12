@@ -1316,7 +1316,8 @@ def _setupapi_window_decision(
         )
     offset_minutes = scope.get("guest_utc_offset_minutes")
     basis = intervals[0][0].basis
-    if any(installed.basis != basis for installed in install_times):
+    if any(installed.basis != basis and not (basis == "naive" and installed.basis == "utc")
+           for installed in install_times):
         return Decision(
             "indeterminate",
             "setupapi_window_unverifiable",

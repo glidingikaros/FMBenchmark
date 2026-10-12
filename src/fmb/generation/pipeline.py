@@ -538,6 +538,11 @@ class GenerationPipeline:
                 config = recipe_bundle["recipe"]["config"]
                 factual_plan = private["factual_challenge_plan"]
                 payload["fmb_factual_challenge_plan"] = factual_plan
+                from fmb.generation.pilot_profile import same_year_blocked_until
+                if (blocked := same_year_blocked_until(factual_plan["members"], datetime.now(timezone.utc))):
+                    raise RuntimeError(
+                        "BQ-TIME-01 moves a file created during generation 14 days back, which would put it in the "
+                        f"previous calendar year; start fmb generate at or after {blocked.isoformat()}")
                 checkpoint_dir = self.output_dir / "factual-checkpoints"
                 checkpoint_dir.mkdir(exist_ok=True)
                 payload["fmb_factual_checkpoint_directory"] = str(checkpoint_dir.resolve())
