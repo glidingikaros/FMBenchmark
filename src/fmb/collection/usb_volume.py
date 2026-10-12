@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -93,7 +94,9 @@ def collect_usb_volume(*, generation_manifest_path: Path, kape_root: Path,
         "schema_version": "native_usb_volume_sources.v1", "sources": sources,
         "evidence_sha256": evidence_sha256,
         "companion_path": str(companion), "companion_sha256": sha256_file(companion),
-        "source_link_path": str(links[0]), "source_link_sha256": sha256_file(links[0]),
+        # Relative to this receipt, so that the receipt, whose hash names the card's source, names no run folder.
+        "source_link_path": Path(os.path.relpath(links[0], receipt.parent)).as_posix(),
+        "source_link_sha256": sha256_file(links[0]),
         "generation_manifest_path": str(generation_manifest_path.resolve()),
         "generation_manifest_sha256": sha256_file(generation_manifest_path),
         "native_binding_hash_verified": True, "truth_sources_used": [],

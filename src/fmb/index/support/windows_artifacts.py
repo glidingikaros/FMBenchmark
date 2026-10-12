@@ -80,7 +80,9 @@ def sanitize_csv_row(row: Mapping[object, object]) -> dict[str, str]:
 def kape_relative_path(path: str) -> str | None:
     parts = path.replace("\\", "/").split("/")
     roots = [index for index, part in enumerate(parts) if part.casefold() == "kape-output"]
-    return "/".join(parts[roots[-1] + 1:]).casefold() if roots else None
+    if not roots:
+        return "/".join(parts).casefold() if parts[0].casefold() == "targets" else None
+    return "/".join(parts[roots[-1] + 1:]).casefold()
 
 
 def stream_csv_rows(path: Path) -> Iterator[dict[str, str]]:

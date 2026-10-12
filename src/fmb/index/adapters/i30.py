@@ -22,6 +22,7 @@ from fmb.index.support.windows_artifacts import (
     stream_csv_rows,
 )
 from fmb.index.support.windows_identity import normalize_windows_compare_path
+from fmb.index.adapters.parser_output import portable_path
 from fmb.index.contract.evidence_index import normalize_parser_output
 from fmb.index.scanners.mft import (
     DEFAULT_MFT_RECORD_SIZE,
@@ -557,7 +558,7 @@ def bounded_i30_parser_run(
             "schema_version": "parser_observation_index.v1",
             "parser": "fmb_bounded_parser",
             "parser_kind": "ntfs_i30",
-            "source": str(raw_mft_path),
+            "source": portable_path(raw_mft_path, normalized_output.parent),
             "directory_count": len(resolved),
             "discovered_directory_count": discovered_count,
             "scanned_directory_count": scanned_directory_count,

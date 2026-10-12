@@ -17,6 +17,7 @@ from fmb.index.adapters.parser_output import (
     module_command_line,
     normalized_output_path,
     observed_artifact_families,
+    portable_path,
     ranked_observations,
     source_bound_observations,
     write_observation_index,
@@ -406,7 +407,7 @@ def raw_usn_journal_parser_run(
             "schema_version": "parser_observation_index.v1",
             "parser": USN_REASON_SCANNER["name"],
             "parser_kind": "ntfs_usn",
-            "source": str(journal_path),
+            "source": portable_path(journal_path, normalized_output.parent),
             "record_count": len(observations),
             "scan": scan,
             "observations": observations,
@@ -631,7 +632,7 @@ def collected_usn_journal_path(source: str | Path, collector_run: dict[str, Any]
     if any(part in {".", ".."} for part in parts):
         return None
     try:
-        relative = Path(source).resolve().relative_to(root)
+        relative = (Path(*parts) if parts[0].casefold() == "targets" else Path(source).resolve().relative_to(root))
     except (OSError, ValueError):
         boundaries = [i for i in range(len(parts) - 1)
                       if parts[i].casefold() == "kape-output" and parts[i + 1].casefold() == "targets"]

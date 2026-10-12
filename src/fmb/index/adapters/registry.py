@@ -592,7 +592,7 @@ def shellbag_parser_run(
                 "last_interacted": row_first(row, "LastInteracted"),
                 "last_write_time": row_first(row, "LastWriteTime"),
                 "source_parser": "SBECmd", "source_module": "SBECmd",
-                "source_file": str(csv_path),
+                "source_file": csv_path.name,
                 **mft_active_presence_fields(subject=subject, file_reference=None, mft_context=mft_context),
             },
             "source_record_ref": f"{csv_path.name}:row={row_index}",

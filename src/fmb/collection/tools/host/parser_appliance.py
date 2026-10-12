@@ -17,19 +17,25 @@ import tempfile
 import threading
 import time
 import zipfile
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from fmb.collection.tools.host.definitions import ModuleProcessor
-from fmb.collection.tools.host.modules import csv_data_row_count
+from fmb.collection.tools.host.modules import (
+    RUN_STAMP_PREFIX,
+    SOURCE_TIME_COLUMNS,
+    csv_data_row_count,
+    filetime_text,
+)
 from fmb.collection.tools.host import vmware as runner
 from fmb.collection.tools.host.toolchain import DEFAULT_LOCK_PATH
 from fmb.core.hashing import sha256_bytes, sha256_file
 from fmb.core.json_io import json_text, write_json
 
 GUEST_ROOT = "C:\\FMB-Parsers"
+NATIVE_ROOT_LOCK = "fmb-parsers.lock"
 WINDOWS_PARSERS = ("PECmd.exe", "SBECmd.exe")
 APPLIANCE_DIR_NAME = "parser-appliance"
 DEFAULT_GUEST_TIMEOUT_SECONDS = 1200
@@ -219,6 +225,34 @@ def copy_log_source_times(targets_root: Path) -> dict[str, dict[str, int]]:
     return times
 
 
+def _guest_input(value: str) -> str:
+    """The bundle path (targets/...) of a file the guest read, from the full path a parser names it by."""
+    prefix = GUEST_ROOT + "\\work\\"
+    return value[len(prefix):].replace("\\", "/") if value[:len(prefix)].casefold() == prefix.casefold() else value
+
+
+def image_source_times(path: Path, source_times: dict[str, dict[str, int]]) -> None:
+    # PECmd reports when it read each prefetch file as SourceAccessed, so that time differs every run although the guest
+    # set each input's NTFS times from the CopyLog first. The three Source times of each input become those image times.
+    csv.field_size_limit(1 << 30)
+    with path.open("rb") as handle:
+        encoding = "utf-8-sig" if handle.read(3) == b"\xef\xbb\xbf" else "utf-8"
+    with path.open("r", encoding=encoding, errors="surrogateescape", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or "SourceFilename" not in rows[0]:
+        return
+    header = rows[0]
+    source = header.index("SourceFilename")
+    times = [(header.index(column), key) for column, key in SOURCE_TIME_COLUMNS if column in header]
+    for row in rows[1:]:
+        known = source_times.get(_guest_input(row[source])) if source < len(row) else None
+        for column, key in times if known else ():
+            if column < len(row):
+                row[column] = filetime_text(known[key])
+    with path.open("w", encoding=encoding, errors="surrogateescape", newline="") as handle:
+        csv.writer(handle, lineterminator="\r\n").writerows(rows)
+
+
 def build_input_package(
     *,
     package_path: Path,
@@ -284,11 +318,63 @@ def parser_runtime() -> tuple[str, str | None]:
     return "qemu", qemu_box()
 
 
+def native_parser_root() -> Path:
+    # Named as in the parser VM, so that PECmd and SBECmd name the same paths in their outputs on every host and run.
+    return Path(Path(tempfile.gettempdir()).anchor, ntpath.basename(GUEST_ROOT))
+
+
+def _lock_native_root(lock: Path) -> int | None:
+    from fmb.collection.run.lock import _try_lock
+
+    try:
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    except FileNotFoundError:
+        return None
+    try:
+        if _try_lock(fd) and os.path.samestat(os.fstat(fd), os.stat(lock)):
+            return fd
+    except FileNotFoundError:
+        pass
+    os.close(fd)
+    return None
+
+
+@contextmanager
+def _held_native_root(root: Path) -> Iterator[Path]:
+    # One fmb run at a time uses the fixed folder; the OS drops the lock if that run dies.
+    from fmb.collection.run.lock import _unlock
+
+    lock = root / NATIVE_ROOT_LOCK
+    deadline = time.monotonic() + DEFAULT_GUEST_TIMEOUT_SECONDS
+    while True:
+        root.mkdir(exist_ok=True)
+        fd = _lock_native_root(lock)
+        if fd is not None:
+            break
+        if time.monotonic() >= deadline:
+            raise ParserApplianceError(f"another fmb run kept {root} for its parsers too long; try again")
+        time.sleep(1)
+    try:
+        yield root
+    finally:
+        for path in root.iterdir():
+            with suppress(OSError):
+                if path.is_dir():
+                    shutil.rmtree(path)
+                elif path.name != NATIVE_ROOT_LOCK:
+                    path.unlink()
+        with suppress(OSError):
+            _unlock(fd)
+        os.close(fd)
+        with suppress(OSError):
+            lock.unlink()
+            root.rmdir()
+
+
 def _run_native_windows_parsers(*, package_path: Path, script_path: Path, outputs_zip: Path) -> subprocess.CompletedProcess:
     from fmb.core.owned_process import run_owned
 
-    with tempfile.TemporaryDirectory(prefix="fmbp-", dir=Path(tempfile.gettempdir()).anchor) as temporary:
-        root = Path(temporary)
+    with _held_native_root(native_parser_root()) as root:
         shutil.copyfile(package_path, root / "inputs.zip")
         shutil.copyfile(script_path, root / "run_parsers.ps1")
         powershell, env = _windows_powershell()
@@ -714,7 +800,7 @@ def run_parser_appliance(
             raise _script_failed(completed, guest_stdout, guest_stderr)
         record = phase("merge_outputs", lambda: _merge_outputs(
             outputs_zip=outputs_zip, appliance_dir=appliance_dir, modules_root=modules_root,
-            tool_logs=tool_logs, package=package))
+            tool_logs=tool_logs, package=package, source_times=copy_log_source_times(targets_root)))
         record.update({"schema_version": RECORD_SCHEMA, "mode": "run", "windows_box": windows_box,
                        "provider": provider, "guest_root": None,
                        "vm_cleanup": {"removed": True, "path": None,
@@ -784,7 +870,7 @@ def run_parser_appliance(
         "merge_outputs",
         lambda: _merge_outputs(
             outputs_zip=outputs_zip, appliance_dir=appliance_dir, modules_root=modules_root,
-            tool_logs=tool_logs, package=package,
+            tool_logs=tool_logs, package=package, source_times=copy_log_source_times(targets_root),
         ),
     )
     record.update(
@@ -815,7 +901,8 @@ def _stage_inputs(*, vmx_path: Path, provider: str, package_path: Path, script_p
 
 
 def _merge_outputs(
-    *, outputs_zip: Path, appliance_dir: Path, modules_root: Path, tool_logs: Path, package: dict[str, Any]
+    *, outputs_zip: Path, appliance_dir: Path, modules_root: Path, tool_logs: Path, package: dict[str, Any],
+    source_times: dict[str, dict[str, int]] | None = None,
 ) -> dict[str, Any]:
     if not outputs_zip.is_file():
         raise ParserApplianceError("parser appliance returned no outputs package")
@@ -865,11 +952,13 @@ def _merge_outputs(
                 if not path.is_file():
                     continue
                 relative = path.relative_to(source_dir)
-                target = destination / relative
+                target = destination / relative.parent / RUN_STAMP_PREFIX.sub("", relative.name, count=1)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, target)
                 outputs.append(target.relative_to(modules_root.parent).as_posix())
                 if target.suffix.casefold() == ".csv":
+                    if source_times:
+                        image_source_times(target, source_times)
                     data_rows += csv_data_row_count(target)
         merged_outputs.extend(outputs)
         result.update(data_row_count=data_rows, outputs=outputs,

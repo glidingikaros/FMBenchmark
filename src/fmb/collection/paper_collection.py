@@ -1,6 +1,7 @@
 import json
 import time
-from fmb.core.hashing import sha256_file
+from fmb.core.collection_paths import evidence_content, relative_to_collection
+from fmb.core.hashing import sha256_file, sha256_json
 from fmb.core.sealed_records import now, write_json
 
 
@@ -50,6 +51,7 @@ def collect(args, *, profile: dict):
                 f"Failed to write final collection timing record {timing_path}: "
                 f"{type(record_error).__name__}: {record_error}"
             )
+    index = relative_to_collection(index, args.output)
     write_json(args.output / "evidence_index.json", index)
     write_json(
         args.output / "factual-collection.json",
@@ -58,7 +60,9 @@ def collect(args, *, profile: dict):
             "started_utc": started,
             "finished_utc": now(),
             "evidence_index_sha256": sha256_file(args.output / "evidence_index.json"),
+            "evidence_content_sha256": sha256_json(evidence_content(index)),
             "evidence": str(args.evidence.resolve()),
+            "analysis": str(args.output.absolute()),
             "truth_sources_used": [],
         },
     )

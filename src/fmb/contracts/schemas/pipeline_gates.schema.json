@@ -539,6 +539,10 @@
             "evidence_index_sha256": {
               "$ref": "#/$defs/sha256"
             },
+            "evidence_content_sha256": {
+              "$ref": "#/$defs/sha256",
+              "description": "The SHA-256 of the evidence index without its collector runs (canonical JSON): equal for two collections of one image wherever and whenever they ran."
+            },
             "scope_record_sha256": {
               "$ref": "#/$defs/sha256"
             }

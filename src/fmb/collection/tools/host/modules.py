@@ -3,15 +3,17 @@ from __future__ import annotations
 import csv
 import fnmatch
 import os
+import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from fmb.collection.tools.host.definitions import ModuleProcessor, split_file_masks
 from fmb.collection.tools.host.toolchain import HostToolchain, ToolBinding
+from fmb.core.hashing import sha256_file
 from fmb.core.processes import decoded_process_output
 
 DEFAULT_PROCESSOR_TIMEOUT_SECONDS = 1800
@@ -20,6 +22,18 @@ STATUS_COMPLETED = "completed"
 STATUS_COMPLETED_EMPTY_OUTPUT = "completed_empty_output"
 DATA_ROW_BASIS = "csv reader rows after the header line; quoted newlines stay inside their row"
 _CSV_FIELD_SIZE_LIMIT = 1 << 30
+# EZ tools prefix their outputs with the run time (yyyyMMddHHmmss_); RECmd also puts plugin outputs in a folder named so.
+RUN_STAMP_PREFIX = re.compile(r"^\d{14}_")
+RUN_STAMP_FOLDER = re.compile(r"\d{14}")
+RECMD_PLUGIN_FOLDER = "Plugins"
+# RECmd's own hive masks, in its order; it searches them in parallel, so its rows come in a different order each run.
+RECMD_HIVE_MASKS = ("*usrclass.dat", "*user.dat", "*system", "*sam", "*software", "*default", "*amcache.hve",
+                    "*syscache.hve", "*security", "*drivers", "*components", "*userclasses.dat", "*settings.dat",
+                    "*registry.dat")
+# LECmd and JLECmd make -d absolute (Path.GetFullPath) and report the host copy's own file times, so these columns
+# name the run folder and the time of extraction; they are rewritten to the bundle path and the image's NTFS times.
+SOURCE_COLUMN_TOOLS = frozenset({"lecmd", "jlecmd"})
+SOURCE_TIME_COLUMNS = (("SourceCreated", "created"), ("SourceModified", "modified"), ("SourceAccessed", "accessed"))
 
 
 class HostModuleError(RuntimeError):
@@ -51,6 +65,7 @@ class ProcessorRun:
     input_byte_count: int = 0
     data_row_count: int = 0
     data_row_counts: dict[str, int] = field(default_factory=dict)
+    rewritten_outputs: dict[str, str] = field(default_factory=dict)
 
 
 def _utc_now() -> datetime:
@@ -116,7 +131,7 @@ def render_arguments(
         elif "%" in token:
             raise HostModuleError(f"unsupported KAPE variable in command line: {token}")
         elif "\\" in token and not token.startswith("-"):
-            rendered.append(token.replace("\\", "/"))
+            rendered.append(str(tool_directory / token.replace("\\", "/")))
         else:
             rendered.append(token)
     return rendered
@@ -283,13 +298,17 @@ def _run_processor(
     progress: Callable[[str], None] | None,
     input_inventory: tuple[int, int] = (0, 0),
 ) -> ProcessorRun:
-    arguments = render_arguments(
-        processor.command_line,
-        source_directory=targets_root,
-        destination_directory=destination,
-        source_file=source_file,
-        tool_directory=binding.working_directory,
-    )
+    # The tools run in the collector output root on relative paths, so the paths they write into their CSVs
+    # (MFTECmd's SourceFile, RECmd's HivePath) name no host folder.
+    bundle_root = modules_root.parent
+    paths = {
+        "source_directory": _bundle_relative(targets_root, bundle_root),
+        "destination_directory": _bundle_relative(destination, bundle_root),
+        "source_file": _bundle_relative(source_file, bundle_root) if source_file is not None else None,
+    }
+    arguments = render_arguments(processor.command_line, **paths, tool_directory=binding.working_directory)
+    # The console log names a tool's own files as its module does, relative to the tool, so it names no host folder.
+    shown = render_arguments(processor.command_line, **paths, tool_directory=PurePosixPath())
     argv = [dotnet, str(binding.entry_assembly), *arguments]
     started = _utc_now()
     label = f"{binding.tool_name}-{_stamp(started)}"
@@ -304,7 +323,7 @@ def _run_processor(
         category=processor.category,
         argv=argv,
         command_line=" ".join(argv),
-        working_directory=str(binding.working_directory),
+        working_directory=str(bundle_root),
         source_file=str(source_file) if source_file is not None else None,
         started_at=started.isoformat(),
         stdout_path=str(stdout_path),
@@ -317,7 +336,7 @@ def _run_processor(
     try:
         completed = subprocess.run(
             argv,
-            cwd=binding.working_directory,
+            cwd=bundle_root,
             env=env,
             capture_output=True,
             text=True,
@@ -336,7 +355,7 @@ def _run_processor(
     stderr_path.write_text(completed.stderr or "", encoding="utf-8")
     console = destination / f"{label}.console.log"
     console.write_text(
-        f"Command line: {' '.join(arguments)}\n\n{completed.stdout or ''}",
+        f"Command line: {' '.join(shown)}\n\n{completed.stdout or ''}",
         encoding="utf-8",
     )
     if completed.returncode != 0:
@@ -346,6 +365,16 @@ def _run_processor(
         )
     if binding.tool_name.casefold() == "recmd":
         flatten_recmd_outputs(destination, created_before=before)
+    strip_run_stamps(destination, created_before=before)
+    if binding.tool_name.casefold() == "recmd":
+        run.rewritten_outputs = canonical_recmd_batches(destination, created_before=before, bundle_root=bundle_root)
+    elif binding.tool_name.casefold() in SOURCE_COLUMN_TOOLS:
+        from fmb.collection.tools.host.parser_appliance import copy_log_source_times
+
+        run.rewritten_outputs = canonical_source_columns(
+            destination, created_before=before, bundle_root=bundle_root,
+            source_times=copy_log_source_times(targets_root),
+        )
     run.console_log_relative_path = console.relative_to(modules_root.parent).as_posix()
     run.ended_at = ended.isoformat()
     run.duration_seconds = (ended - started).total_seconds()
@@ -397,6 +426,121 @@ def flatten_recmd_outputs(destination: Path, *, created_before: set[Path]) -> No
             parent = parent.parent
 
 
+def _bundle_relative(path: Path, bundle_root: Path) -> PurePosixPath:
+    return PurePosixPath(path.relative_to(bundle_root).as_posix())
+
+
+def _unused(path: Path) -> Path:
+    candidate, number = path, 1
+    while candidate.exists():
+        number += 1
+        candidate = path.with_name(f"{path.stem}-{number}{path.suffix}")
+    return candidate
+
+
+def strip_run_stamps(destination: Path, *, created_before: set[Path]) -> None:
+    for path in sorted(_snapshot(destination) - created_before):
+        parts = path.relative_to(destination).parts
+        folders = [RECMD_PLUGIN_FOLDER if RUN_STAMP_FOLDER.fullmatch(part) else part for part in parts[:-1]]
+        target = destination.joinpath(*folders, RUN_STAMP_PREFIX.sub("", parts[-1], count=1))
+        if target == path:
+            continue
+        target = _unused(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        path.rename(target)
+    for folder in sorted(destination.iterdir()):
+        if folder.is_dir() and RUN_STAMP_FOLDER.fullmatch(folder.name) and not any(folder.iterdir()):
+            folder.rmdir()
+
+
+def _hive_order(hive_path: str) -> tuple[int, str]:
+    normalized = hive_path.replace("\\", "/").casefold()
+    name = normalized.rpartition("/")[2]
+    rank = next((rank for rank, mask in enumerate(RECMD_HIVE_MASKS) if fnmatch.fnmatchcase(name, mask)),
+                len(RECMD_HIVE_MASKS))
+    return rank, normalized
+
+
+def _plugin_detail_file(value: str, folder: str) -> str:
+    parts = value.replace("\\", "/").split("/")
+    stamps = [index for index, part in enumerate(parts[:-1]) if RUN_STAMP_FOLDER.fullmatch(part)]
+    if not stamps:
+        return value
+    name = RUN_STAMP_PREFIX.sub("", "_".join(parts[stamps[-1] + 1:]), count=1)
+    return f"{folder}/{RECMD_PLUGIN_FOLDER}/{name}"
+
+
+def canonical_recmd_batch(path: Path, *, folder: str) -> None:
+    csv.field_size_limit(_CSV_FIELD_SIZE_LIMIT)
+    with path.open("r", encoding="utf-8-sig", errors="surrogateescape", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows:
+        return
+    header, records = rows[0], rows[1:]
+    if "HivePath" in header:
+        column = header.index("HivePath")
+        records.sort(key=lambda row: _hive_order(row[column] if column < len(row) else ""))
+    if "PluginDetailFile" in header:
+        column = header.index("PluginDetailFile")
+        for row in records:
+            if column < len(row):
+                row[column] = _plugin_detail_file(row[column], folder)
+    with path.open("w", encoding="utf-8-sig", errors="surrogateescape", newline="") as handle:
+        csv.writer(handle, lineterminator="\r\n").writerows([header, *records])
+
+
+def canonical_recmd_batches(destination: Path, *, created_before: set[Path], bundle_root: Path) -> dict[str, str]:
+    # Rows go in RECmd's hive-mask order, then by hive path, each hive's rows in the order RECmd wrote them, so a
+    # cited row number names the same row in every run. The tool's own bytes are recorded by their hash.
+    rewritten = {}
+    for path in sorted(_snapshot(destination) - created_before):
+        name = path.name.casefold()
+        if path.parent == destination and "recmd_batch" in name and name.endswith("_output.csv"):
+            rewritten[path.relative_to(bundle_root).as_posix()] = sha256_file(path)
+            canonical_recmd_batch(path, folder=destination.relative_to(bundle_root).as_posix())
+    return rewritten
+
+
+def _bundle_source(value: str) -> str:
+    parts = re.split(r"[\\/]", value)
+    roots = [index for index, part in enumerate(parts) if part.casefold() == "kape-output"]
+    return "/".join(parts[roots[-1] + 1:]) if roots else value
+
+
+def filetime_text(value: int) -> str:
+    moment = datetime(1601, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=value // 10_000_000)
+    return f"{moment:%Y-%m-%d %H:%M:%S}.{value % 10_000_000:07d}"
+
+
+def canonical_source_columns(
+    destination: Path, *, created_before: set[Path], bundle_root: Path, source_times: dict[str, dict[str, int]]
+) -> dict[str, str]:
+    rewritten = {}
+    csv.field_size_limit(_CSV_FIELD_SIZE_LIMIT)
+    for path in sorted(_snapshot(destination) - created_before):
+        if path.suffix.casefold() != ".csv":
+            continue
+        with path.open("r", encoding="utf-8-sig", errors="surrogateescape", newline="") as handle:
+            rows = list(csv.reader(handle))
+        if not rows or "SourceFile" not in rows[0]:
+            continue
+        header = rows[0]
+        source = header.index("SourceFile")
+        times = [(header.index(column), key) for column, key in SOURCE_TIME_COLUMNS if column in header]
+        rewritten[path.relative_to(bundle_root).as_posix()] = sha256_file(path)
+        for row in rows[1:]:
+            if source >= len(row):
+                continue
+            row[source] = _bundle_source(row[source])
+            known = source_times.get(row[source])
+            for column, key in times:
+                if column < len(row):
+                    row[column] = filetime_text(known[key]) if known else ""
+        with path.open("w", encoding="utf-8-sig", errors="surrogateescape", newline="") as handle:
+            csv.writer(handle, lineterminator="\r\n").writerows(rows)
+    return rewritten
+
+
 def processor_run_record(run: ProcessorRun) -> dict[str, Any]:
     return {
         "module": run.module_name,
@@ -423,6 +567,7 @@ def processor_run_record(run: ProcessorRun) -> dict[str, Any]:
         "data_row_count": run.data_row_count,
         "data_row_counts": dict(run.data_row_counts),
         "timestamp_basis": "host_utc_clock",
+        **({"rewritten_outputs": dict(run.rewritten_outputs)} if run.rewritten_outputs else {}),
     }
 
 
@@ -441,5 +586,6 @@ __all__ = [
     "record_data_rows",
     "render_arguments",
     "run_module_processors",
+    "strip_run_stamps",
     "targets_inventory",
 ]

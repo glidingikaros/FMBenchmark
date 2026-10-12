@@ -44,8 +44,18 @@ def evtxecmd_row_record_fields(
     return event_id, record_id, channel, source_file
 
 
+def targets_relative_path(source_file: str) -> str:
+    # The log's path inside the collected targets folder (C\Windows\...), whether EvtxECmd was given that folder
+    # by a relative or by an absolute path.
+    parts = source_file.strip().replace("/", "\\").split("\\")
+    folded = [part.casefold() for part in parts]
+    starts = [index for index, part in enumerate(folded)
+              if part == "targets" and (index == 0 or folded[index - 1] == "kape-output")]
+    return "\\".join(parts[starts[-1] + 1:]) if starts else source_file.strip()
+
+
 def event_log_scope_id(channel: str, source_file: str, csv_path: Path) -> str:
-    source = source_file.strip() or csv_path.name
+    source = targets_relative_path(source_file) or csv_path.name
     normalized_source = source.replace("/", "\\").casefold()
     normalized = f"{channel.strip().casefold()}|{normalized_source}"
     return f"event-log:{sha256_text(normalized)[:24]}"

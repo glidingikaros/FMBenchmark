@@ -428,7 +428,8 @@ def test_masks_components_and_argument_rendering(tmp_path: Path) -> None:
         source_file=None,
         tool_directory=tmp_path,
     )
-    assert rendered == ["-d", str(tmp_path / "targets"), "--bn", "BatchExamples/Kroll_Batch.reb", "--csv", str(tmp_path / "modules" / "Registry")]
+    assert rendered == ["-d", str(tmp_path / "targets"), "--bn", str(tmp_path / "BatchExamples" / "Kroll_Batch.reb"),
+                        "--csv", str(tmp_path / "modules" / "Registry")]
     with pytest.raises(HostModuleError):
         render_arguments("-f %sourceFile%", source_directory=tmp_path, destination_directory=tmp_path, source_file=None, tool_directory=tmp_path)
 
@@ -1106,13 +1107,13 @@ def test_toolchain_verifies_declared_trees_and_runtime_identity(tmp_path: Path) 
     assert [row["status"] for row in HostToolchain(root, lock).unverified()] == ["file_count_mismatch"]
 
 
-def test_modules_receive_absolute_paths_when_called_with_relative_ones(tmp_path: Path, monkeypatch) -> None:
+def test_modules_write_into_the_bundle_when_called_with_relative_paths(tmp_path: Path, monkeypatch) -> None:
     script = tmp_path / "tool.py"
     script.write_text(
         "import sys, pathlib\n"
         "args = sys.argv[1:]\n"
         "dest = pathlib.Path(args[args.index('--csv') + 1])\n"
-        "assert dest.is_absolute(), dest\n"
+        "assert dest.as_posix() == 'modules/ProgramExecution', dest\n"
         "dest.mkdir(parents=True, exist_ok=True)\n"
         "(dest / 'out.csv').write_text('Command,Value\\n')\n",
         encoding="utf-8",

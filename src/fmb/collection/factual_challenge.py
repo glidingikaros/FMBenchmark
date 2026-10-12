@@ -6,6 +6,7 @@ from fmb.analysis.catalog import TECHNIQUES
 from fmb.analysis.inputs import (assert_truth_blind, canonical_sha256, candidate_identity,
                                  iter_observations, observation_matches_technique)
 from fmb.analysis.questions import broad_question
+from fmb.core.collection_paths import relative_to_collection
 from fmb.core.hashing import sha256_file
 from fmb.core.json_io import load_json_object, write_json
 from fmb.index.adapters.mft import (
@@ -13,7 +14,7 @@ from fmb.index.adapters.mft import (
     mftecmd_mft_context_csv_files,
     mftecmd_mft_parser_run,
 )
-from fmb.index.adapters.parser_output import apply_host_processor_status, source_bound_observations
+from fmb.index.adapters.parser_output import apply_host_processor_status, portable_path, source_bound_observations
 from fmb.index.adapters.usn import raw_usn_observation_from_record
 from fmb.index.support.windows_identity import (
     normalize_windows_compare_path,
@@ -93,7 +94,7 @@ def _membership_usn_run(index: dict, public: dict, output: Path, context: dict) 
     observations = source_bound_observations(observations, journal)
     path = output / "public-membership-usn.json"
     write_json(path, {"schema_version": "parser_observation_index.v1", "parser": "fmb_bounded_parser",
-                      "parser_kind": "ntfs_usn", "source": str(journal), "scan": scan,
+                      "parser_kind": "ntfs_usn", "source": portable_path(journal, output), "scan": scan,
                       "record_count": len(observations), "observations": observations,
                       "truth_sources_used": []})
     return normalize_parser_output(parser="fmb_bounded_parser", parser_kind="ntfs_usn",
@@ -181,7 +182,7 @@ def add_factual_population(index: dict, *, evidence: Path, public: dict, output_
     needs_mft = questions is None or "ntfs.mft" in resolve_paper_profile(questions)["artifact_families"]
     drive_binding_path = None
     output_dir.mkdir(parents=True, exist_ok=False)
-    write_json(output_dir / "base-evidence-index.json", index)
+    write_json(output_dir / "base-evidence-index.json", relative_to_collection(index, output_dir.parent))
     if needs_mft:
         root = Path(index["collector_runs"][0]["output_root"])
         csvs = mftecmd_mft_context_csv_files(root)
@@ -242,7 +243,7 @@ def add_factual_population(index: dict, *, evidence: Path, public: dict, output_
         **({"system_volume": needs_mft} if questions is not None else {}))
     prepared.pop("population_manifest", None)
     prepared["candidate_populations"] = _populations(prepared, base_populations, public)
-    write_json(output_dir / "pre-reference-index.json", prepared)
+    write_json(output_dir / "pre-reference-index.json", relative_to_collection(prepared, output_dir.parent))
     # The index is validated once, with its final populations, before it is written below.
     prepared = add_reference_scoped_usn(prepared, output_dir=output_dir, include_timestamp_fragments=True,
                                         defer_validation=True)
@@ -251,7 +252,7 @@ def add_factual_population(index: dict, *, evidence: Path, public: dict, output_
     from fmb.core.schemas import validate_payload
     validate_payload(prepared, "evidence_index.schema.json")
     assert_truth_blind(prepared)
-    write_json(output_dir / "evidence-index.json", prepared)
+    write_json(output_dir / "evidence-index.json", relative_to_collection(prepared, output_dir.parent))
     write_json(output_dir / "public-population-binding.json", {
         "schema_version": "factual_public_population_binding.v1",
         "public_manifest_sha256": sha256_file(evidence.parent / "factual-challenge-population.json"),

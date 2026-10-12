@@ -413,9 +413,11 @@ def _collected_artifact_path(value: Any) -> Any:
     if not isinstance(value, str):
         return value
     normalized = value.replace("\\", "/")
-    if not (normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized)):
-        return value
     parts = normalized.split("/")
+    if parts[0].casefold() == "targets":
+        parts = ["kape-output", *parts]
+    elif not (normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized)):
+        return value
     boundaries = [
         index
         for index in range(len(parts) - 2)

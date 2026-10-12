@@ -165,7 +165,7 @@ def test_empty_parser_appliance_output_reaches_the_module_runs_and_the_index(tmp
 
     pecmd, sbecmd, untouched = runs
     assert pecmd.status == STATUS_COMPLETED_EMPTY_OUTPUT and pecmd.exit_code == 0
-    assert pecmd.outputs == ["modules/ProgramExecution/20260912083107_PECmd_Output.csv"]
+    assert pecmd.outputs == ["modules/ProgramExecution/PECmd_Output.csv"]
     assert pecmd.console_log_relative_path == "modules/ProgramExecution/PECmd-parser-appliance.console.log"
     assert pecmd.detail.startswith("PECmd exited 0 on 2 non-empty input file(s) totalling 4096 bytes")
     assert (sbecmd.status, sbecmd.data_row_count) == (STATUS_COMPLETED, 1)
@@ -175,7 +175,7 @@ def test_empty_parser_appliance_output_reaches_the_module_runs_and_the_index(tmp
     collector_run = {"collector": "kape", "provenance": {}, "output_root": str(modules_root.parent)}
     normalized = tmp_path / "normalized"
     normalized.mkdir()
-    csv_path = modules_root / "ProgramExecution" / "20260912083107_PECmd_Output.csv"
+    csv_path = modules_root / "ProgramExecution" / "PECmd_Output.csv"
     run = apply_host_processor_status(pecmd_prefetch_parser_run(
         csv_path=csv_path, normalized_output_dir=normalized, collector_run=collector_run), collector_run)
     assert (run["status"], run["coverage_status"]) == ("consumed_empty", "unavailable")

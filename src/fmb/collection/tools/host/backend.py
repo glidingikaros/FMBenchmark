@@ -210,13 +210,14 @@ class _PhaseClock:
 def _host_command_lines(
     *, evidence: Path, targets_root: Path, modules_root: Path, targets: str, modules: str
 ) -> tuple[str, str, list[str]]:
+    # Paths relative to the collector output root, so the recorded command lines name no host folder.
     target_argv = [
-        HOST_COLLECTOR_TOOL, "targets", "--evidence", str(evidence),
-        "--tdest", str(targets_root), "--target", targets,
+        HOST_COLLECTOR_TOOL, "targets", "--evidence", evidence.name,
+        "--tdest", targets_root.name, "--target", targets,
     ]
     module_argv = [
-        HOST_COLLECTOR_TOOL, "modules", "--msource", str(targets_root),
-        "--mdest", str(modules_root), "--module", modules,
+        HOST_COLLECTOR_TOOL, "modules", "--msource", targets_root.name,
+        "--mdest", modules_root.name, "--module", modules,
     ]
     target_line = " ".join(target_argv)
     module_line = " ".join(module_argv)

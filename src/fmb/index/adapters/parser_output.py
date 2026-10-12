@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import heapq
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -93,16 +94,20 @@ def source_bound_observations(
     return scoped
 
 
+def portable_path(path: Path, base: Path) -> str:
+    # A path as seen from base, so a record names it the same way wherever the collection folder is.
+    try:
+        return Path(os.path.relpath(path.resolve(), base.resolve())).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def normalized_output_path(
     normalized_output_dir: Path,
     source_path: Path,
     suffix: str,
 ) -> Path:
-    path_hash = (
-        sha256_text(str(source_path.resolve()))[:12]
-        if source_path.exists()
-        else sha256_text(str(source_path))[:12]
-    )
+    path_hash = sha256_text(portable_path(source_path, normalized_output_dir))[:12]
     return normalized_output_dir / (
         f"{safe_path_component(source_path.parent.name)}."
         f"{safe_path_component(source_path.stem)}."
@@ -274,7 +279,7 @@ def write_observation_index(
             "schema_version": "parser_observation_index.v1",
             "parser": parser,
             "parser_kind": parser_kind,
-            "source": str(raw_output),
+            "source": portable_path(raw_output, normalized_output.parent),
             **(extra or {}),
             "record_count": len(observations),
             "observations": observations,

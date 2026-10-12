@@ -17,6 +17,7 @@ from fmb.index.adapters.parser_output import (
     normalized_output_path,
     observed_artifact_families,
     parser_run_from_observations,
+    portable_path,
     ranked_observations,
     source_bound_observations,
     write_observation_index,
@@ -456,6 +457,17 @@ def _logfile_bound_updates(
     return updates, {**diagnostics, "witnesses_withheld": None}
 
 
+def _driver_command_line(document: dict[str, Any] | None, logfile_path: Path, normalized_output_dir: Path) -> str | None:
+    # The driver's command line names the $LogFile and its output by the folders of this run; the record names
+    # them from the normalized output folder instead.
+    command = (document.get("runtime") or {}).get("command_line") if document else None
+    if not command:
+        return command
+    for path in (logfile_path, normalized_output_dir):
+        command = command.replace(str(path.absolute()), portable_path(path, normalized_output_dir))
+    return command
+
+
 def logfile_tool_identity(document: dict[str, Any] | None, availability: dict[str, Any]) -> dict[str, Any]:
     identity = None
     if document is not None:
@@ -603,13 +615,14 @@ def raw_logfile_parser_run(
             "schema_version": "parser_observation_index.v1",
             "parser": "dfir_ntfs",
             "parser_kind": "ntfs_logfile",
-            "source": str(logfile_path),
+            "source": portable_path(logfile_path, normalized_output.parent),
             "record_count": 0,
             "observations": [],
             "coverage_scope": scope,
             "driver_summary": (
                 {
-                    "parse": document.get("parse"),
+                    "parse": {key: value for key, value in (document.get("parse") or {}).items()
+                              if key != "duration_seconds"},
                     "operation_counts": document.get("operation_counts"),
                     "restart_area_count": len(document.get("restart_areas") or []),
                     "embedded_usn": document.get("embedded_usn"),
@@ -636,7 +649,7 @@ def raw_logfile_parser_run(
         raw_outputs=raw_outputs,
         normalized_output=normalized_output,
         observations=[],
-        command_line=(document.get("runtime") or {}).get("command_line") if document else None,
+        command_line=_driver_command_line(document, logfile_path, normalized_output_dir),
         tool_identity=logfile_tool_identity(document, availability),
         observation_families=[],
         coverage_status=coverage_status,
@@ -743,7 +756,7 @@ def raw_logfile_reference_parser_run(
         raw_outputs=raw_outputs,
         normalized_output=normalized_output,
         observations=observations,
-        command_line=(document.get("runtime") or {}).get("command_line") if document else None,
+        command_line=_driver_command_line(document, logfile_path, normalized_output_dir),
         tool_identity={
             **logfile_tool_identity(document, availability),
             "scope": "ntfs_file_references",

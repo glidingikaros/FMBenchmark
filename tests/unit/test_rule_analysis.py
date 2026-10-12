@@ -174,7 +174,7 @@ def test_native_shellbag_discovery_and_path_absence(tmp_path, case_directory):
     assert fields["source_parser"] == "SBECmd"
     assert "source_file" not in fields
     assert str(tmp_path) not in str(packet)
-    assert parsed["observations"][0]["fields"]["source_file"] == str(path)
+    assert parsed["observations"][0]["fields"]["source_file"] == path.name
     parsed["observations"][0]["fields"]["shell_type"] = "Root folder: GUID"
     assert assess("shellbag_missing_directory", parsed["observations"])[1] == "indeterminate"
 
