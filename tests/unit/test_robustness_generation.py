@@ -543,6 +543,42 @@ def test_the_lock_reads_ansible_as_the_playbook_sees_it(tmp_path, monkeypatch):
     assert all(pinned(env)["ANSIBLE_STDOUT_CALLBACK"] == "default" for env in seen)
 
 
+def test_the_users_own_ansible_settings_stay_out_of_fmbs_ansible_runs(tmp_path, monkeypatch):
+    from fmb.generation import backends, dependency_lock
+    from fmb.generation.pipeline import GenerationPipeline
+
+    # With the real ansible-core 2.20.5, either of the first two loses or breaks every receipt.
+    user = {"ANSIBLE_DISPLAY_OK_HOSTS": "false", "ANSIBLE_CALLBACK_FORMAT_PRETTY": "false", "ANSIBLE_VERBOSITY": "1"}
+    locations = {"ANSIBLE_HOME": str(tmp_path / "home"), "ANSIBLE_ROLES_PATH": str(tmp_path / "roles")}
+    for key, value in {**user, **locations, "FMB_UNRELATED": "kept"}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("FMB_ANSIBLE_COLLECTIONS", raising=False)
+
+    def check(env):
+        assert not set(user) & set(env)
+        assert {key: env[key] for key in locations} == locations and env["FMB_UNRELATED"] == "kept"
+        assert pinned(env) == pinned({**PINNED, "ANSIBLE_CONFIG": str(backends.ANSIBLE_CONFIG)})
+
+    instance = GenerationPipeline.__new__(GenerationPipeline)
+    check(instance.prepare_env({"ANSIBLE_FORKS": "1", **backends.ansible_settings()}))
+    assert instance.prepare_env({"VAGRANT_CWD": "x"})["ANSIBLE_VERBOSITY"] == "1"  # not an Ansible run
+    seen = []
+    monkeypatch.setattr(subprocess, "run", lambda command, env=None, **_: seen.append(env))
+    backends.ansible_adhoc("ansible", 5985, "ansible.windows.win_ping", {}, timeout=10)
+
+    def run_owned(command, *, env=None, **_):
+        seen.append(env)
+        text = ("ansible [core 2.20.5]\n  ansible python module location = /x/ansible\n" if "--version" in command
+                else json.dumps({"/c/ansible_collections": {"ansible.windows": {"version": "3.5.0"}}}))
+        return subprocess.CompletedProcess(command, 0, text, "")
+
+    monkeypatch.setattr("fmb.core.owned_process.run_owned", run_owned)
+    dependency_lock.ansible_layout(str(tmp_path / "ansible"))
+    assert len(seen) == 3
+    for env in seen:
+        check(env)
+
+
 def test_the_wsl_shim_passes_the_output_format_and_config_on(monkeypatch):
     import importlib.util
 

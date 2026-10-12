@@ -597,6 +597,10 @@ class GenerationPipeline:
 
 
     def prepare_env(self, env=None):
+        from fmb.generation.backends import ANSIBLE_CONFIG, ansible_environment
+
+        if (env or {}).get("ANSIBLE_CONFIG") == str(ANSIBLE_CONFIG):
+            return ansible_environment(env)  # an fmb Ansible run: the user's own ANSIBLE_* settings stay out
         return {**os.environ, **(env or {})}
 
     def resolve_command(self, cmd):

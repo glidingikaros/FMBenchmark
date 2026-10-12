@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
-import os
 import platform
 import re
 import shutil
@@ -143,9 +142,9 @@ def tree_rows(root, selectors=None):
 
 
 def ansible_layout(ansible, collections=GUEST_COLLECTIONS, *, cwd=None):
-    from fmb.generation.backends import ansible_settings
+    from fmb.generation.backends import ansible_environment
 
-    env = {**os.environ, **ansible_settings()}  # what the playbook sees
+    env = ansible_environment()  # what the playbook sees
     text = _run_text([ansible, "--version"], cwd=cwd, env=env)
     core = re.search(r"^ansible \[core ([^\]]+)\]", text, re.M)
     module = re.search(r"^\s*ansible python module location = (.+)$", text, re.M)

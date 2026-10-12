@@ -247,6 +247,21 @@ def ansible_settings() -> dict[str, str]:
     return settings
 
 
+# Only these of the user's own ANSIBLE_* settings reach fmb's Ansible runs: they say where Ansible finds what is
+# installed. The others (ANSIBLE_DISPLAY_OK_HOSTS, ANSIBLE_CALLBACK_FORMAT_PRETTY, ANSIBLE_VERBOSITY, ...) would change
+# the output the host reads its receipts from.
+ANSIBLE_LOCATIONS = frozenset({"ANSIBLE_HOME", "ANSIBLE_COLLECTIONS_PATH", "ANSIBLE_COLLECTIONS_PATHS",
+                               "ANSIBLE_ROLES_PATH"})
+
+
+def ansible_environment(env: dict[str, str] | None = None) -> dict[str, str]:
+    """The whole environment of an fmb Ansible run: this process's without the user's own ANSIBLE_* settings, then
+    env, then fmb's settings."""
+    kept = {key: value for key, value in os.environ.items()
+            if not key.upper().startswith("ANSIBLE_") or key.upper() in ANSIBLE_LOCATIONS}
+    return {**kept, **(env or {}), **ansible_settings()}
+
+
 def ansible_adhoc(ansible: str, port: int, module: str, args: dict, *, timeout: int):
     import json
     import subprocess
@@ -254,7 +269,7 @@ def ansible_adhoc(ansible: str, port: int, module: str, args: dict, *, timeout: 
     module_args = ["-a", json.dumps(args)] if args else []
     return subprocess.run([ansible, "all", "-i", "127.0.0.1,", "-m", module, *module_args,
                            "-e", json.dumps(ansible_winrm_vars(port))],
-                          capture_output=True, text=True, timeout=timeout, env={**os.environ, **ansible_settings()})
+                          capture_output=True, text=True, timeout=timeout, env=ansible_environment())
 
 
 def qemu_guest_command(qemu: Path, state: Path, *, winrm_port: int, monitor_port: int,
