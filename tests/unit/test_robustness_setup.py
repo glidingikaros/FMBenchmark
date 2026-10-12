@@ -1,7 +1,10 @@
 import hashlib
 import io
+import re
+import tarfile
 import urllib.error
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -105,3 +108,44 @@ def test_setup_check_reports_whether_the_parsers_are_validated_builds(tmp_path, 
     assert name.startswith(SET_UP_BY_FMB)
     (folder / "SBECmd.exe").write_bytes(good)
     assert row()[1:] == (True, "the validated build; the validated build")
+
+
+def pinned_eztools(monkeypatch, tmp_path, content: bytes):
+    archive = tmp_path / "eztools.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        info = tarfile.TarInfo("net9/RECmd.dll")
+        info.size = len(content)
+        tar.addfile(info, io.BytesIO(content))
+    monkeypatch.setitem(host.PINS, "eztools", {"file": str(archive),
+                                               "sha256": hashlib.sha256(archive.read_bytes()).hexdigest()})
+    monkeypatch.setattr(setup, "passes", lambda command: (Path(command[-1]) / "RECmd.dll").read_bytes() == b"pinned")
+
+
+def test_ez_tools_that_fail_verification_are_extracted_again(tmp_path, monkeypatch):
+    monkeypatch.setenv("FMB_CACHE", str(tmp_path / "cache"))
+    monkeypatch.delenv("FMB_HOST_TOOLCHAIN_ROOT", raising=False)
+    pinned_eztools(monkeypatch, tmp_path, b"pinned")
+    root = setup.eztools()
+    assert root == tmp_path / "cache" / "eztools" / "net9"
+    (root / "RECmd.dll").write_bytes(b"damaged")
+    (root / "added by hand.txt").write_text("x")
+    assert setup.eztools() == root
+    assert (root / "RECmd.dll").read_bytes() == b"pinned" and not (root / "added by hand.txt").exists()
+    assert [path.name for path in root.parent.iterdir()] == ["net9"]
+
+    (root / "RECmd.dll").write_bytes(b"damaged")
+    pinned_eztools(monkeypatch, tmp_path, b"a pin that does not verify")
+    with pytest.raises(SystemExit, match=f"the EZ tools in {re.escape(str(root))} do not verify even after"):
+        setup.eztools()
+
+
+def test_ez_tools_outside_fmbs_cache_are_never_replaced(tmp_path, monkeypatch):
+    own = tmp_path / "mine"
+    own.mkdir()
+    (own / "RECmd.dll").write_bytes(b"my build")
+    monkeypatch.setenv("FMB_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("FMB_HOST_TOOLCHAIN_ROOT", str(own))
+    pinned_eztools(monkeypatch, tmp_path, b"pinned")
+    with pytest.raises(SystemExit, match="unset FMB_HOST_TOOLCHAIN_ROOT"):
+        setup.eztools()
+    assert (own / "RECmd.dll").read_bytes() == b"my build"

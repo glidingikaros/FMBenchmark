@@ -84,23 +84,49 @@ def ansible() -> None:
 
 
 def toolchain() -> Path:
-    root = host.toolchain_root()
-    pins = host.PINS["eztools"]
-    if not root.exists():
-        data = (host.REPO / pins["file"]).read_bytes()
-        if hashlib.sha256(data).hexdigest() != pins["sha256"]:
-            raise SystemExit("the EZ tools archive does not match its pinned sha256")
-        root.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=root.parent) as temporary, tarfile.open(fileobj=io.BytesIO(data)) as tar:
-            tar.extractall(temporary, filter="data")
-            (Path(temporary) / "net9").rename(root)
-    run([sys.executable, host.REPO / "scripts" / "bootstrap_eztools.py", "--verify-only", "--root", root])
+    root = eztools()
     dfir = [sys.executable, host.REPO / "scripts" / "bootstrap_dfir_ntfs.py"]
     if not Path(host.environment()["FMB_DFIR_NTFS_ENV"]).exists():
         run(dfir)
     elif subprocess.run([str(part) for part in [*dfir, "--verify-only"]], env=host.environment(), check=False).returncode:
         run([*dfir, "--recreate"])
     return root
+
+
+def eztools() -> Path:
+    """The pinned EZ tools, extracted again when they do not verify (a new pin, a quarantined or damaged file)."""
+    root = host.toolchain_root()
+    verify = [sys.executable, host.REPO / "scripts" / "bootstrap_eztools.py", "--verify-only", "--root", root]
+    if root.exists():
+        if passes(verify):
+            return root
+        if not root.resolve().is_relative_to(host.cache().resolve()):
+            raise SystemExit(f"{root} does not hold the pinned EZ tools, and fmb replaces only its own copy under "
+                             f"{host.cache()}: unset FMB_HOST_TOOLCHAIN_ROOT, or put the pinned tools there")
+        log(f"{root} does not hold the pinned EZ tools; extracting them again")
+    extract_eztools(root)
+    if not passes(verify):
+        raise SystemExit(f"the EZ tools in {root} do not verify even after a fresh extraction; bootstrap_eztools.py "
+                         "says why above")
+    return root
+
+
+def extract_eztools(root: Path) -> None:
+    pins = host.PINS["eztools"]
+    data = (host.REPO / pins["file"]).read_bytes()
+    if hashlib.sha256(data).hexdigest() != pins["sha256"]:
+        raise SystemExit("the EZ tools archive does not match its pinned sha256")
+    root.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=root.parent) as temporary, tarfile.open(fileobj=io.BytesIO(data)) as tar:
+        tar.extractall(temporary, filter="data")
+        if root.exists():
+            root.rename(Path(temporary) / "replaced")
+        (Path(temporary) / "net9").rename(root)
+
+
+def passes(command: list) -> bool:
+    log(" ".join(str(part) for part in command))
+    return subprocess.run([str(part) for part in command], env=host.environment(), check=False).returncode == 0
 
 
 def windows_parsers() -> Path:
