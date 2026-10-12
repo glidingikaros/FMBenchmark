@@ -261,11 +261,12 @@ def exclusive(path: Path):
 
 def room(work: Path) -> None:
     """Refuses a base build that would fill the disk: QEMU then pauses the install, which only looks stalled."""
-    free = host.free_gib(work) + host.allocated_gib(work)  # the build replaces what an earlier one left there
-    if free < BASE_BUILD_GIB:
+    free, kept = host.free_gib(work), host.allocated_gib(work)  # the build replaces what an earlier one kept there
+    if free + kept < BASE_BUILD_GIB:
         raise SystemExit(f"building the Windows base needs about {BASE_BUILD_GIB} GiB free at {work}, and it has "
-                         f"{free:.0f} GiB. Free some, or set FMB_CACHE to a folder on a larger disk, then run fmb "
-                         "setup again.")
+                         f"{free:.0f} GiB" + (f" plus {kept:.0f} GiB that an earlier build left there" if kept >= 1
+                                              else "") + ". Free some, or set FMB_CACHE to a folder on a larger "
+                         "disk, then run fmb setup again.")
     home = host.base_home()
     if not home.resolve().is_relative_to(work.parent.resolve()) and host.free_gib(home) < BASE_GIB:
         raise SystemExit(f"the Windows base (about {BASE_GIB} GiB) moves to {home} once built, and it has "

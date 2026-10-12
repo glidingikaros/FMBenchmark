@@ -61,7 +61,6 @@ def validated_only(monkeypatch, tmp_path, good: bytes):
     monkeypatch.setenv("FMB_CACHE", str(tmp_path))
     builds = {hashlib.sha256(good).hexdigest(): "the validated build"}
     monkeypatch.setattr(parser_appliance, "validated_builds", lambda name: dict(builds))
-    return builds
 
 
 def test_setup_installs_only_validated_parser_builds_and_names_an_unvalidated_download(tmp_path, monkeypatch):
@@ -234,7 +233,10 @@ def test_the_base_build_needs_room_for_its_disk_and_the_compressed_base(tmp_path
     monkeypatch.setattr(host, "allocated_gib", lambda path: 0.0)
     with pytest.raises(SystemExit, match=f"needs about 40 GiB free at {re.escape(str(work))}, and it has 30 GiB"):
         setup.room(work)
-    monkeypatch.setattr(host, "allocated_gib", lambda path: 24.0)  # an earlier build's disk, which this one replaces
+    monkeypatch.setattr(host, "allocated_gib", lambda path: 8.0)  # an earlier build's disk, which this one replaces
+    with pytest.raises(SystemExit, match="it has 30 GiB plus 8 GiB that an earlier build left there"):
+        setup.room(work)
+    monkeypatch.setattr(host, "allocated_gib", lambda path: 24.0)
     setup.room(work)
     elsewhere = tmp_path / "bases"
     monkeypatch.setenv("FMB_QEMU_BASE_HOME", str(elsewhere))
