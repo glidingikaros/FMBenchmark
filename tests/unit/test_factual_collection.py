@@ -123,3 +123,20 @@ def test_shellbag_namespace_requires_matching_bagmru_parent_and_name():
     assert 2 not in shellbag_ancestry_paths(rows, context)
 
 
+
+
+def test_a_membership_scan_that_finds_no_member_record_is_an_empty_run(tmp_path, monkeypatch):
+    # A random image whose BQ-DELETE-01 members are only typed paths and that has no BQ-TIME-01 files: the journal
+    # holds no record of a member, which once stopped the whole collection.
+    import fmb.collection.analysis as analysis
+    from fmb.collection.factual_challenge import _membership_usn_run
+
+    journal = tmp_path / "$J"
+    journal.write_bytes(b"\0" * 4096)
+    mft = tmp_path / "MFT.csv"
+    mft.write_text("header\n")
+    monkeypatch.setattr(analysis, "_raw_usn_journal_path", lambda index: journal)
+    run = _membership_usn_run({"collector_runs": [{"collector": "kape", "provenance": {}}]}, public_population(),
+                              tmp_path, {"source_paths": [str(mft)]})
+    assert run["observation_count"] == 0 and run["observation_families"] == []
+    assert run["coverage_status"] == "partial" and run["coverage_families"] == ["ntfs.usn"]

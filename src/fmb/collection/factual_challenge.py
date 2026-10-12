@@ -101,7 +101,7 @@ def _membership_usn_run(index: dict, public: dict, output: Path, context: dict) 
         source_collector=index["collector_runs"][0]["collector"], source_module="FMBPublicMembershipUSN",
         raw_outputs=[journal, *[Path(p) for p in context["source_paths"]]], normalized_output=path,
         observations=observations, tool_identity={"name": "fmb.public_path_membership_scan", "version": "1"},
-        observation_families=["ntfs.usn"], coverage_status="partial")
+        observation_families=["ntfs.usn"] if observations else [], coverage_status="partial")
 
 
 def _eligible_techniques(member: dict) -> tuple[str, ...]:
