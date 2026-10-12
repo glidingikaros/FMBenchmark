@@ -639,8 +639,9 @@ def select_private_assignment(
                 by_parent.setdefault(parent, []).append(member)
             strata = [_ranked_members(stratum, entropy=entropy, scenario_id=f"{scenario_id}:{parent}")
                       for parent, stratum in sorted(by_parent.items())]
-            picked = [strata[index % len(strata)][index // len(strata)] for index in range(count)
-                      if strata and index // len(strata) < len(strata[index % len(strata)])]
+            # Round robin over the folders that still have members, so a small first folder does not end the spread.
+            picked = [stratum[depth] for depth in range(max(map(len, strata), default=0))
+                      for stratum in strata if depth < len(stratum)][:count]
             if len(picked) != count:
                 raise PopulationError(f"scenario {scenario_id!r} has too few eligible objects for {count} "
                                       "manipulations spread over its folders")
