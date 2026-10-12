@@ -6,6 +6,7 @@ import re
 import shutil
 import signal
 import subprocess
+import time
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -374,6 +375,19 @@ def stop(holder: subprocess.Popen, pid: str) -> None:
     holder.stdout.close()
 
 
+def freed(folder: Path, seconds: float = 30.0) -> None:
+    """Takes the image's lock once; Windows frees a killed process's file locks a moment after it ends."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            with run.generating(folder):
+                return
+        except SystemExit:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.1)
+
+
 def test_one_image_is_generated_by_one_fmb_at_a_time(tmp_path):
     import sys
 
@@ -388,8 +402,7 @@ def test_one_image_is_generated_by_one_fmb_at_a_time(tmp_path):
                 pass
     finally:
         stop(holder, pid)
-    with run.generating(folder):
-        pass
+    freed(folder)
     with run.generating(folder):
         pass
 

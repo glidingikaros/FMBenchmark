@@ -5,6 +5,7 @@ import json
 import os
 import signal
 import subprocess
+import time
 import zipfile
 from pathlib import Path
 
@@ -290,12 +291,30 @@ def test_the_run_lock_names_its_holder_and_dies_with_it(tmp_path):
         holder.stdout.close()
 
     lock_path = run_lock.evidence_image_run_lock_path(tmp_path)
+    freed(lock_path)
     # What a dead run leaves behind: its record, an empty file, or a record naming a reused pid on a renamed host.
     reused = {**run_lock.read_lock_payload(lock_path), "pid": os.getpid(), "host": "renamed-host"}
     for leftover in (lock_path.read_text(encoding="utf-8"), "", json.dumps(reused)):
         lock_path.write_text(leftover, encoding="utf-8")
         with run_lock.acquire_evidence_image_run_lock(current_root=tmp_path, requested_run_id="run-next") as lock:
             assert run_lock.read_lock_payload(lock.lock_path)["requested_run_id"] == "run-next"
+
+
+def freed(lock_path: Path, seconds: float = 30.0) -> None:
+    """Waits for a killed holder's lock; Windows frees a dead process's file locks a moment after it ends."""
+    from fmb.collection.run import lock as run_lock
+
+    deadline = time.monotonic() + seconds
+    while True:
+        fd = os.open(lock_path, os.O_RDWR)
+        try:
+            if run_lock._try_lock(fd):
+                run_lock._unlock(fd)
+                return
+        finally:
+            os.close(fd)
+        assert time.monotonic() < deadline, "the killed holder's lock was never freed"
+        time.sleep(0.1)
 
 
 @pytest.fixture
