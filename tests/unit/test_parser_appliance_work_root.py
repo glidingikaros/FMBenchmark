@@ -470,11 +470,12 @@ def test_the_parser_vm_boots_early_only_when_it_will_be_used(tmp_path, monkeypat
 
 def test_an_early_booted_qemu_vm_runs_the_parsers_then_is_killed(tmp_path, monkeypatch):
     from fmb.generation import backends
+    from fmb.pipeline import reads
 
     stage = tmp_path / "analysis"
     (stage / "modules").mkdir(parents=True)
     (stage / "logs").mkdir()
-    killed, modules = [], []
+    killed, modules, copied = [], [], []
 
     class Process:
         def poll(self):
@@ -488,6 +489,9 @@ def test_an_early_booted_qemu_vm_runs_the_parsers_then_is_killed(tmp_path, monke
 
     def adhoc(ansible, port, module, args, *, timeout):
         modules.append(module)
+        if module == "ansible.windows.win_copy":
+            folder = Path(args["src"])
+            copied.append((args, {path.name: path.read_bytes() for path in folder.iterdir()}, folder))
         if module == "ansible.builtin.fetch":
             Path(args["dest"]).write_bytes(b"returned test outputs")
         return subprocess.CompletedProcess([], 0, "ok", "")
@@ -510,12 +514,19 @@ def test_an_early_booted_qemu_vm_runs_the_parsers_then_is_killed(tmp_path, monke
     vm.wait()
     state = vm.state
     assert state.is_dir()
-    record = appliance.run_parser_appliance(
-        processors=[object()], args=args, stage_dir=stage, targets_root=stage / "targets",
-        modules_root=stage / "modules", tool_logs=stage / "logs", vm=vm,
-    )
-    assert modules == ["ansible.windows.win_ping", "ansible.windows.win_file", "ansible.windows.win_copy",
-                       "ansible.windows.win_copy", "ansible.windows.win_command", "ansible.builtin.fetch"]
+    with reads.measured() as opened:
+        record = appliance.run_parser_appliance(
+            processors=[object()], args=args, stage_dir=stage, targets_root=stage / "targets",
+            modules_root=stage / "modules", tool_logs=stage / "logs", vm=vm,
+        )
+    assert modules == ["ansible.windows.win_ping", "ansible.windows.win_copy", "ansible.windows.win_command",
+                       "ansible.builtin.fetch"]
+    # The package and the script go in one copy, gathered outside the run folder, which reads no script back.
+    [(copy, files, folder)] = copied
+    assert copy == {"src": str(folder) + os.sep, "dest": appliance.GUEST_ROOT + "\\"} and not folder.exists()
+    assert files == {"inputs.zip": b"inputs", "run_parsers.ps1": appliance.GUEST_SCRIPT.encode()}
+    assert not folder.is_relative_to(stage)
+    assert str(stage / appliance.APPLIANCE_DIR_NAME / "run_parsers.ps1") not in opened
     assert killed == [True] and not state.exists()
     assert [row["phase"] for row in record["phase_timings"]] == [
         "start_appliance", "build_input_package", "await_appliance", "run_qemu_parsers", "stop_and_cleanup",

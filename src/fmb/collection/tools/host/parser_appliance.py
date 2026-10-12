@@ -673,7 +673,7 @@ class ParserVM:
                     + f"; the end of {self._qemu_log}:\n{tail or '(empty)'}")
             if time.monotonic() > deadline:
                 raise ParserApplianceError("the parser VM did not answer WinRM within 30 minutes")
-            time.sleep(2)
+            self._cancelled.wait(1)
         self.log("parser appliance: QEMU worker answered WinRM")
 
     @property
@@ -699,7 +699,7 @@ class ParserVM:
         except subprocess.TimeoutExpired:
             return False
 
-    def run_qemu_parsers(self, *, package_path: Path, script_path: Path, outputs_zip: Path,
+    def run_qemu_parsers(self, *, package_path: Path, outputs_zip: Path,
                          log: Callable[[str], None] | None = None) -> subprocess.CompletedProcess:
         from fmb.generation.backends import ansible_adhoc
 
@@ -707,7 +707,7 @@ class ParserVM:
         outputs = []
 
         def step(module: str, args: dict, timeout: int = 600) -> None:
-            # Creating the folder and copying a file in or out can be repeated, so a dropped WinRM call is retried.
+            # Copying files in or out can be repeated, so a dropped WinRM call is retried.
             for attempt in range(1, QEMU_STEP_ATTEMPTS + 1):
                 try:
                     result = ansible_adhoc(self.ansible, self.port, module, args, timeout=timeout)
@@ -726,9 +726,12 @@ class ParserVM:
                     raise _Cancelled("the parser VM was no longer needed")
                 self._answered()
 
-        step("ansible.windows.win_file", {"path": GUEST_ROOT, "state": "directory"})
-        step("ansible.windows.win_copy", {"src": str(package_path), "dest": GUEST_ROOT + "\\inputs.zip"})
-        step("ansible.windows.win_copy", {"src": str(script_path), "dest": GUEST_ROOT + "\\run_parsers.ps1"})
+        # One copy instead of a folder and two files: win_copy creates the guest folder and puts the folder's files in
+        # it. Gathered outside the run folder, the script from its text: the run reads no file it did not read before.
+        with tempfile.TemporaryDirectory(prefix="fmb-parser-inputs-") as transport:
+            shutil.copyfile(package_path, Path(transport) / "inputs.zip")
+            (Path(transport) / "run_parsers.ps1").write_text(GUEST_SCRIPT, encoding="utf-8")
+            step("ansible.windows.win_copy", {"src": transport + os.sep, "dest": GUEST_ROOT + "\\"})
         run = ansible_adhoc(self.ansible, self.port, "ansible.windows.win_command", {"argv": [
             "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
             "-File", GUEST_ROOT + "\\run_parsers.ps1", "-Root", GUEST_ROOT]},
@@ -898,7 +901,7 @@ class ParserRun:
                 vm.boot()
             if self.provider == "qemu":
                 completed = self._phase("run_qemu_parsers", lambda: vm.run_qemu_parsers(
-                    package_path=package_path, script_path=script_path, outputs_zip=outputs_zip, log=self.log))
+                    package_path=package_path, outputs_zip=outputs_zip, log=self.log))
                 guest_stdout.write_text(completed.stdout or "", encoding="utf-8")
                 guest_stderr.write_text(completed.stderr or "", encoding="utf-8")
                 if completed.returncode != 0:
