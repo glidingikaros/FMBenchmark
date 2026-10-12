@@ -4,6 +4,7 @@ import io
 import os
 import re
 import signal
+import subprocess
 import sys
 import tarfile
 import threading
@@ -321,3 +322,47 @@ def test_setup_check_reads_wsl_in_either_encoding_and_requires_wsl_1(tmp_path, m
     monkeypatch.setenv("FMB_WSL_DISTRO", "Debian")
     assert windows_rows(monkeypatch, tmp_path, WSL_LIST.encode(encoding)) == {
         "WSL distribution Debian": (False, "wsl --install -d Debian --no-launch; wsl --set-version Debian 1")}
+
+
+def test_a_failed_collection_install_leaves_no_empty_collections_folder_for_fmbs_ansible(tmp_path, monkeypatch):
+    from fmb.generation.backends import ansible_settings
+
+    monkeypatch.setenv("FMB_CACHE", str(tmp_path))
+    monkeypatch.setattr(host, "MACOS", False)
+    monkeypatch.setattr(host, "WINDOWS", False)
+    answers = []
+
+    def run(command, env=None, **_):
+        command = [str(part) for part in command]
+        if command[:3] == ["uv", "tool", "install"]:
+            return
+        # As ansible-galaxy does: it creates its -p folder before it downloads anything.
+        installed = Path(command[command.index("-p") + 1]) / "ansible_collections"
+        installed.mkdir(parents=True, exist_ok=True)
+        if not answers:
+            raise subprocess.CalledProcessError(1, command, "ERROR! Unknown error when attempting to call Galaxy")
+        (installed / "ansible" / "windows").mkdir(parents=True)
+
+    monkeypatch.setattr(setup, "run", run)
+    with pytest.raises(subprocess.CalledProcessError):
+        setup.ansible()
+    monkeypatch.setenv("FMB_ANSIBLE_COLLECTIONS", str(host.ansible_home() / "collections"))
+    assert not (host.ansible_home() / "collections").exists()
+    assert "ANSIBLE_COLLECTIONS_PATH" not in ansible_settings()
+    answers.append("Galaxy answers")
+    setup.ansible()
+    assert (host.ansible_home() / "collections" / "ansible_collections" / "ansible" / "windows").is_dir()
+    assert ansible_settings()["ANSIBLE_COLLECTIONS_PATH"] == str(host.ansible_home() / "collections")
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGHUP"), reason="nohup ignores SIGHUP, a POSIX signal")
+def test_a_base_build_started_under_nohup_outlives_a_closed_terminal(tmp_path):
+    before = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    try:
+        with setup.interruptible():
+            assert signal.getsignal(signal.SIGHUP) is signal.SIG_IGN
+            os.kill(os.getpid(), signal.SIGHUP)
+            assert signal.getsignal(signal.SIGTERM) is not signal.SIG_IGN
+        assert signal.getsignal(signal.SIGHUP) is signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGHUP, before)

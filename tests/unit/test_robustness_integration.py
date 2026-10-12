@@ -20,7 +20,7 @@ def test_the_disk_check_counts_what_unfinished_attempts_hold(tmp_path, monkeypat
     reclaimable = run.unpublished_gib(tmp_path / "I1" / "generation")
     assert reclaimable == pytest.approx(2**-10)
     monkeypatch.setattr(host, "free_gib", lambda root: 1.0)
-    monkeypatch.setattr(host, "image_need_gib", lambda: 1.0 + run.SLACK_GIB + 2**-11)
+    monkeypatch.setattr(host, "image_need_gib", lambda: 1.0 + host.RESULT_GIB + 2**-11)
     with pytest.raises(run.NoSpace):
         run.disk_space("I1", tmp_path)
     run.disk_space("I1", tmp_path, reclaimable)

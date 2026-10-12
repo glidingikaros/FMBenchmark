@@ -254,6 +254,8 @@ def failure(text: str) -> str:
     phase = failed_phase(records)
     errors = ERROR_LINE.findall(text)
     error = next((part for part in errors[-1] if part), "") if errors else ""
+    if error == "unexpected internal failure":  # a failed playbook: the guest task's own reason is its fatal: line
+        error = next((fatal for _, fatal in reversed(errors) if fatal), error)
     started = sum(record["phase"] == phase and record.get("outcome") == "start" for record in records)
     where = f" at '{terminal.phase_title(phase, started)}'" if phase else ""
     return where + (f": {error[:400]}" if error else "")
@@ -531,8 +533,8 @@ def warn(text: str) -> None:
     print(f"fmb: {text}", file=sys.stderr, flush=True)
 
 
-# Free space moves by a few GiB on its own (macOS adds and drops 1 GiB swap files as memory fills), so a shortfall
-# up to this only warns; a larger one refuses the image.
+# Free space moves by a few GiB on its own (macOS adds and drops 1 GiB swap files as memory fills): a list of images
+# is warned about unless this much is to spare.
 SLACK_GIB = 3
 RESULTS_GIB = 1.1  # what one image's run leaves in results/
 KEPT_GIB = 25  # about what one generated image keeps on disk
@@ -552,7 +554,9 @@ def disk_space(name: str, root: Path, reclaimable: float = 0.0) -> None:
     text = (f"generating and analysing it needs about {need:.1f} GiB free, and only {shown:.1f} GiB are free at "
             f"{root}" + (f", counting {reclaimable:.1f} GiB of its unfinished attempts that it deletes first"
                          if reclaimable >= 0.05 else "") + f"; free {short:.1f} GiB more")
-    if need - free <= SLACK_GIB:
+    # A shortfall within the results allowance only warns, as free space moves on its own; the generation's own
+    # preflight does not count that allowance, so an image that goes ahead is never refused there.
+    if need - free <= host.RESULT_GIB:
         warn(f"{name}: {text} to be safe; going ahead, as free space moves by a few GiB on its own")
         return
     others = [folder.name for folder in sorted(root.iterdir()) if completed(folder / "generation") is not None]
@@ -690,10 +694,11 @@ def summarise(outputs: list[Path], results: Path) -> None:
     folder = unused(results / f"summary-{datetime.now():%Y%m%d-%H%M%S}")
     try:
         write_report(runs=runs, output=folder)
+        text = (folder / "results.md").read_text(encoding="utf-8", errors="replace")
     except (OSError, ValueError) as error:
         log(f"the table across images was not written: {error}")
         return
-    print((folder / "results.md").read_text(encoding="utf-8"), flush=True)
+    print(text, flush=True)
     log(f"the table across images, as in the paper: {folder / 'results.md'} (also table-results.csv)")
 
 

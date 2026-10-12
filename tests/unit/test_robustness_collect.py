@@ -666,6 +666,47 @@ def test_the_qemu_monitor_reply_is_read_up_to_the_prompt():
     assert "Could not open" in reply and reply.rstrip().endswith("(qemu)")
 
 
+@pytest.mark.parametrize("folder", ["unknown-projects", "Failed runs"])
+def test_words_in_the_typed_command_are_not_read_as_qemus_answer(tmp_path, monkeypatch, folder):
+    import socket
+    import threading
+
+    from fmb.generation.backends import QemuBackend
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(8)
+    answers = iter(["", "", "", "", "Could not open 'x': No such file or directory\r\n"])
+
+    def serve():
+        while True:
+            try:
+                connection, _ = server.accept()
+            except OSError:
+                return
+            with connection:
+                connection.sendall(b"QEMU 9.2.0 monitor - type 'help' for more information\r\n(qemu) ")
+                typed = b""
+                while b"\n" not in typed:
+                    typed += connection.recv(65536)
+                echo, shown = b"", 0
+                for index in range(1, len(typed.split(b"\n")[0]) + 1):  # QEMU's readline redraws per byte
+                    echo += b"\x1b[D" * shown + typed[:index] + b"\x1b[K"
+                    shown = index
+                connection.sendall(echo + b"\r\n" + next(answers).encode() + b"(qemu) ")
+
+    threading.Thread(target=serve, daemon=True).start()
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    backend = QemuBackend(pipeline=None)
+    backend.monitor_port = server.getsockname()[1]
+    media = [{"unit": 1, "port": 1, "path": str(tmp_path / folder / "usb1.vmdk")}]
+    with server:
+        monkeypatch.setattr(backend, "usb_serial", lambda hardware, unit: "FMB0000000000000000001")
+        backend.attach_media({}, media)
+        with pytest.raises(RuntimeError, match="QEMU refused 'drive_add 0 .*could not open 'x'"):
+            backend.attach_media({}, media)
+
+
 def test_parser_outputs_with_long_fields_read_without_collection(tmp_path):
     import subprocess
     import sys

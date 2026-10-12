@@ -428,7 +428,9 @@ class QemuBackend:
             until_prompt(connection, time.monotonic() + 10)
             connection.sendall(command.encode() + b"\n")
             time.sleep(0.5)
-            return until_prompt(connection, time.monotonic() + 10).decode(errors="replace")
+            reply = until_prompt(connection, time.monotonic() + 10).decode(errors="replace")
+            # The monitor echoes the typed line, redrawn once per byte, and ends it with "\r\n"; its answer follows.
+            return reply.split("\r\n", 1)[1] if "\r\n" in reply else ""
 
     def media_commands(self, hardware: dict, media: list[dict]) -> list[str]:
         commands = []

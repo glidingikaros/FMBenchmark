@@ -43,6 +43,14 @@ def resolve_policy(protocol, *, for_execution=False):
     }
 
 
+def recorded_policy_matches(recorded, policy):
+    """Whether a recorded execution policy is policy; one recorded before Retry-After was honoured lacks its limit."""
+    if recorded == policy:
+        return True
+    return (isinstance(recorded, dict) and "retry_after_max_seconds" not in recorded
+            and recorded == {key: value for key, value in policy.items() if key != "retry_after_max_seconds"})
+
+
 def completion_eligible(outcome, policy, *, question_id=None):
     state = execution_state(outcome)
     if policy["max_total_attempts"] is None:

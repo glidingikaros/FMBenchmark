@@ -99,7 +99,10 @@ def complete(output: Path, row: dict, generated: Path, generation: Path) -> None
     if (generated / "image.json").is_file():
         shutil.copyfile(generated / "image.json", receipts / "image.json")
     manifest_path = output / "run" / "run-manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # missing, or cut by a full disk; the row already says where the run stopped
+        manifest = None
     exposure = next((step["detail"].get("exposure_usd", {}) for step in (manifest or {}).get("stages", [])
                      if step.get("step") == "S3':dispatch"), {})
     for condition in dict.fromkeys([*row.get("llm", {}), *row.get("llm_requested", [])]):
@@ -179,7 +182,7 @@ def markdown(output: Path, row: dict, manifest: dict | None, generated: Path) ->
                          + ".")
         lines.append("")
     gate = output / "run" / "gates" / "G5.json"
-    if gate.is_file():
+    if gate.is_file() and manifest is not None:  # run_table reads G5 through the run manifest
         g5 = json.loads(gate.read_text(encoding="utf-8"))
         lines += ["## Results", "", run_table(output / "run"), "", "## Per question", "", *_questions(g5), ""]
     lines += ["## Assessors", ""]

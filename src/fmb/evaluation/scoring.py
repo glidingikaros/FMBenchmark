@@ -11,7 +11,7 @@ from fmb.evaluation.admission import reference_file
 from fmb.core.case_contract import SYSTEM_PROMPT, target_catalog
 from fmb.core.paper_artifacts import condition_options
 from fmb.core.paper_results import IDENTITY_FIELDS, execution_state, finding_status
-from fmb.core.paper_policy import completion_eligible, resolve_policy, validate_attempts
+from fmb.core.paper_policy import completion_eligible, recorded_policy_matches, resolve_policy, validate_attempts
 from fmb.core.hashing import sha256_file
 from fmb.core.paper_protocol import (
     checked_passes,
@@ -464,7 +464,8 @@ def _validate_execution_record(protocol, record, prediction_seal, outcomes, outc
     policy = resolve_policy(protocol, for_execution=True)
     claim = record.get("execution_claim") or {}
     binding = record.get("completion_of")
-    if (record.get("execution_policy") != policy or claim.get("execution_policy") != policy
+    if (not recorded_policy_matches(record.get("execution_policy"), policy)
+            or not recorded_policy_matches(claim.get("execution_policy"), policy)
             or claim.get("preparation_seal_sha256") != sha256_file(root / "preparation-seal.json")
             or claim.get("completion_of") != binding
             or bool(binding) != bool(protocol.get("completion_policy"))

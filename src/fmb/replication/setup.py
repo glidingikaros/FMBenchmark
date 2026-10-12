@@ -91,8 +91,14 @@ def ansible() -> None:
         return
     run(["uv", "tool", "install", "--force", "--python", platform.python_version(), f"ansible-core=={pins['ansible-core']}",
          "--with", f"pywinrm=={pins['pywinrm']}"], env=private)
+    # ansible-galaxy creates its -p folder before it downloads, and fmb's Ansible runs use <home>/collections alone
+    # once it exists, so the folder appears only with the collection in it.
+    staging = home / "collections.partial"
+    shutil.rmtree(staging, ignore_errors=True)
     run([home / "bin" / "ansible-galaxy", "collection", "install", f"ansible.windows:=={pins['ansible.windows']}",
-         "-p", home / "collections"], env={"ANSIBLE_COLLECTIONS_PATH": str(home / "collections")})
+         "-p", staging], env={"ANSIBLE_COLLECTIONS_PATH": str(staging)})
+    shutil.rmtree(home / "collections", ignore_errors=True)
+    staging.rename(home / "collections")
 
 
 def toolchain() -> Path:
@@ -319,7 +325,9 @@ def left_behind(work: Path) -> str:
 def interruptible():
     """A kill of fmb or a closed terminal (SIGTERM, SIGHUP) stops it as Ctrl-C does; later signals wait for the
     cleanup that follows."""
-    names = [name for name in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, name)]
+    # A signal the caller already ignores stays ignored: under nohup the build must outlive a closed terminal.
+    names = [name for name in ("SIGINT", "SIGTERM", "SIGHUP")
+             if hasattr(signal, name) and signal.getsignal(getattr(signal, name)) is not signal.SIG_IGN]
 
     def interrupt(number, frame):
         for name in names:

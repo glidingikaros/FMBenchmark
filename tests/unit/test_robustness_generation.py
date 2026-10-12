@@ -218,6 +218,24 @@ def test_phase_lines_are_read_whatever_their_key_order_or_spacing():
         " at 'shut the guest down': guest shutdown did not finish")
 
 
+def test_a_failed_playbook_is_summed_up_by_the_guest_tasks_own_reason(capsys):
+    from fmb.core.errors import run_cli
+
+    run_cli("fmb", lambda: (_ for _ in ()).throw(subprocess.CalledProcessError(2, ["ansible-playbook"])))
+    reason = ("Materialize the declared bounded neutral population failed: exit code 1, script line 41, exception "
+              "IOException (the rest is hidden: it can name private paths)")
+    log = "\n".join([
+        phase("ansible_provisioning", "start"),
+        "fatal: [127.0.0.1]: FAILED! => {\"censored\": \"the output has been hidden due to the fact that 'no_log: "
+        "true' was specified for this result\", \"changed\": true}",
+        f'fatal: [127.0.0.1]: FAILED! => {{"changed": false, "msg": "{reason}"}}',
+        phase("ansible_provisioning", "error"),
+        capsys.readouterr().err,
+    ])
+    assert "fmb: unexpected internal failure" in log
+    assert reason in run.failure(log) and "unexpected internal failure" not in run.failure(log)
+
+
 @pytest.mark.parametrize("name", ["soft_halt", "disk_discovery_export", "cleanup"])
 def test_a_late_failure_is_retried_without_its_disks(tmp_path, monkeypatch, name):
     generate, folder, events = attempts_of(tmp_path, monkeypatch, [failed(name), None])
@@ -538,7 +556,13 @@ def test_setup_installs_fmbs_ansible_apart_from_the_users(tmp_path, monkeypatch,
     monkeypatch.setattr(host, "MACOS", False)
     monkeypatch.setattr(host, "WINDOWS", windows)
     runs = []
-    monkeypatch.setattr(setup, "run", lambda command, env=None, **_: runs.append((command, env or {})))
+
+    def run(command, env=None, **_):
+        runs.append((command, env or {}))
+        if "-p" in command:  # ansible-galaxy installs into its -p folder
+            (Path(command[command.index("-p") + 1]) / "ansible_collections").mkdir(parents=True)
+
+    monkeypatch.setattr(setup, "run", run)
     setup.ansible()
     installs = [(command, env) for command, env in runs if command[:3] == ["uv", "tool", "install"]]
     assert installs and all(env == {"UV_TOOL_DIR": str(tmp_path / "ansible" / "tools"),
@@ -546,7 +570,8 @@ def test_setup_installs_fmbs_ansible_apart_from_the_users(tmp_path, monkeypatch,
     if not windows:
         galaxy = runs[-1][0]
         assert galaxy[0] == tmp_path / "ansible" / "bin" / "ansible-galaxy"
-        assert galaxy[-2:] == ["-p", tmp_path / "ansible" / "collections"]
+        assert galaxy[-2:] == ["-p", tmp_path / "ansible" / "collections.partial"]
+        assert (tmp_path / "ansible" / "collections" / "ansible_collections").is_dir()
 
 
 def test_fmbs_own_ansible_comes_first(tmp_path, monkeypatch):

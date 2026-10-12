@@ -549,3 +549,58 @@ def test_fmb_run_on_windows_refuses_before_anything_while_long_paths_are_off(tmp
     monkeypatch.setattr(host, "long_paths", lambda: True)
     with pytest.raises(SystemExit, match="reached the images"):
         run.run_images(["I1"], None, tmp_path / "generated", tmp_path / "results")
+
+
+def test_a_cut_run_manifest_keeps_the_image_and_fmb_run_goes_on(wrapped, monkeypatch, capsys):
+    root, results, _ = wrapped
+    shutil.copytree(root / "I1", root / "I2")
+    write_text = Path.write_text
+
+    def full_disk(self, data, *args, **kwargs):
+        if self.name == "run-manifest.json" and "I1" in self.parts:
+            write_text(self, data[:100], *args, **kwargs)  # what a disk that fills leaves
+            raise OSError(28, "No space left on device")
+        return write_text(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", full_disk)
+    assert run.run_images(["I1", "I2"], None, root, results, delete_image=True) == 1
+    assert (root / "I1").exists() and not (root / "I2").exists()
+    assert capsys.readouterr().err.splitlines()[-1].startswith(
+        "fmb: 1 of 2 images passed admission (I2); I1: the pipeline stopped")
+
+
+def test_a_shortfall_the_generation_preflight_refuses_is_refused_before_generation(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(host, "image_need_gib", lambda: 10.0)
+    monkeypatch.setattr(host, "free_gib", lambda root: 8.0)
+    run.disk_space("I2", tmp_path)
+    assert "going ahead" in capsys.readouterr().err
+    # The generation's own preflight asks for all but the results allowance, so 2.5 GiB short would fail there.
+    monkeypatch.setattr(host, "free_gib", lambda root: 7.5)
+    with pytest.raises(run.NoSpace, match="I2: not generated: .* free 2.5 GiB more"):
+        run.disk_space("I2", tmp_path)
+
+
+def test_the_table_across_images_survives_a_non_utf8_default_encoding(tmp_path, monkeypatch, capsys):
+    from test_replication_path import _g5
+
+    # Windows writes text in its ANSI code page unless told otherwise; the table holds an en dash.
+    monkeypatch.setattr(io, "text_encoding", lambda encoding, stacklevel=2: encoding or "cp1252")
+    outputs = []
+    for name in ("I1", "I2"):
+        _g5(tmp_path / name / "t" / "run", name, {})
+        outputs.append(tmp_path / name / "t")
+    run.summarise(outputs, tmp_path / "results")
+    assert "| Rule-based baseline |" in capsys.readouterr().out
+
+
+def test_an_execution_recorded_before_retry_after_was_honoured_still_matches_its_policy():
+    from fmb.core.paper_policy import PAPER_POLICY, recorded_policy_matches, resolve_policy
+
+    policy = resolve_policy({"execution_policy": PAPER_POLICY}, for_execution=True)
+    earlier = {key: value for key, value in policy.items() if key != "retry_after_max_seconds"}
+    assert recorded_policy_matches(policy, policy) and recorded_policy_matches(earlier, policy)
+    assert not recorded_policy_matches({**earlier, "backoff_seconds": [1]}, policy)
+    assert not recorded_policy_matches({**policy, "retry_after_max_seconds": 60}, policy)
+    assert not recorded_policy_matches({key: value for key, value in earlier.items() if key != "backoff_seconds"},
+                                       policy)
+    assert not recorded_policy_matches(None, policy)
