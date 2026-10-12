@@ -465,3 +465,87 @@ def test_fmb_generate_counts_each_earlier_image_it_keeps(tmp_path, monkeypatch, 
         f"fmb: I1, I2 may need up to about 58.0 GiB free at {root} (each generated image keeps about 25 GiB, and 3 "
         "GiB to spare), and 50.0 GiB are free; free about 8.0 GiB more before they start. Each image is checked again "
         "just before it is generated"]
+
+
+def test_runs_started_in_the_same_second_keep_separate_results(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    from fmb.pipeline import report as tables
+    from fmb.replication import report
+
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 12, 10, 10, 10)
+
+    def write_report(runs, output):
+        if output.exists():
+            raise FileExistsError("report destination already exists")
+        output.mkdir(parents=True)
+        (output / "results.md").write_text("table\n", encoding="utf-8")
+
+    def analyse(name, generation, recipe, output, *_):
+        (output / "run" / "gates").mkdir(parents=True)
+        (output / "run" / "gates" / "G5.json").write_text("{}", encoding="utf-8")
+        return {"image": name, "admission": "passed"}
+
+    monkeypatch.setattr(run, "datetime", Frozen)
+    monkeypatch.setattr(run, "completed", lambda folder: folder)
+    monkeypatch.setattr(run, "paper_image", lambda folder: False)
+    monkeypatch.setattr(run, "implementation", lambda paper: {})
+    monkeypatch.setattr(run, "analyse", analyse)
+    monkeypatch.setattr(tables, "write_report", write_report)
+    monkeypatch.setattr(host, "allocated_gib", lambda folder: 17.0)
+    monkeypatch.setattr(host, "windows_base", lambda: None)
+    monkeypatch.setattr(report, "complete", lambda *_: None)
+    monkeypatch.setattr(report, "headline", lambda row, output: [row["image"]])
+    results = tmp_path / "results"
+    for _ in range(2):
+        assert run.run_images(["I1", "I2"], None, tmp_path / "generated", results) == 0
+    assert sorted(path.relative_to(results).parts for path in results.glob("*/*")) == [
+        ("I1", "20261012-101010"), ("I1", "20261012-101010-2"), ("I2", "20261012-101010"),
+        ("I2", "20261012-101010-2"), ("summary-20261012-101010", "results.md"),
+        ("summary-20261012-101010-2", "results.md")]
+
+
+def test_an_interrupted_image_definition_write_does_not_read_as_a_changed_image(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    image = SimpleNamespace(name="I1", paper=False, path=tmp_path / "I1.json")
+    image.path.write_text('{"name": "I1", "population": "a definition long enough to be cut"}', encoding="utf-8")
+    root = tmp_path / "generated"
+    root.mkdir()
+    write_bytes = Path.write_bytes
+
+    def cut(path, data):
+        write_bytes(path, data[:10])
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run, "disk_space", lambda name, root: None)
+    monkeypatch.setattr(Path, "write_bytes", cut)
+    with pytest.raises(KeyboardInterrupt):
+        run.generate_one(image, tmp_path / "lock.json", root, attempts=3)
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+    monkeypatch.setattr(host, "load_warning", lambda: None)
+    monkeypatch.setattr(run, "generate_image", lambda image, lock, folder, attempts: folder / "generation")
+    assert run.generate_one(image, tmp_path / "lock.json", root, attempts=3) == root / "I1" / "generation"
+    assert [path.name for path in (root / "I1").iterdir()] == ["image.json"]
+    assert (root / "I1" / "image.json").read_bytes() == image.path.read_bytes()
+
+
+def test_fmb_run_on_windows_refuses_before_anything_while_long_paths_are_off(tmp_path, monkeypatch):
+    def reached(paper):
+        raise SystemExit("reached the images")
+
+    monkeypatch.setattr(host, "WINDOWS", True)
+    monkeypatch.setattr(host, "long_paths", lambda: False)
+    monkeypatch.setattr(run, "implementation", reached)
+    with pytest.raises(SystemExit, match=r"^long paths are off on this computer, and collection writes paths over 260 "
+                                         r"characters; turn them on in an admin PowerShell: New-ItemProperty "
+                                         r"HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem -Name LongPathsEnabled "
+                                         r"-Value 1 -PropertyType DWord -Force, then run fmb run again$"):
+        run.run_images(["I1"], None, tmp_path / "generated", tmp_path / "results")
+    assert list(tmp_path.iterdir()) == []
+    monkeypatch.setattr(host, "long_paths", lambda: True)
+    with pytest.raises(SystemExit, match="reached the images"):
+        run.run_images(["I1"], None, tmp_path / "generated", tmp_path / "results")

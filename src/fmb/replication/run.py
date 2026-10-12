@@ -467,7 +467,12 @@ def generate_one(image, lock: Path, root: Path, attempts: int, again: bool = Fal
                          "starts it again")
     disk_space(image.name, root)
     folder.mkdir(exist_ok=True)
-    (folder / "image.json").write_bytes(definition)
+    partial = folder / ".image.json.partial"  # an interrupted write must not leave a definition that reads as changed
+    try:
+        partial.write_bytes(definition)
+        os.replace(partial, folder / "image.json")
+    finally:
+        partial.unlink(missing_ok=True)
     if busy := host.load_warning():
         log(f"{image.name}: {busy}")
     started, asleep = time.monotonic(), awake.asleep()
@@ -526,6 +531,24 @@ def paper_image(folder: Path) -> bool:
         (folder / "recipe" / "recipe.json").read_text(encoding="utf-8"))["config"]
 
 
+def unused(path: Path) -> Path:
+    """path, or path-2, path-3, ...: the first name not taken, as two runs can start in the same second."""
+    number = 1
+    while (candidate := path.with_name(f"{path.name}-{number}" if number > 1 else path.name)).exists():
+        number += 1
+    return candidate
+
+
+def new_folder(path: Path) -> Path:
+    """Creates the first name unused() finds for path, again if another fmb run took it at the same moment."""
+    while True:
+        try:
+            (folder := unused(path)).mkdir(parents=True)
+            return folder.resolve()
+        except FileExistsError:
+            continue
+
+
 def summarise(outputs: list[Path], results: Path) -> None:
     """The paper's results table across the images of one fmb run."""
     from fmb.pipeline.report import write_report
@@ -533,7 +556,7 @@ def summarise(outputs: list[Path], results: Path) -> None:
     runs = [output / "run" for output in outputs if (output / "run" / "gates" / "G5.json").is_file()]
     if len(runs) < 2:
         return
-    folder = results / f"summary-{datetime.now():%Y%m%d-%H%M%S}"
+    folder = unused(results / f"summary-{datetime.now():%Y%m%d-%H%M%S}")
     try:
         write_report(runs=runs, output=folder)
     except (OSError, ValueError) as error:
@@ -559,6 +582,9 @@ def run_images(names: list[str], llm: dict | None, root: Path | None = None, res
                delete_image: bool = False, attempts: int = 3, recollect: bool = False) -> int:
     from fmb.replication import image_files, report
 
+    if host.WINDOWS and not host.long_paths():
+        raise SystemExit("long paths are off on this computer, and collection writes paths over 260 characters; "
+                         f"turn them on in an {host.LONG_PATHS}, then run fmb run again")
     root = (root or generated_root()).resolve()
     results = (results or results_root()).resolve()
     given: dict[str, str] = {}  # image name -> what was typed, which may be a path ending in .json
@@ -590,8 +616,7 @@ def run_images(names: list[str], llm: dict | None, root: Path | None = None, res
                     "generation failed"
                 continue
         generation = completed(folder / "generation")
-        output = (results / name / datetime.now().strftime("%Y%m%d-%H%M%S")).resolve()
-        output.mkdir(parents=True)
+        output = new_folder(results / name / datetime.now().strftime("%Y%m%d-%H%M%S"))
         reuse = None if not llm or recollect else earlier_collection(results / name, generation)
         if reuse is not None:
             log(f"{name}: S2 reuses the collection of {reuse.parent.parent} (same image and code), so S3 and S3' read "
