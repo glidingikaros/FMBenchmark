@@ -226,6 +226,12 @@ def checks() -> list[tuple[str, bool, str]]:
     wanted = f"Microsoft.NETCore.App {PINS['dotnet_runtime']['version']}"
     check(rows, f".NET runtime {PINS['dotnet_runtime']['version']}", wanted in runtimes,
           "run: fmb setup (installs it under the cache)")
+    from fmb.replication.setup import parser_build, windows_parsers
+
+    builds = {name: parser_build(windows_parsers() / name) for name in PINS["windows_parsers"]}
+    unfit = [name for name, build in builds.items() if not build]
+    check(rows, "Windows parsers (PECmd.exe, SBECmd.exe), validated builds", not unfit and "; ".join(builds.values()),
+          f"run: fmb setup ({', '.join(unfit)} in {windows_parsers()}: missing or not a validated build)")
     if MACOS:
         check(rows, "VMware Fusion (vmrun)", VMRUN.exists() and VMRUN, "install VMware Fusion 13")
         vagrant = which("vagrant")

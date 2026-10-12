@@ -4,6 +4,7 @@ import hashlib
 import http.client
 import io
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -99,15 +100,43 @@ def toolchain() -> Path:
         run(dfir)
     elif subprocess.run([str(part) for part in [*dfir, "--verify-only"]], env=host.environment(), check=False).returncode:
         run([*dfir, "--recreate"])
-    parsers = windows_parsers()
-    for name, url in host.PINS["windows_parsers"].items():
-        if not (parsers / name).is_file():
-            zipfile.ZipFile(io.BytesIO(fetch(url))).extract(name, parsers)
     return root
 
 
 def windows_parsers() -> Path:
     return host.cache() / "windows-parsers"
+
+
+def parser_build(path: Path) -> str | None:
+    """The validated build a Windows parser is; None when it is missing, damaged or not validated."""
+    from fmb.collection.tools.host.parser_appliance import validated_builds
+
+    return validated_builds(path.name).get(file_sha256(path)) if path.is_file() else None
+
+
+def parsers() -> None:
+    """PECmd.exe and SBECmd.exe as builds fmb run accepts; their URLs serve upstream's newest build."""
+    from fmb.collection.tools.host.parser_appliance import validated_builds
+
+    for name, url in host.PINS["windows_parsers"].items():
+        path = windows_parsers() / name
+        if parser_build(path):
+            continue
+        try:
+            data = zipfile.ZipFile(io.BytesIO(fetch(url))).read(name)
+        except (zipfile.BadZipFile, KeyError) as error:
+            raise SystemExit(f"{url} gave no {name}: {error}") from error
+        digest, builds = hashlib.sha256(data).hexdigest(), validated_builds(name)
+        if digest not in builds:
+            raise SystemExit(f"{url} now serves a {name} that fmb has not validated (SHA-256 {digest}); fmb run accepts "
+                             "only the validated builds: " + "; ".join(f"{sha} ({label})" for sha, label in builds.items())
+                             + f". Put a validated {name} at {path} by hand, such as a copy from a machine set up "
+                             "earlier, then run fmb setup again.")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        part = path.with_name(name + ".part")
+        part.write_bytes(data)
+        os.replace(part, path)
+        log(f"{name}: {builds[digest]}")
 
 
 def file_sha256(path: Path) -> str:
@@ -178,3 +207,4 @@ def all_steps(*, build_base: bool = True, iso: Path | None = None, unpinned_iso:
         log(f"base guest: {base(iso, unpinned_iso=unpinned_iso)}")
     elif build_base:
         log(f"Windows box: {box(iso, unpinned_iso=unpinned_iso)}")
+    parsers()

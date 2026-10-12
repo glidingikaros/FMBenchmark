@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 
 # The check rows that fmb setup itself takes care of; any other missing row is for the user to fix first.
-SET_UP_BY_FMB = (".NET runtime", "Ansible with WinRM", "Windows base image", "Windows box", "free disk", "no VMs left")
+SET_UP_BY_FMB = (".NET runtime", "Ansible with WinRM", "Windows base image", "Windows box", "free disk", "no VMs left",
+                 "Windows parsers")
 
 
 def add_parsers(commands, argv: Sequence[str] = ()) -> None:
