@@ -39,6 +39,8 @@ SKIP_REASON_DESTINATION_EXISTS = "destination_exists"
 SKIP_REASON_ALREADY_COPIED = "already_copied"
 SKIP_REASON_DESTINATION_TAKEN = "destination_taken"
 _FORBIDDEN_COMPONENT_CHARACTERS = frozenset("/\\\x00:")
+# ext4, APFS and most POSIX hosts hold at most 255 bytes per name; NTFS holds 255 UTF-16 units.
+_MAX_COMPONENT_BYTES = 255
 
 
 class UnsafeDestinationError(ValueError):
@@ -161,6 +163,8 @@ def component_problem(part: str) -> str | None:
         return "separator, drive or NUL character in component"
     if not is_portable_relative_path(part):
         return "component is not a portable file name"
+    if len(part.encode("utf-8")) > _MAX_COMPONENT_BYTES:
+        return f"component is longer than {_MAX_COMPONENT_BYTES} UTF-8 bytes"
     return None
 
 
