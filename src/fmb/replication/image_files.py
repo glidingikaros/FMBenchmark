@@ -12,7 +12,6 @@ NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
 TEMPLATE = "template"
 SETTINGS = {"clock_bias_minutes": (-840, 840, "auto"), "activity_count": (1, 500, None),
             "activity_seed": (0, 2**63 - 1, None), "hardware_seed": (0, 2**63 - 1, None)}
-PROVIDER_KEYS = {"openai": "OPENAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
 EMPTY_SCENARIOS = ("typed_path_residue_01", "usn_journal_01", "prefetch_wipe_01", "shimcache_path_residue_01")
 SUPPLEMENT_SCENARIOS = {"BQ-DELETE-01": "usn_journal_01", "BQ-EXEC-01": "prefetch_wipe_01"}
 FIXED_OBJECTS = {
@@ -291,6 +290,8 @@ def llm_dispatch(conditions: list[str], cap_usd: float | None, prices: list[str]
                  own: dict | None = None, passes: int | None = None) -> dict | None:
     from decimal import Decimal, InvalidOperation
 
+    from fmb.interpretation.provider import credentials_problem
+
     if not conditions:
         if cap_usd is not None or prices or own is not None or passes is not None:
             raise ValueError("--cap-usd, --price, --conditions and --passes go with --llm")
@@ -318,9 +319,8 @@ def llm_dispatch(conditions: list[str], cap_usd: float | None, prices: list[str]
         if price is None:
             problems.append(f"{name} has no recorded price; add --price {name}=INPUT,OUTPUT (US dollars per million "
                             "tokens)")
-        key = PROVIDER_KEYS[settings["provider"]]
-        if not environ.get(key, "").strip():
-            problems.append(f"{name} calls {settings['provider']}: set {key}")
+        if problem := credentials_problem(settings["provider"], environ):
+            problems.append(f"{name} calls {settings['provider']}: {problem}")
         if price is not None:
             rates[name] = {"input": str(price["input"]), "output": str(price["output"])}
     if problems:

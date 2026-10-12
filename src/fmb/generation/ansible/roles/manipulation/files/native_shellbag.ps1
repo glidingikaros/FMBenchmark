@@ -952,22 +952,27 @@ if (-not `$exact_target_window_matched -or `$null -eq `$matchedHwnd) {
 
 `$closeWatch = [Diagnostics.Stopwatch]::StartNew()
 do {
+    `$closeListed = `$false
     try {
         Write-LocalNativeShellbagStage -Code 218
         `$activeHwnds = @(
             Get-LocalShellWindowEntries -Shell `$shell |
                 ForEach-Object { [Int64]`$_.hwnd }
         )
+        `$closeListed = `$true
     } catch {
-        Exit-LocalNativeShellbagChild -Code 218
+        # The closing window can fail the listing while Explorer destroys it: not closed yet, so poll again.
     }
-    if (`$activeHwnds -notcontains [Int64]`$matchedHwnd) {
+    if (`$closeListed -and `$activeHwnds -notcontains [Int64]`$matchedHwnd) {
         `$exact_target_window_closed = `$true
         break
     }
     Start-Sleep -Milliseconds 200
 } while (`$closeWatch.Elapsed.TotalSeconds -lt $closeSeconds)
 if (-not `$exact_target_window_closed) {
+    if (-not `$closeListed) {
+        Exit-LocalNativeShellbagChild -Code 218
+    }
     Write-LocalNativeShellbagStage -Code 219
     Exit-LocalNativeShellbagChild -Code 219
 }
@@ -1376,8 +1381,9 @@ function Get-LocalNativeShellbagOwnedProcesses {
         [Parameter(Mandatory)][String]$WorkerCommand,
         [Parameter(Mandatory)][Int32]$ExpectedSessionId
     )
+    # A cold or busy WMI provider can take seconds, and cleanup counts a failed query as a failed visit.
     $processes = @(Get-CimInstance -ClassName Win32_Process `
-        -Filter "Name = 'powershell.exe'" -OperationTimeoutSec 2 -ErrorAction Stop)
+        -Filter "Name = 'powershell.exe'" -OperationTimeoutSec 30 -ErrorAction Stop)
     foreach ($process in $processes) {
         if ([Int32]$process.SessionId -ne $ExpectedSessionId) { continue }
         $command = [string]$process.CommandLine

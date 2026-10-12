@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import os
 import platform
 import re
 import shutil
@@ -118,11 +119,11 @@ def validate_lock(lock):
     return lock
 
 
-def _run_text(command, *, cwd=None):
+def _run_text(command, *, cwd=None, env=None):
     from fmb.core.owned_process import run_owned
 
     return run_owned([str(part) for part in command], cwd=cwd, capture_output=True,
-                     timeout=TOOL_TIMEOUT_SECONDS).stdout
+                     timeout=TOOL_TIMEOUT_SECONDS, env=env).stdout
 
 
 def tree_rows(root, selectors=None):
@@ -142,7 +143,10 @@ def tree_rows(root, selectors=None):
 
 
 def ansible_layout(ansible, collections=GUEST_COLLECTIONS, *, cwd=None):
-    text = _run_text([ansible, "--version"], cwd=cwd)
+    from fmb.generation.backends import ansible_settings
+
+    env = {**os.environ, **ansible_settings()}  # what the playbook sees
+    text = _run_text([ansible, "--version"], cwd=cwd, env=env)
     core = re.search(r"^ansible \[core ([^\]]+)\]", text, re.M)
     module = re.search(r"^\s*ansible python module location = (.+)$", text, re.M)
     if not core or not module:
@@ -150,7 +154,8 @@ def ansible_layout(ansible, collections=GUEST_COLLECTIONS, *, cwd=None):
     galaxy = shutil.which("ansible-galaxy", path=str(Path(ansible).parent)) or Path(ansible).with_name("ansible-galaxy")
     found = {}
     for fqcn in collections:
-        listing = json.loads(_run_text([galaxy, "collection", "list", fqcn, "--format", "json"], cwd=cwd) or "{}")
+        listing = json.loads(_run_text([galaxy, "collection", "list", fqcn, "--format", "json"], cwd=cwd, env=env)
+                             or "{}")
         match = next(((path, entries[fqcn]) for path, entries in listing.items() if fqcn in entries), None)
         if match is None:
             raise RuntimeError(f"collection {fqcn} is not installed for {ansible}")

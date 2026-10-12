@@ -119,7 +119,7 @@ def test_a_logfile_that_lost_a_timestamp_change_is_retried_without_its_disk(tmp_
 
 
 def test_an_interrupted_generation_is_not_retried(tmp_path, monkeypatch):
-    provisioning = '{"outcome": "error", "phase": "ansible_provisioning"}'
+    provisioning = 'FMB_GENERATION_PHASE {"outcome": "error", "phase": "ansible_provisioning"}'
     folder, calls = generating(tmp_path, monkeypatch, [(run.INTERRUPTED, provisioning, False)])
     image = SimpleNamespace(name="I1", paper=True, path=tmp_path / "I1.json")
     with pytest.raises(SystemExit, match="interrupted"):
@@ -128,7 +128,7 @@ def test_an_interrupted_generation_is_not_retried(tmp_path, monkeypatch):
 
 
 def test_only_an_attempt_with_another_to_follow_says_it_is_retried(tmp_path, monkeypatch):
-    provisioning = '{"outcome": "error", "phase": "ansible_provisioning"}'
+    provisioning = 'FMB_GENERATION_PHASE {"outcome": "error", "phase": "ansible_provisioning"}'
     folder, calls = generating(tmp_path, monkeypatch, [(1, provisioning, False), (1, provisioning, False)])
     said = []
     monkeypatch.setattr(run, "log", said.append)
@@ -157,8 +157,9 @@ def test_a_generation_left_running_is_stopped_and_removed(tmp_path, monkeypatch)
     assert killed == [(4242, signal.SIGTERM)]
 
 
-def listing(*lines):
-    return lambda *_, **__: subprocess.CompletedProcess([], 0, stdout="\n".join(lines))
+def listing(*lines, uid="501"):
+    rows = [line.replace(" ", f" {uid} ", 1) for line in lines]
+    return lambda *_, **__: subprocess.CompletedProcess([], 0, stdout="\n".join(rows))
 
 
 def test_leftovers_are_only_reported_while_no_generation_runs(tmp_path, monkeypatch):
@@ -166,6 +167,7 @@ def test_leftovers_are_only_reported_while_no_generation_runs(tmp_path, monkeypa
     (tmp_path / "vm-work" / "20261010_101010_000000").mkdir(parents=True)
     monkeypatch.setattr(host, "WINDOWS", False)
     monkeypatch.setattr(host, "MACOS", True)
+    monkeypatch.setattr(host.os, "getuid", lambda: 501, raising=False)
     monkeypatch.setattr(host.subprocess, "run", listing("1 /bin/zsh"))
     assert host.leftovers() == [("clone", str(tmp_path / "vm-work" / "20261010_101010_000000"))]
     monkeypatch.setattr(host.subprocess, "run", listing("1 /bin/zsh", "77 python -m fmb.replication.steps generate {}"))

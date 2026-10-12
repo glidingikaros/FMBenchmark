@@ -44,8 +44,18 @@ def evtxecmd_row_record_fields(
     return event_id, record_id, channel, source_file
 
 
+def targets_relative_path(source_file: str) -> str:
+    # The log's path inside the collected targets folder (C\Windows\...), whether EvtxECmd was given that folder
+    # by a relative or by an absolute path.
+    parts = source_file.strip().replace("/", "\\").split("\\")
+    folded = [part.casefold() for part in parts]
+    starts = [index for index, part in enumerate(folded)
+              if part == "targets" and (index == 0 or folded[index - 1] == "kape-output")]
+    return "\\".join(parts[starts[-1] + 1:]) if starts else source_file.strip()
+
+
 def event_log_scope_id(channel: str, source_file: str, csv_path: Path) -> str:
-    source = source_file.strip() or csv_path.name
+    source = targets_relative_path(source_file) or csv_path.name
     normalized_source = source.replace("/", "\\").casefold()
     normalized = f"{channel.strip().casefold()}|{normalized_source}"
     return f"event-log:{sha256_text(normalized)[:24]}"
@@ -299,12 +309,12 @@ def evtxecmd_parser_run(
             or projected_scope[1].endswith("\\security.evtx")
         )
     )
-    retained_ids = None
+    retained_ids = projection_error = None
     if len(security_paths) == 1 and security_paths[0].stat().st_size <= MAX_RAW_SECURITY_EVTX_BYTES:
         try:
             retained_ids = retained_record_ids(security_paths[0].read_bytes())
-        except (OSError, ValueError):
-            pass
+        except ValueError as error:
+            projection_error = f"{security_paths[0].name} could not be parsed: {error}"
     projection_proven = bool(
         retained_ids is not None
         and security_scope_bound
@@ -377,6 +387,7 @@ def evtxecmd_parser_run(
         collector_run=collector_run,
         raw_output=csv_path,
         observations=observations,
+        index_extra={"native_record_projection_error": projection_error} if projection_error else None,
         coverage_status=coverage_status,
         additional_raw_outputs=security_paths,
         coverage_scope={

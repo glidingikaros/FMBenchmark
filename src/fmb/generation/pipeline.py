@@ -32,6 +32,7 @@ from fmb.generation import archive_control
 from fmb.generation import vmware_clone
 
 MIN_GENERATION_RUNTIME_RESERVE_BYTES = 8 * 1024**3
+DISK_FULL = re.compile(r"No space left on device|not enough space on the disk|\[Errno 28\]|\[WinError 112\]", re.I)
 
 
 EXECUTION_ORDER_LAST = ("timestomp_01",)
@@ -1190,11 +1191,14 @@ class GenerationPipeline:
             "ansible_winrm_transport": "ntlm",
             "ansible_winrm_server_cert_validation": "ignore",
             "ansible_winrm_operation_timeout_sec": 120,
-            "ansible_winrm_read_timeout_sec": 130,
+            "ansible_winrm_read_timeout_sec": 300,
         }
+        from fmb.generation.backends import ansible_settings
+
         env = {
             "ANSIBLE_HOST_KEY_CHECKING": "False",
             "ANSIBLE_FORKS": "1",
+            **ansible_settings(),
         }
         if sys.platform == "darwin":
             env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
@@ -1380,7 +1384,7 @@ class GenerationPipeline:
             "ansible_winrm_server_cert_validation": "ignore",
             "ansible_winrm_transport": "ntlm",
             "ansible_winrm_operation_timeout_sec": 120,
-            "ansible_winrm_read_timeout_sec": 130,
+            "ansible_winrm_read_timeout_sec": 300,
         }
         if self.is_macos:
             extra_vars["fmb_generation_host_is_macos"] = True
@@ -1405,12 +1409,14 @@ class GenerationPipeline:
         ]
         if self.population_inputs_path is not None:
             cmd.extend(["-e", f"@{self.population_inputs_path}"])
-        env = None
+        from fmb.generation.backends import ansible_settings
+
+        env = ansible_settings()
         if self.is_macos:
             ansible_tags = os.environ.get("GENERATION_ANSIBLE_TAGS")
             if ansible_tags:
                 cmd.extend(["--tags", ansible_tags])
-            env = {
+            env |= {
                 "ANSIBLE_HOST_KEY_CHECKING": "False",
                 "ANSIBLE_FORKS": "1",
             }
@@ -1670,12 +1676,22 @@ class GenerationPipeline:
     def halt_vm(self):
         print("[*] Halting VM for forensic consistency...")
         vmx_path = self.discover_current_vmware_vmx_path()
+        for attempt in (1, 2):
+            try:
+                self.run_vmrun(["stop", str(vmx_path), "soft"], timeout_seconds=240)
+                return
+            except subprocess.CalledProcessError as error:
+                if attempt == 2 or not self.still_running(vmx_path):
+                    raise RuntimeError(
+                        "soft VMware halt failed; refusing forensic export from an uncleanly stopped guest"
+                    ) from error
+                print(f"[!] Warning: the soft VMware halt failed (exit code {error.returncode}); asking once more")
+
+    def still_running(self, vmx_path):
         try:
-            self.run_vmrun(["stop", str(vmx_path), "soft"], timeout_seconds=240)
-        except subprocess.CalledProcessError as error:
-            raise RuntimeError(
-                "soft VMware halt failed; refusing forensic export from an uncleanly stopped guest"
-            ) from error
+            return self.is_vmware_vm_running(vmx_path)
+        except (subprocess.CalledProcessError, OSError):
+            return False
 
     def discover_disk_path(self):
         return self.vmware_disk_from_vmx(self.vmware_run_vmx_path)
@@ -1725,16 +1741,7 @@ class GenerationPipeline:
         )
         started = time.monotonic()
         try:
-            self.run_command(
-                [
-                    "qemu-img",
-                    "convert",
-                    "-O",
-                    output_format,
-                    str(source_disk),
-                    str(partial_path),
-                ]
-            )
+            self.convert_disk(source_disk, partial_path, output_format)
             if not partial_path.is_file() or partial_path.stat().st_size <= 0:
                 raise RuntimeError(
                     f"converted image is missing or empty: {partial_path}"
@@ -1749,6 +1756,20 @@ class GenerationPipeline:
         finally:
             if partial_path.exists():
                 partial_path.unlink()
+
+    def convert_disk(self, source_disk, partial_path, output_format):
+        """qemu-img convert, tried once more unless the disk is full; converting does not change its source."""
+        command = ["qemu-img", "convert", "-O", output_format, str(source_disk), str(partial_path)]
+        for attempt in (1, 2):
+            try:
+                self.run_command(command, capture_output=True)
+                return
+            except subprocess.CalledProcessError as error:
+                said = ((error.stdout or "") + (error.stderr or "")).strip()[-400:] or f"exit code {error.returncode}"
+                partial_path.unlink(missing_ok=True)
+                if attempt == 2 or DISK_FULL.search(said):
+                    raise RuntimeError(f"qemu-img convert failed: {said}") from error
+                print(f"[!] Warning: qemu-img convert failed ({said}); converting once more", flush=True)
 
     def native_surface_module(self):
         from fmb.generation import ntfs_surface_injection as native
@@ -2367,6 +2388,8 @@ class GenerationPipeline:
                 generation_manifest = self.extract_disk(source_disk)
         except BaseException as error:
             pipeline_error = error
+            if isinstance(error, Exception):
+                self.keep_vm_logs()
         try:
             with _host_phase("cleanup"):
                 cleanup_receipt = self.cleanup()
@@ -2389,6 +2412,20 @@ class GenerationPipeline:
         print("\n[+] Pipeline completed successfully!")
         print(f"[+] Artifacts available in: {self.output_dir}")
 
+
+    def keep_vm_logs(self):
+        """Copies the VM's own logs into the attempt before cleanup deletes them, and says why QEMU exited."""
+        try:
+            report = getattr(getattr(self, "_vm_backend", None), "exit_report", lambda: None)()
+            if report:
+                print(f"[!] {report}", flush=True)
+            state = getattr(self, "vagrant_state_dir", None)
+            logs = [*(state / name for name in ("qemu.log", "serial.log")), *state.rglob("vmware*.log")] if state else []
+            for path in [path for path in logs if path.is_file()]:
+                (self.output_dir / "vm-logs").mkdir(exist_ok=True)
+                shutil.copy2(path, self.output_dir / "vm-logs" / path.name)
+        except Exception as error:  # never hide the failure being reported
+            print(f"[!] Warning: could not keep the VM's logs: {error}", flush=True)
 
     def post_export_directory(self):
         return self.output_dir / POST_EXPORT_DIRECTORY
@@ -2436,10 +2473,7 @@ class GenerationPipeline:
         journal = PostExportJournal(directory, hasher=self.calculate_hash,
                                     checkpoint=self.checkpoint_post_export_state)
         if journal.entries:
-            raise RuntimeError(
-                f"a post-export journal already exists in {directory}; "
-                "resume it with --resume-post-export"
-            )
+            raise RuntimeError(f"a post-export journal already exists in {directory}; this attempt cannot export again")
         self.post_export_journal = journal
         self.checkpoint_post_export_state()
         return journal
@@ -2458,10 +2492,7 @@ class GenerationPipeline:
         if (self.output_dir / "manifest.json").exists():
             return
         write_json_replace(self.post_export_directory() / POST_EXPORT_CLEANUP_NAME, cleanup_receipt)
-        print(
-            "[!] The post-export stage did not complete; once the cause is fixed, resume "
-            f"it with: --resume-post-export {self.output_dir}"
-        )
+        print("[!] The post-export stage did not complete; this attempt is not published")
 
     @classmethod
     def resume_post_export(cls, output_dir):

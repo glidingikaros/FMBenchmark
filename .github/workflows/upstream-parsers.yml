@@ -1,0 +1,26 @@
+name: Upstream parsers
+
+# fmb setup downloads PECmd.exe and SBECmd.exe from URLs that always serve upstream's newest build, and accepts only the
+# builds in eztools-lock.json's validated_builds. This job fails as soon as upstream serves another build, so the
+# maintainer learns of it before users' setups fail.
+on:
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validated:
+    name: PECmd.exe and SBECmd.exe downloads are validated builds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Download them as fmb setup does, into an empty cache
+        env:
+          FMB_CACHE: ${{ runner.temp }}/fmb-cache
+        run: python3 -c "import sys; sys.path.insert(0, 'src'); from fmb.replication import setup; setup.parsers()"

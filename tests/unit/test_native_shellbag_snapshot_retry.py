@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from pwsh_helpers import PWSH_TIMEOUT
+
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / 'src/fmb/generation/ansible/roles/manipulation/files/native_shellbag.ps1'
 PWSH = shutil.which('pwsh')
@@ -16,7 +18,7 @@ pytestmark = pytest.mark.skipif(not PWSH, reason='PowerShell required')
 def run(script: str, *args: str) -> object:
     result = subprocess.run([PWSH, '-NoProfile', '-NonInteractive', '-CommandWithArgs',
                              '. $args[0]\n' + script, str(HELPER), *args],
-                            text=True, capture_output=True, timeout=30, check=False)
+                            text=True, capture_output=True, timeout=PWSH_TIMEOUT, check=False)
     assert result.returncode == 0, result.stderr
     assert not result.stderr.strip(), result.stderr
     assert 'PRIVATE_DO_NOT_EMIT' not in result.stdout

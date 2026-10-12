@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,7 @@ LINUX_QEMU = {
     "suse": "sudo zypper install qemu-x86 qemu-tools qemu-ovmf-x86_64",
 }
 VMRUN = Path("/Applications/VMware Fusion.app/Contents/Public/vmrun")
+GENERATION_CLONE = re.compile(r"\d{8}_\d{6}_\d{6}")
 RESERVE_GIB = 8
 RESULT_GIB = 2
 LONG_PATHS = ("admin PowerShell: New-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem "
@@ -77,9 +79,15 @@ def uv_tool_bin() -> Path | None:
     return Path(completed.stdout.strip()) if completed.returncode == 0 and completed.stdout.strip() else None
 
 
+def ansible_home() -> Path:
+    """fmb's own Ansible: its tools, their commands and its collections, apart from the user's."""
+    return cache() / "ansible"
+
+
 def environment() -> dict[str, str]:
     env = dict(os.environ)
-    front = [str(path) for path in (dotnet_home(), uv_tool_bin(), QEMU_WINDOWS_DIR if WINDOWS else None)
+    front = [str(path) for path in (dotnet_home(), ansible_home() / "bin", uv_tool_bin(),
+                                    QEMU_WINDOWS_DIR if WINDOWS else None)
              if path and Path(path).is_dir()]
     env["PATH"] = os.pathsep.join(front + [env.get("PATH", "")])
     if dotnet_home().is_dir():
@@ -87,6 +95,7 @@ def environment() -> dict[str, str]:
     env.setdefault("FMB_QEMU_BASE_HOME", str(base_home()))
     env.setdefault("FMB_HOST_TOOLCHAIN_ROOT", str(cache() / "eztools" / "net9"))
     env.setdefault("FMB_DFIR_NTFS_ENV", str(cache() / "dfir-ntfs" / "venv"))
+    env.setdefault("FMB_ANSIBLE_COLLECTIONS", str(ansible_home() / "collections"))
     env.setdefault("PYTHONUTF8", "1")
     return env
 
@@ -134,10 +143,16 @@ def image_need_gib() -> float:
     return 2 * (allocated_gib(base) if base.is_dir() else 10) + RESERVE_GIB + RESULT_GIB
 
 
+def processes() -> list[tuple[str, str]]:
+    """The pid and command line of this user's processes (macOS and Linux)."""
+    listing = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,uid=,args="], capture_output=True, text=True,
+                             check=False).stdout
+    rows = [line.split(None, 2) for line in listing.splitlines()]
+    return [(row[0], row[2]) for row in rows if len(row) == 3 and row[1] == str(os.getuid())]
+
+
 def generation_running() -> bool:
-    listing = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,args="], capture_output=True, text=True, check=False).stdout
-    return any("fmb.replication.steps generate" in line and line.split(None, 1)[0] != str(os.getpid())
-               for line in listing.splitlines())
+    return any("fmb.replication.steps generate" in args and pid != str(os.getpid()) for pid, args in processes())
 
 
 def leftovers() -> list[tuple[str, str]]:
@@ -146,11 +161,13 @@ def leftovers() -> list[tuple[str, str]]:
     found = []
     work = cache() / "vm-work"
     if MACOS and work.is_dir():
-        found += [("clone", str(folder)) for folder in sorted(work.iterdir()) if folder.is_dir()]
+        # A generation names its clone by its start time; fmb run's parser VM (fmb-parser-*), which fmb run
+        # reaps itself, is not one, nor is its QEMU (-name fmb-parser-<pid>) below.
+        found += [("clone", str(folder)) for folder in sorted(work.iterdir())
+                  if folder.is_dir() and GENERATION_CLONE.fullmatch(folder.name)]
     if not MACOS:
-        listing = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,args="], capture_output=True, text=True, check=False).stdout
-        found += [("qemu", line.split(None, 1)[0]) for line in listing.splitlines()
-                  if "qemu-system" in line and "/.vagrant/system.qcow2" in line]
+        found += [("qemu", pid) for pid, args in processes()
+                  if "qemu-system" in args and "/.vagrant/system.qcow2" in args and "fmb-parser-" not in args]
         found += [("overlay", str(disk.parent)) for disk in
                   sorted(generated().glob("*/generation/attempt-*/full_scale/*/.vagrant/system.qcow2"))]
     return found
@@ -191,6 +208,21 @@ def long_paths() -> bool:
         return False
 
 
+def wsl_distribution() -> str:
+    return os.environ.get("FMB_WSL_DISTRO") or PINS["wsl_distribution"]
+
+
+def wsl_versions() -> dict[str, str]:
+    """Each WSL distribution's WSL version; wsl.exe writes UTF-16, or UTF-8 when WSL_UTF8=1 is set."""
+    try:
+        data = subprocess.run(["wsl.exe", "--list", "--verbose"], capture_output=True, check=False).stdout
+    except OSError:
+        return {}
+    text = data.decode("utf-16-le" if b"\0" in data else "utf-8", "replace").replace("\ufeff", "")
+    rows = [line.lstrip("* ").split() for line in text.splitlines()]
+    return {row[0]: row[-1] for row in rows if len(row) >= 3 and row[-1].isdigit()}
+
+
 def load_warning() -> str | None:
     """A warning when other work leaves the generation guest's 2 vCPUs short; None when idle or unknown (Windows)."""
     if not hasattr(os, "getloadavg"):
@@ -211,7 +243,9 @@ def check(rows: list, name: str, found, fix: str) -> None:
 def checks() -> list[tuple[str, bool, str]]:
     rows: list[tuple[str, bool, str]] = []
     system = platform.system()
-    where = generated() if generated().is_dir() else generated().parent
+    where = generated()
+    while not where.is_dir() and where.parent != where:  # a new FMB_HOME has no folders yet
+        where = where.parent
     need, free = image_need_gib(), shutil.disk_usage(where).free / 2**30
     rows.append((f"free disk for one image ({need:.0f} GiB while it is generated and analysed)", free >= need,
                  f"{free:.0f} GiB free at {where}"))
@@ -224,6 +258,12 @@ def checks() -> list[tuple[str, bool, str]]:
     wanted = f"Microsoft.NETCore.App {PINS['dotnet_runtime']['version']}"
     check(rows, f".NET runtime {PINS['dotnet_runtime']['version']}", wanted in runtimes,
           "run: fmb setup (installs it under the cache)")
+    from fmb.replication.setup import parser_build, windows_parsers
+
+    builds = {name: parser_build(windows_parsers() / name) for name in PINS["windows_parsers"]}
+    unfit = [name for name, build in builds.items() if not build]
+    check(rows, "Windows parsers (PECmd.exe, SBECmd.exe), validated builds", not unfit and "; ".join(builds.values()),
+          f"run: fmb setup ({', '.join(unfit)} in {windows_parsers()}: missing or not a validated build)")
     if MACOS:
         check(rows, "VMware Fusion (vmrun)", VMRUN.exists() and VMRUN, "install VMware Fusion 13")
         vagrant = which("vagrant")
@@ -263,10 +303,12 @@ def checks() -> list[tuple[str, bool, str]]:
     else:
         check(rows, "Windows Hypervisor Platform (QEMU starts with WHPX)", qemu and accelerates(qemu, "whpx"),
               "admin PowerShell: Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform; reboot")
-        listed = subprocess.run(["wsl.exe", "--list", "--quiet"], capture_output=True, check=False).stdout
-        distro = PINS["wsl_distribution"]
-        check(rows, f"WSL distribution {distro}", distro in listed.decode("utf-16-le", "replace"),
+        distro, versions = wsl_distribution(), wsl_versions()
+        check(rows, f"WSL distribution {distro}", distro in versions,
               f"wsl --install -d {distro} --no-launch; wsl --set-version {distro} 1")
+        if distro in versions:
+            check(rows, f"WSL 1 for {distro} (Ansible there reaches the guest at Windows' 127.0.0.1)",
+                  versions[distro] == "1", f"wsl --set-version {distro} 1 (it runs under WSL {versions[distro]})")
         check(rows, "long paths (collection writes paths over 260 characters)", long_paths(), LONG_PATHS)
     check(rows, "Ansible with WinRM", which("ansible-playbook"), "run: fmb setup")
     base = windows_base()

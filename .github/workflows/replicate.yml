@@ -10,7 +10,7 @@ on:
         type: string
         required: false
       hosts:
-        description: "Windows hosts are work in progress: generation works, evidence collection does not yet"
+        description: "Where to generate and run: linux (Ubuntu with KVM), windows (Windows Server with WHPX, Ansible in WSL 1), both, or distros (Fedora, Arch and openSUSE, each in a fresh container)"
         type: choice
         options: [linux, windows, both, distros]
         default: linux
@@ -18,6 +18,10 @@ on:
         description: "The images to generate and run, as a JSON list of names of files in images/ (such as I1), of paths ending in .json (such as tests/fixtures/images/stress.json), or random (a random image seeded by the run ID)"
         type: string
         default: '["I1", "I2", "I3"]'
+      twice:
+        description: "Run each image a second time with --recollect into a second results folder, and fail when its G3-G5 gates or evidence index differ from the first run's (linux, windows and distros)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -105,9 +109,16 @@ jobs:
         run: sg kvm -c "uv run fmb generate ${{ matrix.image }}"
       - name: "README: run ${{ matrix.image }}"
         run: sg kvm -c "uv run fmb run ${{ steps.image.outputs.name }}"
+      - name: "runner: run ${{ matrix.image }} again into a second results folder and compare the two runs (twice)"
+        if: inputs.twice
+        run: |
+          mkdir -p /mnt/fmb/twice && ln -sfn /mnt/fmb/generated /mnt/fmb/twice/generated
+          sg kvm -c "FMB_HOME=/mnt/fmb/twice uv run fmb run ${{ steps.image.outputs.name }} --recollect"
+          uv run python scripts/compare_runs.py /mnt/fmb/results/${{ steps.image.outputs.name }}/*/run \
+            /mnt/fmb/twice/results/${{ steps.image.outputs.name }}/*/run
       - name: "runner: the end of each log, when a step failed (the terminal shows one line per step)"
         if: failure()
-        run: tail -n 60 /mnt/fmb/generated/*.log /mnt/fmb/generated/*/*.log /mnt/fmb/results/*/*/pipeline.log 2>/dev/null || true
+        run: tail -n 60 /mnt/fmb/generated/*.log /mnt/fmb/generated/*/*.log /mnt/fmb/results/*/*/pipeline.log /mnt/fmb/twice/results/*/*/pipeline.log 2>/dev/null || true
       - name: Summary
         if: always()
         run: |
@@ -125,6 +136,8 @@ jobs:
             /mnt/fmb/results/*/*/run/gates/*.json
             /mnt/fmb/results/*/*/run/run-manifest.json
             /mnt/fmb/results/*/*/run/analysis/evidence_index.json
+            /mnt/fmb/twice/results/*/*/run/gates/*.json
+            /mnt/fmb/twice/results/*/*/run/analysis/evidence_index.json
             /mnt/fmb/generated/*.log
             /mnt/fmb/generated/*/*.log
             /mnt/fmb/generated/*/image.json
@@ -175,9 +188,10 @@ jobs:
         env:
           DISTRO: ${{ matrix.distro }}
           IMAGE: ${{ matrix.image }}
+          TWICE: ${{ inputs.twice }}
         run: |
           docker run --rm --device /dev/kvm -v "$PWD":/work -v /mnt/fmb:/mnt/fmb -v "$HOME/Downloads":/downloads:ro \
-            -e FMB_CACHE=/mnt/fmb/cache -e ISO -e IMAGE -e GITHUB_RUN_ID -w /work "$DISTRO" bash -euo pipefail -c '
+            -e FMB_CACHE=/mnt/fmb/cache -e ISO -e IMAGE -e GITHUB_RUN_ID -e TWICE -w /work "$DISTRO" bash -euo pipefail -c '
             . /etc/os-release
             case " $ID ${ID_LIKE:-} " in
               *" fedora "*) dnf install -y qemu-system-x86-core qemu-img edk2-ovmf git curl tar gzip procps-ng libicu ;;
@@ -194,10 +208,16 @@ jobs:
             uv run fmb setup --iso "/downloads/$ISO"
             if [ "$IMAGE" = random ]; then uv run python scripts/random_image.py "$GITHUB_RUN_ID" images/random.json; fi
             uv run fmb generate "$IMAGE"
-            uv run fmb run "$(basename "$IMAGE" .json)"'
+            uv run fmb run "$(basename "$IMAGE" .json)"
+            if [ "$TWICE" = true ]; then
+              name=$(basename "$IMAGE" .json)
+              mkdir -p /mnt/fmb/twice && ln -sfn /mnt/fmb/generated /mnt/fmb/twice/generated
+              FMB_HOME=/mnt/fmb/twice uv run fmb run "$name" --recollect
+              uv run python scripts/compare_runs.py /mnt/fmb/results/"$name"/*/run /mnt/fmb/twice/results/"$name"/*/run
+            fi'
       - name: "runner: the end of each log, when a step failed (the terminal shows one line per step)"
         if: failure()
-        run: sudo tail -n 60 /mnt/fmb/generated/*.log /mnt/fmb/generated/*/*.log /mnt/fmb/results/*/*/pipeline.log 2>/dev/null || true
+        run: sudo tail -n 60 /mnt/fmb/generated/*.log /mnt/fmb/generated/*/*.log /mnt/fmb/results/*/*/pipeline.log /mnt/fmb/twice/results/*/*/pipeline.log 2>/dev/null || true
       - name: Summary
         if: always()
         run: sudo cat /mnt/fmb/results/*/*/report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
@@ -329,10 +349,24 @@ jobs:
         run: uv run fmb generate ${{ matrix.image }}
       - name: "README: run ${{ matrix.image }}"
         run: uv run fmb run ${{ steps.image.outputs.name }}
+      - name: "runner: run ${{ matrix.image }} again into a second results folder and compare the two runs (twice)"
+        if: inputs.twice
+        run: |
+          $twice = "$env:RUNNER_TEMP\fmb-twice"
+          New-Item -ItemType Directory -Force $twice | Out-Null
+          New-Item -ItemType Junction -Path "$twice\generated" -Target (Resolve-Path generated).Path | Out-Null
+          $env:FMB_HOME = $twice
+          uv run fmb run ${{ steps.image.outputs.name }} --recollect
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Remove-Item Env:FMB_HOME
+          $first = (Get-Item "results\${{ steps.image.outputs.name }}\*\run").FullName
+          $second = (Get-Item "$twice\results\${{ steps.image.outputs.name }}\*\run").FullName
+          uv run python scripts/compare_runs.py $first $second
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: "runner: the end of each log, when a step failed (the terminal shows one line per step)"
         if: failure()
         run: |
-          Get-ChildItem generated\*.log, generated\*\*.log, results\*\*\pipeline.log -ErrorAction SilentlyContinue |
+          Get-ChildItem generated\*.log, generated\*\*.log, results\*\*\pipeline.log, "$env:RUNNER_TEMP\fmb-twice\results\*\*\pipeline.log" -ErrorAction SilentlyContinue |
             ForEach-Object { "==> $($_.FullName) <=="; Get-Content $_.FullName -Tail 60 }
       - name: Summary
         if: always()
@@ -354,6 +388,8 @@ jobs:
             results/*/*/run/gates/*.json
             results/*/*/run/run-manifest.json
             results/*/*/run/analysis/execution/**/tool-logs/
+            ${{ runner.temp }}/fmb-twice/results/*/*/run/gates/*.json
+            ${{ runner.temp }}/fmb-twice/results/*/*/run/analysis/evidence_index.json
             generated/*.log
             generated/*/*.log
             generated/*/image.json

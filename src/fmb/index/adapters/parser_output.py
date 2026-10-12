@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import heapq
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -93,16 +94,20 @@ def source_bound_observations(
     return scoped
 
 
+def portable_path(path: Path, base: Path) -> str:
+    # A path as seen from base, so a record names it the same way wherever the collection folder is.
+    try:
+        return Path(os.path.relpath(path.resolve(), base.resolve())).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def normalized_output_path(
     normalized_output_dir: Path,
     source_path: Path,
     suffix: str,
 ) -> Path:
-    path_hash = (
-        sha256_text(str(source_path.resolve()))[:12]
-        if source_path.exists()
-        else sha256_text(str(source_path))[:12]
-    )
+    path_hash = sha256_text(portable_path(source_path, normalized_output_dir))[:12]
     return normalized_output_dir / (
         f"{safe_path_component(source_path.parent.name)}."
         f"{safe_path_component(source_path.stem)}."
@@ -242,6 +247,17 @@ def apply_host_processor_status(
     return parser_run
 
 
+def unavailable_coverage(parser_run: dict[str, Any]) -> str | None:
+    """'parser (module): reason' for a run that certifies no coverage, None for any other run."""
+    if parser_run.get("coverage_status") != COVERAGE_STATUS_UNAVAILABLE:
+        return None
+    provenance = parser_run.get("provenance") or {}
+    reason = (provenance.get("unavailable_reason") or (provenance.get("host_processor_run") or {}).get("detail")
+              or "no reason recorded")
+    module = str(parser_run.get("source_module")).split("#")[0]
+    return f"{parser_run.get('parser')} ({module}): {reason}"
+
+
 def write_observation_index(
     *,
     normalized_output_dir: Path,
@@ -263,7 +279,7 @@ def write_observation_index(
             "schema_version": "parser_observation_index.v1",
             "parser": parser,
             "parser_kind": parser_kind,
-            "source": str(raw_output),
+            "source": portable_path(raw_output, normalized_output.parent),
             **(extra or {}),
             "record_count": len(observations),
             "observations": observations,
@@ -289,6 +305,7 @@ def parser_run_from_observations(
     coverage_families: list[str] | None = None,
     additional_raw_outputs: list[Path] | None = None,
     coverage_scope: dict[str, Any] | None = None,
+    unavailable_reason: str | None = None,
 ) -> dict[str, Any]:
     observations = source_bound_observations(observations, raw_output)
     normalized_output = write_observation_index(
@@ -314,6 +331,7 @@ def parser_run_from_observations(
         coverage_status=coverage_status,
         coverage_families=coverage_families,
         coverage_scope=coverage_scope,
+        unavailable_reason=unavailable_reason,
     )
 
 

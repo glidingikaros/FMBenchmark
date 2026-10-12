@@ -307,17 +307,17 @@ def _attested_openrouter_route(
     raw: dict[str, Any], *, model: str, pinned_route: str
 ) -> str:
 
-    def reject(detail: str) -> None:
+    def reject(detail: str, mismatch: bool = False) -> None:
         raise ExternalToolError(
             f"OpenRouter router metadata {detail}",
-            details={"provider_failure_kind": "provider_error"},
+            details={"provider_failure_kind": "provider_error", **({"response_mismatch": True} if mismatch else {})},
         )
 
     metadata = raw.get("openrouter_metadata")
     if not isinstance(metadata, dict):
         reject("is missing from a pinned-route response")
     if metadata.get("requested") != model:
-        reject("does not identify the requested model")
+        reject("does not identify the requested model", mismatch=True)
     if metadata.get("strategy") != "direct":
         reject("does not report direct routing")
     attempt = metadata.get("attempt")
@@ -342,7 +342,7 @@ def _attested_openrouter_route(
     expected_provider = expected_openrouter_upstream(model, pinned_route)
     attested_provider = expected_provider or pinned_route
     if selected_provider.casefold() != attested_provider.casefold():
-        reject("does not match the pinned route")
+        reject("does not match the pinned route", mismatch=True)
     if not isinstance(selected_model, str) or not selected_model:
         reject("does not identify the selected endpoint model")
 
@@ -387,8 +387,8 @@ def _normalized_response(
     response_model = raw_model if isinstance(raw_model, str) and raw_model else None
     if response_model is not None and response_model != model:
         raise ExternalToolError(
-            f"{provider} response model does not match the requested model",
-            details={"provider_failure_kind": "provider_error"},
+            f"{provider} response model {response_model} does not match the requested model {model}",
+            details={"provider_failure_kind": "provider_error", "response_mismatch": True},
         )
     raw_route = raw.get("provider") if provider == "openrouter" else None
     response_route = raw_route if isinstance(raw_route, str) and raw_route else None
@@ -405,7 +405,7 @@ def _normalized_response(
     ):
         raise ExternalToolError(
             "OpenRouter response provider does not match the pinned route",
-            details={"provider_failure_kind": "provider_error"},
+            details={"provider_failure_kind": "provider_error", "response_mismatch": True},
         )
     response_id = raw.get("id")
     if not isinstance(response_id, str) or not response_id:

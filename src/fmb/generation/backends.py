@@ -227,7 +227,24 @@ def ansible_winrm_vars(port: int) -> dict:
             "ansible_password": "vagrant", "ansible_connection": "winrm", "ansible_winrm_scheme": "http",
             "ansible_winrm_transport": "ntlm", "ansible_winrm_message_encryption": "always",
             "ansible_winrm_server_cert_validation": "ignore",
-            "ansible_winrm_operation_timeout_sec": 120, "ansible_winrm_read_timeout_sec": 130}
+            "ansible_winrm_operation_timeout_sec": 120, "ansible_winrm_read_timeout_sec": 300}
+
+
+ANSIBLE_CONFIG = Path(__file__).parent / "ansible" / "ansible.cfg"
+# The host reads its receipts from Ansible's output, so the format must not follow the user's Ansible settings.
+ANSIBLE_OUTPUT = {"ANSIBLE_STDOUT_CALLBACK": "default", "ANSIBLE_CALLBACK_RESULT_FORMAT": "json",
+                  "ANSIBLE_NOCOLOR": "1", "ANSIBLE_FORCE_COLOR": "0"}
+
+
+def ansible_settings() -> dict[str, str]:
+    """What fmb's Ansible runs set over the environment: fmb's config and output format, and the collections fmb setup
+    installed (FMB_ANSIBLE_COLLECTIONS); a machine set up before those existed keeps Ansible's default places."""
+    settings = {**ANSIBLE_OUTPUT, "ANSIBLE_CONFIG": str(ANSIBLE_CONFIG)}
+    private = os.environ.get("FMB_ANSIBLE_COLLECTIONS")
+    if private and Path(private).is_dir():
+        # Alone: `ansible-galaxy collection list`, which the lock reads, sorts by path, not by search order.
+        settings["ANSIBLE_COLLECTIONS_PATH"] = private
+    return settings
 
 
 def ansible_adhoc(ansible: str, port: int, module: str, args: dict, *, timeout: int):
@@ -237,7 +254,7 @@ def ansible_adhoc(ansible: str, port: int, module: str, args: dict, *, timeout: 
     module_args = ["-a", json.dumps(args)] if args else []
     return subprocess.run([ansible, "all", "-i", "127.0.0.1,", "-m", module, *module_args,
                            "-e", json.dumps(ansible_winrm_vars(port))],
-                          capture_output=True, text=True, timeout=timeout)
+                          capture_output=True, text=True, timeout=timeout, env={**os.environ, **ansible_settings()})
 
 
 def qemu_guest_command(qemu: Path, state: Path, *, winrm_port: int, monitor_port: int,
@@ -277,6 +294,7 @@ class QemuBackend:
         self.pipeline = pipeline
         self.process = None
         self.winrm_port = None
+        self.halted = False
 
     @staticmethod
     def _which(name: str) -> str | None:
@@ -392,15 +410,27 @@ class QemuBackend:
         import socket
         import time
 
+        def until_prompt(connection, deadline: float) -> bytes:
+            # A reply can come in several reads; it is complete when the monitor prompts again.
+            data = b""
+            while b"(qemu)" not in data and time.monotonic() < deadline:
+                connection.settimeout(max(0.1, deadline - time.monotonic()))
+                try:
+                    chunk = connection.recv(65536)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                data += chunk
+            return data
+
         with socket.create_connection(("127.0.0.1", self.monitor_port), timeout=10) as connection:
-            connection.recv(4096)
+            until_prompt(connection, time.monotonic() + 10)
             connection.sendall(command.encode() + b"\n")
             time.sleep(0.5)
-            connection.settimeout(2)
-            try:
-                return connection.recv(65536).decode(errors="replace")
-            except OSError:
-                return ""
+            reply = until_prompt(connection, time.monotonic() + 10).decode(errors="replace")
+            # The monitor echoes the typed line, redrawn once per byte, and ends it with "\r\n"; its answer follows.
+            return reply.split("\r\n", 1)[1] if "\r\n" in reply else ""
 
     def media_commands(self, hardware: dict, media: list[dict]) -> list[str]:
         commands = []
@@ -539,21 +569,53 @@ class QemuBackend:
                 "password": self.WINRM_USER[1]}
 
     def halt(self) -> None:
+        if self.process is None or self.process.poll() is not None:
+            exited = "" if self.process is None else f" (QEMU exited with {self.process.returncode})"
+            raise RuntimeError(f"the QEMU guest is not running{exited}; refusing forensic export")
+        asked = self._ask_shutdown()
+        if not self._exited(300):
+            # Only where the shutdown above failed: a power-button press makes Windows shut down cleanly too.
+            print(f"[!] Warning: the guest did not shut down within 5 minutes{asked}; pressing its ACPI power button",
+                  flush=True)
+            try:
+                self._monitor("system_powerdown")
+            except OSError as error:
+                raise RuntimeError("guest shutdown did not finish and QEMU's monitor did not answer; refusing "
+                                   "forensic export") from error
+            if not self._exited(300):
+                raise RuntimeError("guest shutdown did not finish; refusing forensic export from "
+                                   "an uncleanly stopped guest")
+        if self.process.returncode != 0:
+            raise RuntimeError(f"QEMU exited with {self.process.returncode}; refusing forensic export")
+        self.halted = True
+
+    def exit_report(self) -> str | None:
+        """QEMU's exit code and the end of its log, when it exited without being halted."""
+        if self.process is None or self.process.poll() is None or self.halted:
+            return None
+        log = self.pipeline.vagrant_state_dir / "qemu.log"
+        tail = log.read_text(encoding="utf-8", errors="replace")[-2000:].strip() if log.is_file() else ""
+        return f"QEMU exited with {self.process.returncode}; " + (f"the end of its log:\n{tail}" if tail else
+                                                                   "its log is empty")
+
+    def _ask_shutdown(self) -> str:
+        """Asks Windows to shut down; returns how asking failed, if it did."""
         import subprocess
 
-        if self.process is None or self.process.poll() is not None:
-            raise RuntimeError("the QEMU guest is not running; refusing forensic export")
         try:
-            self._guest_powershell("shutdown.exe /s /t 5 /f", timeout=120)
+            asked = self._guest_powershell("shutdown.exe /s /t 5 /f", timeout=120)
         except subprocess.TimeoutExpired:
-            pass
+            return " (asking it over WinRM got no answer within 2 minutes)"
+        return "" if asked.returncode == 0 else f" (asking it over WinRM failed with exit code {asked.returncode})"
+
+    def _exited(self, seconds: int) -> bool:
+        import subprocess
+
         try:
-            code = self.process.wait(timeout=300)
-        except subprocess.TimeoutExpired as error:
-            raise RuntimeError("guest shutdown did not finish; refusing forensic export from "
-                               "an uncleanly stopped guest") from error
-        if code != 0:
-            raise RuntimeError(f"QEMU exited with {code}; refusing forensic export")
+            self.process.wait(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            return False
+        return True
 
     def system_disk(self) -> Path:
         return self.pipeline.vagrant_state_dir / "system.qcow2"

@@ -26,7 +26,7 @@ DEFAULT_REQUIRED_GLOBS_BY_MODULE = {
     "RECmd_BasicSystemInfo": ["modules/Registry/*.csv"],
     "JLECmd": ["modules/FileFolderAccess/*AutomaticDestinations.csv"],
     "LECmd": ["modules/FileFolderAccess/*LECmd*Output.csv"],
-    "SBECmd": ["modules/FileFolderAccess/*.csv"],
+    "SBECmd": ["modules/FileFolderAccess/*_NTUSER.csv|modules/FileFolderAccess/*_UsrClass.csv"],
 }
 DEFAULT_REQUIRED_GLOBS_BY_TARGET = {
     "$MFT": ["targets/*/$MFT"],
@@ -119,7 +119,7 @@ def assert_required_kape_artifacts(
     checks: list[dict[str, Any]],
 ) -> None:
     for pattern in required_artifact_globs or []:
-        matches = list(output_root.glob(any_case(pattern)))
+        matches = [match for option in pattern.split("|") for match in output_root.glob(any_case(option))]
         if not matches:
             raise KapeApplianceError(
                 f"required KAPE artifact pattern missing: {pattern}"

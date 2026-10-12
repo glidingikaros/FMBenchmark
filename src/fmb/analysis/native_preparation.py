@@ -1,5 +1,5 @@
 from copy import deepcopy
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from fmb.core.hashing import sha256_file
 from fmb.analysis.shared_evidence import (
     EvidenceBundle,
@@ -73,7 +73,9 @@ def repair_usb_companion_rows(bundle, native_usb_dir: Path, *, locate=Path):
             )
         if manifest["sources"]["link"]["sha256"] != manifest["source_link_sha256"]:
             raise ValueError("native USB card source changed")
-        data["link"] = lecmd_link_row(locate(manifest["source_link_path"]))[1]
+        link = manifest["source_link_path"]
+        absolute = PurePosixPath(link).is_absolute() or PureWindowsPath(link).is_absolute()
+        data["link"] = lecmd_link_row(locate(link) if absolute else (path.parent / link).resolve(strict=True))[1]
         facts = parse_usb_volume_facts(**data)
         device = facts["device_instance_id"]
         if device in by_device:

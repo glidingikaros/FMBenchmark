@@ -2,7 +2,8 @@ from pathlib import Path
 
 from fmb.core.hashing import sha256_file
 from fmb.core.paper_artifacts import condition_build, verify_prepared_condition
-from fmb.core.paper_policy import PAPER_POLICY, completion_eligible, resolve_policy, validate_attempts
+from fmb.core.paper_policy import (PAPER_POLICY, completion_eligible, recorded_policy_matches, resolve_policy,
+                                   validate_attempts)
 from fmb.core.paper_protocol import validate_completion_policy
 from fmb.core.paper_results import IDENTITY_FIELDS
 from fmb.core.sealed_records import canonical_json, contained_path, read_json, verify_seal
@@ -25,7 +26,7 @@ def bind_completion(root, protocol, schedule, primary):
     if not {"schedule.json", "completion.json"} <= set(sealed):
         raise ValueError("primary terminal execution is not sealed")
     recorded = read_json(primary / "run/schedule.json")
-    if recorded.get("execution_policy") != resolve_policy(original):
+    if not recorded_policy_matches(recorded.get("execution_policy"), resolve_policy(original)):
         raise ValueError("primary execution policy differs from preparation")
     previous = {(r["request_id"], r["pass"]): r for r in recorded["rows"]}
     if len(previous) != len(recorded["rows"]) or set(previous) != {(r["request_id"], r["pass"]) for r in schedule}:

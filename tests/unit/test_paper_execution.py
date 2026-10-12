@@ -744,5 +744,5 @@ def test_sealed_evaluation_and_aggregate_report_keep_selection_evidence(frozen):
     evidence = read_json(report / "report.json")["images"][0]["evaluation_evidence"]["luna-high"]
     assert evidence["lineage"] == score["lineage"]
     assert evidence["provenance"] == score["provenance"]
-    assert "paper_transport.v1" in (report / "results.md").read_text()
+    assert "paper_transport.v1" in (report / "results.md").read_text(encoding="utf-8")
     assert "declared_execution_record" in (report / "table-results.csv").read_text()

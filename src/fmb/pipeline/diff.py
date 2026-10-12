@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fmb.core.sealed_records import parse_json
+from fmb.core.collection_paths import evidence_content
+from fmb.core.sealed_records import parse_json, read_json
 from fmb.pipeline.gates import RUN_MANIFEST, is_file_ref, read_gate, verify_run
 
 SCHEMA = "fmb.pipeline.diff.v1"
@@ -11,12 +12,13 @@ TIME_KEYS = {"started_utc", "finished_utc", "sealed_utc", "assessed_utc", "check
              "elapsed_seconds"}
 LOCATION_FIELDS = {
     "G1": {"generation_root"},
-    "G3": {"build_seal", "preparation_seal"},
+    "G3": {"build_seal", "preparation_seal", "collection/evidence_index_sha256"},
     "G4": {"g3_sha256", "assessor/assessment", "assessor/assessment_seal", "assessor/condition_run",
            "assessor/condition_seal", "assessor/prediction_seal"},
     "G5": {"admission/certificates", "inputs"},
 }
 MAX_DIFFERENCES = 50
+REPEATED_GATES = {"G3", "G4", "G5"}
 
 
 def content(value: Any, *, drop: set[str], prefix: str = "") -> Any:
@@ -89,6 +91,39 @@ def diff_runs(run_a: Path, run_b: Path) -> dict:
                                else {"a": implementations[0], "b": implementations[1]})},
         "gates": gates,
         "ignored": "timestamps and durations; file locations (a file is compared by its SHA-256 and size); "
-                   "location-bearing fields with a location-free equivalent: " +
+                   "location- or run-bearing fields with a location-free equivalent: " +
                    "; ".join(f"{gate}: {', '.join(sorted(fields))}" for gate, fields in LOCATION_FIELDS.items()),
     }
+
+
+def _kind(path: str) -> str:
+    """A difference's path with every list index after the first one as *, so one kind of difference is one path."""
+    parts = path.split("/")
+    first = next((index for index, part in enumerate(parts) if part.isdigit()), len(parts))
+    return "/".join("*" if index > first and part.isdigit() else part for index, part in enumerate(parts))
+
+
+def _kinds(found: list[dict], *, shown: int = 40) -> list[str]:
+    kinds: dict[str, list[dict]] = {}
+    for difference in found:
+        kinds.setdefault(_kind(difference["path"]), []).append(difference)
+    ordered = sorted(kinds.items(), key=lambda item: (-len(item[1]), item[0]))
+    return [f"  {len(items)} at {kind}, as {_short(items[0]['a'])!r} | {_short(items[0]['b'])!r}"
+            for kind, items in ordered[:shown]]
+
+
+def repeat_differences(run_a: Path, run_b: Path, *, shown: int = 10) -> list[str]:
+    """What differs between two runs of one image: each G3-G5 gate file and the evidence index without its collector
+    runs, with their first differences. Empty when the second run repeated the first."""
+    lines = []
+    for name, gate in diff_runs(run_a, run_b)["gates"].items():
+        if name.split(":")[0] in REPEATED_GATES and gate["status"] != "same":
+            lines.append(f"gates/{name.replace(':', '-')}.json: {gate['status']}")
+            lines += [f"  {d['path']}: {d['a']!r} | {d['b']!r}" for d in gate.get("first", [])[:shown]]
+    indexes = [evidence_content(read_json(Path(run) / "analysis" / "evidence_index.json")) for run in (run_a, run_b)]
+    if found := differences(*indexes):
+        lines.append(f"analysis/evidence_index.json: {len(found)} differences besides its collector runs")
+        lines += [f"  {d['path']}: {_short(d['a'])!r} | {_short(d['b'])!r}" for d in found[:shown]]
+        if len(found) > shown:
+            lines += ["  all of them, by kind:", *_kinds(found)]
+    return lines

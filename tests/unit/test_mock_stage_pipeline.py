@@ -308,7 +308,7 @@ def test_report_labels_mocks_and_keeps_the_fixed_evaluator_authoritative(tmp_pat
                              "s4": {"implementation": "mock-llm"}}}, stage_responder=respond)
     report = tmp_path / "report"
     write_report(runs=[root], output=report)
-    text = (report / "results.md").read_text()
+    text = (report / "results.md").read_text(encoding="utf-8")
     assert "Mock stage experiment: S3, S4" in text
     assert "S4 candidate agreement with the fixed evaluator: failed" in text
     assert "| mock-llm |" in text

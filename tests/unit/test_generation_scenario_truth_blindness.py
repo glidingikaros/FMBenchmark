@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from pwsh_helpers import PWSH_TIMEOUT
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENARIO_ROOT = PROJECT_ROOT / "src/fmb/generation/ansible/roles/manipulation/tasks"
@@ -611,7 +613,7 @@ def test_generation_powershell_blocks_parse_when_pwsh_is_available() -> None:
     blocks = []
 
     for path in sorted(SCENARIO_ROOT.glob("*.yml")):
-        for task in yaml.safe_load(path.read_text(encoding="utf-8")):
+        for task in (inner for entry in yaml.safe_load(path.read_text(encoding="utf-8")) for inner in entry.get("block", [entry])):
             if not isinstance(task, dict) or "ansible.windows.win_shell" not in task:
                 continue
             parsed_scenarios.add(path.stem)
@@ -681,7 +683,7 @@ import yaml
 from ansible.parsing.mod_args import ModuleArgsParser
 seen = set()
 for path in sorted(Path(sys.argv[1]).glob('*.yml')):
-    for task in yaml.safe_load(path.read_text()):
+    for task in (inner for entry in yaml.safe_load(path.read_text()) for inner in entry.get('block', [entry])):
         if isinstance(task, dict) and 'ansible.windows.win_shell' in task:
             try:
                 ModuleArgsParser(task).parse(skip_action_validation=True)
@@ -720,7 +722,7 @@ $functions[0].Extent.Text
 """
     extracted = subprocess.run(
         [pwsh, "-NoProfile", "-NonInteractive", "-CommandWithArgs", extractor, str(helper)],
-        text=True, capture_output=True, check=False, timeout=30,
+        text=True, capture_output=True, check=False, timeout=PWSH_TIMEOUT,
     )
     assert extracted.returncode == 0, extracted.stderr
     assert not extracted.stderr.strip(), extracted.stderr
@@ -737,7 +739,7 @@ $functions[0].Extent.Text
                       "@($messages|ForEach-Object{Get-LocalNativeShellbagFailureCode -Message $_})|ConvertTo-Json -Compress\n")
     result = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(script)],
                             input=json.dumps([message for message, _ in cases]),
-                            text=True, capture_output=True, check=False, timeout=30)
+                            text=True, capture_output=True, check=False, timeout=PWSH_TIMEOUT)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == [code for _, code in cases]
     assert sentinel not in result.stdout + result.stderr

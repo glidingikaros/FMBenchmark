@@ -8,25 +8,34 @@ import json
 import ntpath
 import os
 import re
+import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import zipfile
+from contextlib import contextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from fmb.collection.tools.host.definitions import ModuleProcessor
-from fmb.collection.tools.host.modules import csv_data_row_count
+from fmb.collection.tools.host.modules import (
+    RUN_STAMP_PREFIX,
+    SOURCE_TIME_COLUMNS,
+    csv_data_row_count,
+    filetime_text,
+)
 from fmb.collection.tools.host import vmware as runner
 from fmb.collection.tools.host.toolchain import DEFAULT_LOCK_PATH
 from fmb.core.hashing import sha256_bytes, sha256_file
-from fmb.core.json_io import write_json
+from fmb.core.json_io import json_text, write_json
 
 GUEST_ROOT = "C:\\FMB-Parsers"
+NATIVE_ROOT_LOCK = "fmb-parsers.lock"
 WINDOWS_PARSERS = ("PECmd.exe", "SBECmd.exe")
 APPLIANCE_DIR_NAME = "parser-appliance"
 DEFAULT_GUEST_TIMEOUT_SECONDS = 1200
@@ -36,6 +45,12 @@ INPUT_MASKS_BY_EXECUTABLE = {
 }
 RECEIPT_SCHEMA = "fmb_parser_appliance_receipt.v1"
 RECORD_SCHEMA = "fmb_parser_appliance_record.v1"
+# A parser VM clone names its fmb run, so a later run can tell whether that run is gone and remove the clone.
+PARSER_OWNER_FILE = "fmb-parser-owner.json"
+PARSER_PREFIX = "fmb-parser-"
+QEMU_STATE_DIR = "qemu-state"
+QEMU_STEP_ATTEMPTS = 3
+QEMU_STEP_RETRY_DELAY_SECONDS = 10
 
 GUEST_SCRIPT = r"""param([Parameter(Mandatory=$true)][string]$Root)
 $ErrorActionPreference = 'Stop'
@@ -102,6 +117,10 @@ if (Test-Path -LiteralPath $outputs) { Remove-Item -LiteralPath $outputs -Force 
 
 
 class ParserApplianceError(runner.KapeApplianceError):
+    pass
+
+
+class _BootCancelled(ParserApplianceError):
     pass
 
 
@@ -206,6 +225,34 @@ def copy_log_source_times(targets_root: Path) -> dict[str, dict[str, int]]:
     return times
 
 
+def _guest_input(value: str) -> str:
+    """The bundle path (targets/...) of a file the guest read, from the full path a parser names it by."""
+    prefix = GUEST_ROOT + "\\work\\"
+    return value[len(prefix):].replace("\\", "/") if value[:len(prefix)].casefold() == prefix.casefold() else value
+
+
+def image_source_times(path: Path, source_times: dict[str, dict[str, int]]) -> None:
+    # PECmd reports when it read each prefetch file as SourceAccessed, so that time differs every run although the guest
+    # set each input's NTFS times from the CopyLog first. The three Source times of each input become those image times.
+    csv.field_size_limit(1 << 30)
+    with path.open("rb") as handle:
+        encoding = "utf-8-sig" if handle.read(3) == b"\xef\xbb\xbf" else "utf-8"
+    with path.open("r", encoding=encoding, errors="surrogateescape", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or "SourceFilename" not in rows[0]:
+        return
+    header = rows[0]
+    source = header.index("SourceFilename")
+    times = [(header.index(column), key) for column, key in SOURCE_TIME_COLUMNS if column in header]
+    for row in rows[1:]:
+        known = source_times.get(_guest_input(row[source])) if source < len(row) else None
+        for column, key in times if known else ():
+            if column < len(row):
+                row[column] = filetime_text(known[key])
+    with path.open("w", encoding=encoding, errors="surrogateescape", newline="") as handle:
+        csv.writer(handle, lineterminator="\r\n").writerows(rows)
+
+
 def build_input_package(
     *,
     package_path: Path,
@@ -271,11 +318,63 @@ def parser_runtime() -> tuple[str, str | None]:
     return "qemu", qemu_box()
 
 
+def native_parser_root() -> Path:
+    # Named as in the parser VM, so that PECmd and SBECmd name the same paths in their outputs on every host and run.
+    return Path(Path(tempfile.gettempdir()).anchor, ntpath.basename(GUEST_ROOT))
+
+
+def _lock_native_root(lock: Path) -> int | None:
+    from fmb.collection.run.lock import _try_lock
+
+    try:
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    except FileNotFoundError:
+        return None
+    try:
+        if _try_lock(fd) and os.path.samestat(os.fstat(fd), os.stat(lock)):
+            return fd
+    except FileNotFoundError:
+        pass
+    os.close(fd)
+    return None
+
+
+@contextmanager
+def _held_native_root(root: Path) -> Iterator[Path]:
+    # One fmb run at a time uses the fixed folder; the OS drops the lock if that run dies.
+    from fmb.collection.run.lock import _unlock
+
+    lock = root / NATIVE_ROOT_LOCK
+    deadline = time.monotonic() + DEFAULT_GUEST_TIMEOUT_SECONDS
+    while True:
+        root.mkdir(exist_ok=True)
+        fd = _lock_native_root(lock)
+        if fd is not None:
+            break
+        if time.monotonic() >= deadline:
+            raise ParserApplianceError(f"another fmb run kept {root} for its parsers too long; try again")
+        time.sleep(1)
+    try:
+        yield root
+    finally:
+        for path in root.iterdir():
+            with suppress(OSError):
+                if path.is_dir():
+                    shutil.rmtree(path)
+                elif path.name != NATIVE_ROOT_LOCK:
+                    path.unlink()
+        with suppress(OSError):
+            _unlock(fd)
+        os.close(fd)
+        with suppress(OSError):
+            lock.unlink()
+            root.rmdir()
+
+
 def _run_native_windows_parsers(*, package_path: Path, script_path: Path, outputs_zip: Path) -> subprocess.CompletedProcess:
     from fmb.core.owned_process import run_owned
 
-    with tempfile.TemporaryDirectory(prefix="fmbp-", dir=Path(tempfile.gettempdir()).anchor) as temporary:
-        root = Path(temporary)
+    with _held_native_root(native_parser_root()) as root:
         shutil.copyfile(package_path, root / "inputs.zip")
         shutil.copyfile(script_path, root / "run_parsers.ps1")
         powershell, env = _windows_powershell()
@@ -309,8 +408,89 @@ def assert_no_running_vm(provider: str) -> None:
         runner.vmrun_command(provider, "list"),
         check=True, capture_output=True, text=True, timeout=30,
     )
-    if completed.stdout.strip().splitlines()[:1] != ["Total running VMs: 0"]:
-        raise ParserApplianceError("another VM is running; the parser appliance needs the single VM slot")
+    lines = completed.stdout.strip().splitlines()
+    if lines[:1] != ["Total running VMs: 0"]:
+        running = [line.strip() for line in lines[1:] if line.strip()]
+        raise ParserApplianceError(
+            "another VM is running; the parser appliance needs the single VM slot"
+            + "".join(f"\n  running: {vmx}" for vmx in running)
+            + "".join(f"\nIf it is not in use (for example left by an fmb run that was killed), stop it with: "
+                      f"{shlex.join(runner.vmrun_command(provider, 'stop', vmx, 'hard'))}" for vmx in running))
+
+
+def _write_owner(folder: Path, run_id: str) -> int:
+    # The run keeps the owner file open and locked until close(); the OS drops the lock when the run dies.
+    from fmb.collection.run.lock import _try_lock, current_host
+
+    fd = os.open(folder / PARSER_OWNER_FILE, os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+    try:
+        if not _try_lock(fd):
+            raise ParserApplianceError(f"could not lock the owner file of the new parser VM folder {folder}")
+        os.lseek(fd, 0, os.SEEK_SET)  # Windows locks a byte further on
+        os.write(fd, json_text({"pid": os.getpid(), "host": current_host(), "run_id": run_id,
+                                "started_at": _utc_now().isoformat()}).encode("utf-8"))
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def reap_dead_parser_clones(work_root: Path, provider: str, log: Callable[[str], None]) -> None:
+    """Remove the parser VM clones of fmb runs that are gone (killed, crashed, power lost)."""
+    from fmb.collection.run.lock import _try_lock
+
+    for folder in sorted(work_root.glob(PARSER_PREFIX + "*")):
+        owner_file = folder / PARSER_OWNER_FILE
+        try:
+            owner = json.loads(owner_file.read_text(encoding="utf-8"))
+            pid = int(owner["pid"])
+            fd = os.open(owner_file, os.O_RDWR | getattr(os, "O_BINARY", 0))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        try:
+            # Only the lock tells: the Mac's hostname changes with its network, and a pid is reused after a restart.
+            if not _try_lock(fd):
+                continue
+            vmx = folder / ".vmrun-appliance" / "box.vmx"
+            if vmx.parent.exists():
+                runner.cleanup_disposable_appliance_vm(vmx_path=vmx, provider=provider, graceful=False)
+        finally:
+            os.close(fd)
+        # The whole folder, so that a file someone else left in it (Finder's .DS_Store) does not fail this run.
+        shutil.rmtree(folder)
+        log(f"parser appliance: removed the parser VM of run {owner.get('run_id')} (pid {pid} is gone): {folder}")
+
+
+def _parser_qemus() -> list[tuple[int, list[str]]]:
+    found = []
+    for entry in Path("/proc").glob("[0-9]*"):
+        try:
+            argv = (entry / "cmdline").read_bytes().decode("utf-8", "replace").split("\0")
+        except OSError:
+            continue
+        if "-name" in argv[:-1] and argv[argv.index("-name") + 1].startswith(PARSER_PREFIX):
+            found.append((int(entry.name), argv))
+    return found
+
+
+def reap_orphan_parser_qemus(log: Callable[[str], None]) -> None:
+    """Stop the parser QEMUs of fmb runs that are gone, and remove their disposable overlays."""
+    from fmb.collection.run.lock import process_is_running
+
+    for pid, argv in _parser_qemus():
+        owner = argv[argv.index("-name") + 1].removeprefix(PARSER_PREFIX)
+        if not owner.isdigit() or process_is_running(int(owner)):
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            continue
+        state = Path(argv[argv.index("-pidfile") + 1]).parent if "-pidfile" in argv[:-1] else None
+        if state is not None and state.name == QEMU_STATE_DIR:
+            shutil.rmtree(state, ignore_errors=True)
+        log(f"parser appliance: stopped the parser QEMU (pid {pid}) of a gone fmb run (pid {owner})")
 
 
 class ParserVM:
@@ -332,7 +512,8 @@ class ParserVM:
         self.timings = [] if timings is None else timings
         self.vmx_path: Path | None = None
         self.owned_work_dir: Path | None = None
-        self.state: tempfile.TemporaryDirectory | None = None
+        self._owner_fd: int | None = None
+        self.state: Path | None = None
         self.process: subprocess.Popen | None = None
         self.command: list[str] = []
         self.port = 0
@@ -343,6 +524,7 @@ class ParserVM:
         self._cancelled = threading.Event()
 
     def start(self) -> ParserVM:
+        self._claim()
         # The thread keeps this context, so the run's read audit and truth guard see its file opens too.
         context = contextvars.copy_context()
         self._thread = threading.Thread(target=context.run, args=(self._boot_in_background,),
@@ -350,9 +532,18 @@ class ParserVM:
         self._thread.start()
         return self
 
+    def _claim(self) -> None:
+        # Before the boot thread, so a VM left by a gone run is removed, or a running one named, before host parsing.
+        if self.provider == "qemu":
+            reap_orphan_parser_qemus(self.log)
+            return
+        if self.work_root is not None and Path(self.work_root).expanduser().is_dir():
+            reap_dead_parser_clones(Path(self.work_root).expanduser().resolve(), self.provider, self.log)
+        assert_no_running_vm(self.provider)
+
     def _boot_in_background(self) -> None:
         try:
-            self.boot()
+            self._boot()
         except BaseException as error:
             self._boot_error = error
 
@@ -365,6 +556,10 @@ class ParserVM:
             raise error
 
     def boot(self) -> None:
+        self._claim()
+        self._boot()
+
+    def _boot(self) -> None:
         self.appliance_dir.mkdir(parents=True, exist_ok=True)
         if self.provider == "qemu":
             self._boot_qemu()
@@ -379,7 +574,8 @@ class ParserVM:
             if work_root.is_relative_to(source_root) or source_root.is_relative_to(work_root):
                 raise ParserApplianceError("parser VM work directory overlaps its protected source")
             work_root.mkdir(parents=True, exist_ok=True)
-            self.owned_work_dir = Path(tempfile.mkdtemp(prefix="fmb-parser-", dir=work_root))
+            self.owned_work_dir = Path(tempfile.mkdtemp(prefix=PARSER_PREFIX, dir=work_root))
+            self._owner_fd = _write_owner(self.owned_work_dir, self.run_id)
         worker_dir = self.owned_work_dir if self.owned_work_dir is not None else self.appliance_dir
         vmx_path = worker_dir / ".vmrun-appliance" / "box.vmx"
         if vmx_path.parent.exists():
@@ -392,7 +588,6 @@ class ParserVM:
             "evidence": {},
             "transport": {"strategy": "parser_appliance_no_evidence_disk"},
         }
-        assert_no_running_vm(self.provider)
         cloned_vmx = _phase(
             self.timings,
             "clone_appliance",
@@ -402,7 +597,7 @@ class ParserVM:
         if cloned_vmx.resolve() != vmx_path.resolve():
             raise ParserApplianceError("parser clone returned a different owned VM path")
         if self._cancelled.is_set():
-            raise ParserApplianceError("the parser VM was no longer needed")
+            raise _BootCancelled("the parser VM was no longer needed")
         _phase(self.timings, "start_appliance",
                lambda: runner.vmrun_start_and_wait(vmx_path=vmx_path, provider=self.provider))
 
@@ -415,9 +610,12 @@ class ParserVM:
             raise ParserApplianceError("the QEMU parser worker needs " + ", ".join(missing))
         base = QemuBackend.base_directory(QemuBackend.base_location(self.windows_box, "0")) / QemuBackend.base_entry
         self.ansible = tools["ansible"]
-        self.state = tempfile.TemporaryDirectory(prefix="fmb-parser-qemu-")
+        # In the run folder rather than $TMPDIR, which is RAM on several distributions; close() removes it.
+        state = self.appliance_dir / QEMU_STATE_DIR
+        state.mkdir()
+        self.state = state
         _phase(self.timings, "start_appliance",
-               lambda: self._launch_qemu(tools["qemu-img"], base, Path(tools["qemu-system"]), Path(self.state.name)))
+               lambda: self._launch_qemu(tools["qemu-img"], base, Path(tools["qemu-system"]), state))
 
     def _launch_qemu(self, qemu_img: str, base: Path, qemu: Path, state: Path) -> None:
         from fmb.generation.backends import _free_port, prepare_overlay, qemu_guest_command
@@ -425,19 +623,37 @@ class ParserVM:
         prepare_overlay(qemu_img, base, qemu, state)
         self.port, monitor_port = _free_port(), _free_port()
         self.command = qemu_guest_command(qemu, state, winrm_port=self.port, monitor_port=monitor_port) + [
-            "-netdev", f"user,id=nat,restrict=on,hostfwd=tcp:127.0.0.1:{self.port}-:5985", "-device", "e1000e,netdev=nat"]
-        with (state / "qemu.log").open("w") as qemu_log:
+            "-netdev", f"user,id=nat,restrict=on,hostfwd=tcp:127.0.0.1:{self.port}-:5985", "-device", "e1000e,netdev=nat",
+            "-name", f"{PARSER_PREFIX}{os.getpid()}", "-pidfile", str(state / "qemu.pid")]
+        with self._qemu_log.open("w", encoding="utf-8") as qemu_log:
             self.process = subprocess.Popen(self.command, stdout=qemu_log, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 1800
         while not self._answered():
             if self._cancelled.is_set():
-                raise ParserApplianceError("the parser VM was no longer needed")
+                raise _BootCancelled("the parser VM was no longer needed")
             if self.process.poll() is not None:
-                raise ParserApplianceError("the parser VM exited during boot")
+                tail = self._qemu_log.read_text(encoding="utf-8", errors="replace")[-2000:].strip()
+                raise ParserApplianceError(
+                    f"the parser VM exited during boot with exit code {self.process.returncode}"
+                    + (" (killed; the system may have run out of memory)" if self.process.returncode == -9 else "")
+                    + f"; the end of {self._qemu_log}:\n{tail or '(empty)'}")
             if time.monotonic() > deadline:
                 raise ParserApplianceError("the parser VM did not answer WinRM within 30 minutes")
             time.sleep(2)
         self.log("parser appliance: QEMU worker answered WinRM")
+
+    @property
+    def _qemu_log(self) -> Path:
+        return self.appliance_dir / "parser-vm-qemu.log"
+
+    def _keep_logs(self) -> None:
+        # The VM folder is removed below; its logs stay in the run folder.
+        sources = ([self.state / "serial.log"] if self.state is not None else []) + (
+            [self.vmx_path.parent / "vmware.log"] if self.vmx_path is not None else [])
+        for source in sources:
+            # A log that cannot be copied must not keep the VM from being removed.
+            with suppress(OSError):
+                shutil.copyfile(source, self.appliance_dir / f"parser-vm-{source.name}")
 
     def _answered(self) -> bool:
         from fmb.generation.backends import ansible_adhoc, winrm_listening
@@ -456,10 +672,22 @@ class ParserVM:
         outputs = []
 
         def step(module: str, args: dict, timeout: int = 600) -> None:
-            result = ansible_adhoc(self.ansible, self.port, module, args, timeout=timeout)
-            outputs.append(result.stdout)
-            if result.returncode != 0:
-                raise ParserApplianceError(f"parser VM step {module} failed: {result.stdout[-2000:]}")
+            # Creating the folder and copying a file in or out can be repeated, so a dropped WinRM call is retried.
+            for attempt in range(1, QEMU_STEP_ATTEMPTS + 1):
+                try:
+                    result = ansible_adhoc(self.ansible, self.port, module, args, timeout=timeout)
+                except subprocess.TimeoutExpired as error:
+                    failure = f"no answer within {error.timeout} s"
+                else:
+                    outputs.append(result.stdout)
+                    if result.returncode == 0:
+                        return
+                    failure = result.stdout[-2000:]
+                if attempt == QEMU_STEP_ATTEMPTS:
+                    raise ParserApplianceError(f"parser VM step {module} failed {attempt} times; last: {failure}")
+                self.log(f"parser appliance: {module} failed (attempt {attempt}); retrying")
+                time.sleep(QEMU_STEP_RETRY_DELAY_SECONDS)
+                self._answered()
 
         step("ansible.windows.win_file", {"path": GUEST_ROOT, "state": "directory"})
         step("ansible.windows.win_copy", {"src": str(package_path), "dest": GUEST_ROOT + "\\inputs.zip"})
@@ -490,25 +718,35 @@ class ParserVM:
                     self.process.wait(timeout=60)
             finally:
                 if self.state is not None:
-                    self.state.cleanup()
+                    self._keep_logs()
+                    shutil.rmtree(self.state)
             return {"removed": True, "path": None,
                     "policy": "temporary_parser_directory_or_disposable_overlay_removed"}
         cleanup = None
         if self.vmx_path is not None:
+            if self.vmx_path.parent.is_dir():
+                self._keep_logs()
             cleanup = runner.cleanup_disposable_appliance_vm(vmx_path=self.vmx_path, provider=self.provider,
                                                              graceful=graceful)
         if self.owned_work_dir is not None:
+            if self._owner_fd is not None:
+                fd, self._owner_fd = self._owner_fd, None
+                os.close(fd)
+            (self.owned_work_dir / PARSER_OWNER_FILE).unlink(missing_ok=True)
             self.owned_work_dir.rmdir()
         return cleanup
 
     def discard(self, error: BaseException) -> None:
         """Remove a VM that a failed collection no longer needs, keeping the collection's error."""
         try:
-            self.close()
+            self.close(graceful=False)
         except BaseException as cleanup_error:
             error.add_note(
                 f"Parser VM cleanup failed ({type(cleanup_error).__name__}) at {self.vmx_path}: {cleanup_error}"
             )
+        if self._boot_error is not None and not isinstance(self._boot_error, _BootCancelled):
+            error.add_note(f"The parser VM had also failed to boot: {type(self._boot_error).__name__}: "
+                           f"{self._boot_error}")
 
 
 def run_parser_appliance(
@@ -562,7 +800,7 @@ def run_parser_appliance(
             raise _script_failed(completed, guest_stdout, guest_stderr)
         record = phase("merge_outputs", lambda: _merge_outputs(
             outputs_zip=outputs_zip, appliance_dir=appliance_dir, modules_root=modules_root,
-            tool_logs=tool_logs, package=package))
+            tool_logs=tool_logs, package=package, source_times=copy_log_source_times(targets_root)))
         record.update({"schema_version": RECORD_SCHEMA, "mode": "run", "windows_box": windows_box,
                        "provider": provider, "guest_root": None,
                        "vm_cleanup": {"removed": True, "path": None,
@@ -621,7 +859,7 @@ def run_parser_appliance(
         raise
     finally:
         try:
-            cleanup = phase("stop_and_cleanup", lambda: vm.close(graceful=primary_error is not None))
+            cleanup = phase("stop_and_cleanup", lambda: vm.close(graceful=False))
         except BaseException as cleanup_error:
             if primary_error is None:
                 raise
@@ -632,7 +870,7 @@ def run_parser_appliance(
         "merge_outputs",
         lambda: _merge_outputs(
             outputs_zip=outputs_zip, appliance_dir=appliance_dir, modules_root=modules_root,
-            tool_logs=tool_logs, package=package,
+            tool_logs=tool_logs, package=package, source_times=copy_log_source_times(targets_root),
         ),
     )
     record.update(
@@ -663,7 +901,8 @@ def _stage_inputs(*, vmx_path: Path, provider: str, package_path: Path, script_p
 
 
 def _merge_outputs(
-    *, outputs_zip: Path, appliance_dir: Path, modules_root: Path, tool_logs: Path, package: dict[str, Any]
+    *, outputs_zip: Path, appliance_dir: Path, modules_root: Path, tool_logs: Path, package: dict[str, Any],
+    source_times: dict[str, dict[str, int]] | None = None,
 ) -> dict[str, Any]:
     if not outputs_zip.is_file():
         raise ParserApplianceError("parser appliance returned no outputs package")
@@ -707,18 +946,23 @@ def _merge_outputs(
         destination = modules_root / category
         destination.mkdir(parents=True, exist_ok=True)
         data_rows = 0
+        outputs: list[str] = []
         if source_dir.is_dir():
             for path in sorted(source_dir.rglob("*")):
                 if not path.is_file():
                     continue
                 relative = path.relative_to(source_dir)
-                target = destination / relative
+                target = destination / relative.parent / RUN_STAMP_PREFIX.sub("", relative.name, count=1)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, target)
-                merged_outputs.append(target.relative_to(modules_root.parent).as_posix())
+                outputs.append(target.relative_to(modules_root.parent).as_posix())
                 if target.suffix.casefold() == ".csv":
+                    if source_times:
+                        image_source_times(target, source_times)
                     data_rows += csv_data_row_count(target)
-        result["data_row_count"] = data_rows
+        merged_outputs.extend(outputs)
+        result.update(data_row_count=data_rows, outputs=outputs,
+                      input_file_count=planned.get("input_file_count"), input_byte_count=planned.get("input_byte_count"))
         if int(planned.get("input_byte_count") or 0) > 0 and data_rows == 0:
             empty_output_modules.append(label)
         for stream in ("stdout", "stderr"):
@@ -732,7 +976,8 @@ def _merge_outputs(
             + (stdout_file.read_text(encoding="utf-8", errors="replace") if stdout_file.is_file() else ""),
             encoding="utf-8",
         )
-        merged_outputs.append(console.relative_to(modules_root.parent).as_posix())
+        result["console_log"] = console.relative_to(modules_root.parent).as_posix()
+        merged_outputs.append(result["console_log"])
     if {item["label"] for item in package["commands"]} != {str(item.get("label")) for item in results}:
         raise ParserApplianceError("parser appliance receipt does not cover every planned processor")
     return {

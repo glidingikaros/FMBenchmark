@@ -162,6 +162,13 @@ def monitor_query(port: int, command: str) -> str:
         return ""
 
 
+def disk_full(port: int, work: Path) -> None:
+    """QEMU pauses the guest when the host disk is full (werror=enospc): say so, not a stall or a timeout."""
+    if "io-error" in monitor_query(port, "info status"):
+        raise SystemExit(f"the host disk under {work} is full: QEMU paused the guest when a write to its disk failed "
+                         "(VM status: paused (io-error)). Free space there, then run fmb setup --iso again")
+
+
 def disk_writes(port: int) -> int | None:
     for line in monitor_query(port, "info blockstats").splitlines():
         if line.startswith("disk:"):
@@ -294,6 +301,7 @@ def wait_ready(vm: Machine | subprocess.Popen, work: Path, winrm_port: int, moni
             if now is not None and now != written:
                 written, writing_since = now, time.monotonic()
             elif now is not None and time.monotonic() - writing_since > stall_seconds:
+                disk_full(monitor_port, work)
                 raise Stalled(f"no disk writes for {stall_seconds // 60} minutes at {written} bytes")
         if vm.poll() is not None:
             if not (isinstance(vm, Machine) and vm.relaunched_after_guest_restart()):
@@ -301,6 +309,7 @@ def wait_ready(vm: Machine | subprocess.Popen, work: Path, winrm_port: int, moni
                                  + (work / "qemu.log").read_text(errors="replace")[-2000:])
             usage = None
         if time.monotonic() > deadline:
+            disk_full(monitor_port, work)
             raise SystemExit(f"no WinRM ({label})")
         monitor(monitor_port, f"screendump shots/{label}-{tick:03d}.png -f png")
         try:

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from pwsh_helpers import PWSH_TIMEOUT
 from test_generation_logfile_retention import _fixture_volume
 from test_iteration2_generation import guest_plan, load
 from test_logfile_adapter import driver_document, stomp_record
@@ -118,7 +119,7 @@ $results | ConvertTo-Json -Compress
     path = tmp_path / "native-backdating-guard.ps1"
     path.write_text(script)
     result = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(path)],
-                            capture_output=True, text=True, check=True, timeout=20)
+                            capture_output=True, text=True, check=True, timeout=PWSH_TIMEOUT)
     rows = json.loads(result.stdout)
     assert len(rows) == 8
     assert all(row["accepted"] is (row["offset_ticks"] >= 600_000_000) for row in rows)

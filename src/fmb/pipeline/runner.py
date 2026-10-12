@@ -127,22 +127,31 @@ def implementations(analysis: Path, built: Path, rules: Path, runs: list[Path], 
     }
 
 
-def _dispatch(runs: list[Path], cap: Decimal, dispatch: dict, policy: str, provider) -> tuple[list[Path], dict, list]:
+def _dispatch(runs: list[Path], cap: Decimal, dispatch: dict, policy: str, provider,
+              exposure: dict) -> tuple[list[Path], list]:
+    """Dispatches each condition within what is left of the cap; exposure records each one's spend, also on a crash."""
     from fmb.paper.workflow import execute_condition
 
-    remaining, exposure, unfunded, executed = cap, {}, [], []
+    remaining, unfunded, executed = cap, [], []
     for run in runs:
         if remaining <= 0:
             unfunded.append(run.name)
             continue
-        result = execute_condition(run, cap_usd=str(remaining), execute=True, provider=provider,
-                                   rates=condition_rates(dispatch, run.name),
-                                   pass_limit=dispatch.get("passes"),
-                                   development_unadmitted=policy == "report-only")
+        try:
+            result = execute_condition(run, cap_usd=str(remaining), execute=True, provider=provider,
+                                       rates=condition_rates(dispatch, run.name),
+                                       pass_limit=dispatch.get("passes"),
+                                       development_unadmitted=policy == "report-only")
+        except BaseException:
+            try:
+                exposure[run.name] = read_json(run / "run" / "completion.json")["conservative_exposure_usd"]
+            except (OSError, ValueError, KeyError):
+                pass
+            raise
         spent = Decimal(str(result.get("conservative_exposure_usd", "0")))
         exposure[run.name], remaining = str(spent), remaining - spent
         executed.append(run)
-    return executed, exposure, unfunded
+    return executed, unfunded
 
 
 def run_pipeline(config: dict, *, provider=None, stage_responder=None) -> dict:
@@ -342,10 +351,10 @@ def run_pipeline(config: dict, *, provider=None, stage_responder=None) -> dict:
             with phase("S3':dispatch", ["G3"], inputs={**frozen, **admitted}, produced={
                     "predictions:" + r.name: r / "run" / "prediction-seal.json" for r in runs}) as step:
                 cap = Decimal(str(dispatch["cap_usd"]))
-                executed, exposure, unfunded = _dispatch(runs, cap, dispatch, policy, provider)
-                step["detail"].update(dispatched=[run.name for run in executed], admission=admission["status"],
-                                      policy=policy, cap_usd=str(dispatch["cap_usd"]), exposure_usd=exposure,
-                                      not_dispatched_for_budget=unfunded)
+                step["detail"].update(admission=admission["status"], policy=policy, cap_usd=str(dispatch["cap_usd"]),
+                                      exposure_usd={})
+                executed, unfunded = _dispatch(runs, cap, dispatch, policy, provider, step["detail"]["exposure_usd"])
+                step["detail"].update(dispatched=[run.name for run in executed], not_dispatched_for_budget=unfunded)
         predictions = step["outputs"] if dispatching else {}
         llm = []
         assessments = {"rules": g4_rules}

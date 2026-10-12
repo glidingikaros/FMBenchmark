@@ -155,6 +155,7 @@ def test_vmware_generation_never_exports_after_a_failed_soft_halt(
         raise __import__("subprocess").CalledProcessError(1, args)
 
     instance.run_vmrun = fail_soft
+    instance.is_vmware_vm_running = lambda _vmx: False
 
     with pytest.raises(RuntimeError, match="soft VMware halt failed"):
         instance.halt_vm()
@@ -788,7 +789,7 @@ def test_direct_ansible_winrm_allows_long_forensic_operations(tmp_path: Path) ->
     command = observed["command"]
     extra_vars = json.loads(command[command.index("-e") + 1])
     assert extra_vars["ansible_winrm_operation_timeout_sec"] == 120
-    assert extra_vars["ansible_winrm_read_timeout_sec"] == 130
+    assert extra_vars["ansible_winrm_read_timeout_sec"] == 300
     assert "ansible_winrm_message_encryption" not in extra_vars
 
 
@@ -1179,7 +1180,7 @@ def test_failed_vmdk_conversion_never_publishes_a_final_image(
 
     instance.run_command = fail_convert
     try:
-        with pytest.raises(__import__("subprocess").CalledProcessError):
+        with pytest.raises(RuntimeError, match="qemu-img convert failed"):
             instance.extract_disk(source)
     finally:
         instance.cleanup_population_inputs()

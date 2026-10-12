@@ -18,7 +18,7 @@ def usb_volume_parser_run(*, native_manifest_path: Path, normalized_output_dir: 
         raise ValueError("native USB source receipt is unsupported or unverified")
     raw_paths, payload = [], {}
     for label in ("companion", "source_link"):
-        path = Path(manifest[label + "_path"]).resolve(strict=True)
+        path = (native_manifest_path.parent / manifest[label + "_path"]).resolve(strict=True)
         if sha256_file(path) != manifest[label + "_sha256"]:
             raise ValueError("native USB complete original source hash is invalid")
         raw_paths.append(path)
@@ -32,7 +32,7 @@ def usb_volume_parser_run(*, native_manifest_path: Path, normalized_output_dir: 
         payload[label] = json.loads(path.read_text(encoding="utf-8-sig")) if label == "binding" else path.read_bytes()
     if manifest["sources"]["link"]["sha256"] != manifest["source_link_sha256"]:
         raise ValueError("native USB retained shortcut is not the collected shortcut")
-    lecmd, payload["link"] = lecmd_link_row(Path(manifest["source_link_path"]))
+    lecmd, payload["link"] = lecmd_link_row(raw_paths[1])
     raw_paths.append(lecmd)
     fields = parse_usb_volume_facts(**payload)
     fields["native_binding_file"] = manifest["sources"]["binding"]["file"]

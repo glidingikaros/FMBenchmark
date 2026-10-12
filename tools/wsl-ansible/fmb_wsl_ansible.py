@@ -13,6 +13,9 @@ HOME = os.environ.get("FMB_WSL_ANSIBLE_HOME", r"C:\fmb-ansible")
 HOST_PATH_KEYS = ("fmb_factual_checkpoint_directory",)
 DRIVE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 MOUNT_PATH = re.compile(r"/mnt/([a-z])(/[^\s'\",\]]*)?")
+# The output format fmb reads receipts from, whatever Ansible settings the distribution has.
+OUTPUT = ("ANSIBLE_STDOUT_CALLBACK=default", "ANSIBLE_CALLBACK_RESULT_FORMAT=json", "ANSIBLE_NOCOLOR=1",
+          "ANSIBLE_FORCE_COLOR=0")
 
 
 def to_wsl(value: str) -> str:
@@ -42,8 +45,10 @@ def run(tool: str) -> int:
     with tempfile.TemporaryDirectory(prefix="fmb-wsl-ansible-") as scratch:
         arguments = [extra_vars_file(argument, Path(scratch)) if argument.startswith("@") else to_wsl(argument)
                      for argument in sys.argv[1:]]
+        config = [f"ANSIBLE_CONFIG={to_wsl(os.environ['ANSIBLE_CONFIG'])}"] if os.environ.get("ANSIBLE_CONFIG") else []
         command = ["wsl.exe", "-d", DISTRO, "--exec", "env", f"ANSIBLE_COLLECTIONS_PATH={home}/collections",
-                   "ANSIBLE_HOST_KEY_CHECKING=False", "ANSIBLE_FORKS=1", f"{home}/bin/{tool}", *arguments]
+                   "ANSIBLE_HOST_KEY_CHECKING=False", "ANSIBLE_FORKS=1", *OUTPUT, *config, f"{home}/bin/{tool}",
+                   *arguments]
         if tool == "ansible-galaxy" or "--version" in arguments:
             completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
             sys.stdout.write(to_windows(completed.stdout))

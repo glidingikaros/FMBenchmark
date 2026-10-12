@@ -23,7 +23,7 @@ LECMD_DRIVE_TYPES = {
 
 def lecmd_link_row(link: Path) -> tuple[Path, dict[str, str]]:
     root = next((path for path in link.parents if path.name.casefold() == "kape-output"), None)
-    csvs = sorted(root.glob("modules/**/*_LECmd_Output.csv")) if root else []
+    csvs = sorted(root.glob("modules/**/*LECmd_Output.csv")) if root else []
     if len(csvs) != 1:
         raise ValueError("native USB shortcut needs its bundle's single LECmd output")
     name = kape_relative_path(str(link))

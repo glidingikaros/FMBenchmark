@@ -67,14 +67,18 @@
           Start-Sleep -Milliseconds (Get-Random -Minimum 100 -Maximum 350)
       }
 
-- name: Generate bounded local filesystem activity
-  ansible.windows.win_shell: |
-    & 'C:\ProgramData\LocalTasks\activity.ps1' -Iterations 36 {{ '-ResolvedPlan' if fmb_activity_plan is defined else '' }}
-  args:
-    stdin: "{{ fmb_activity_plan | default([]) | to_json }}"
-  register: fmb_activity_result
-  no_log: true
-  changed_when: true
+- block:
+    - name: Generate bounded local filesystem activity
+      ansible.windows.win_shell: |
+        & 'C:\ProgramData\LocalTasks\activity.ps1' -Iterations 36 {{ '-ResolvedPlan' if fmb_activity_plan is defined else '' }}
+      args:
+        stdin: "{{ fmb_activity_plan | default([]) | to_json }}"
+      register: fmb_activity_result
+      no_log: true
+      changed_when: true
+  rescue:
+    - name: Report the hidden failure
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/hidden_task_failure.yml"
 
 - name: Remove the background activity script from the guest
   ansible.windows.win_file:

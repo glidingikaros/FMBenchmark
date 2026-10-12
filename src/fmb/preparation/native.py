@@ -88,7 +88,9 @@ def image_binding(*, analysis: Path, generation: Path) -> dict:
         raise ValueError("the collection was made from another image than the generation's")
     binding = {"image": image["file"], "image_sha256": image["sha256"],
                "image_hash_records": records,
-               "evidence_index_sha256": collection["evidence_index_sha256"]}
+               "evidence_index_sha256": collection["evidence_index_sha256"],
+               **({"evidence_content_sha256": collection["evidence_content_sha256"]}
+                  if "evidence_content_sha256" in collection else {})}
     population = read_json(supplement / "public-population-binding.json").get("public_manifest_sha256")
     if population is not None:
         scope = generation / "factual-challenge-population.json"

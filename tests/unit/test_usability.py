@@ -149,12 +149,12 @@ def test_a_failed_generation_names_the_phase_the_error_and_the_log(tmp_path, mon
     monkeypatch.setattr(run, "step", step)
     image = SimpleNamespace(name="I1", paper=True, path=tmp_path / "I1.json")
     with pytest.raises(SystemExit) as error:
-        run.generate_image(image, tmp_path / "lock.json", folder, attempts=3)
+        run.generate_image(image, tmp_path / "lock.json", folder, attempts=1)
     assert str(error.value) == (f"I1: generation failed at 'export the disk image and apply the post-export steps': "
                                 f"the exported disk has no NTFS volume; see {folder / 'generate-1.log'}")
 
 
-def test_generation_stops_before_booting_without_the_disk_it_needs(tmp_path, monkeypatch):
+def test_generation_stops_before_booting_without_the_disk_it_needs(tmp_path, monkeypatch, capsys):
     for name in ("I1", "I2"):
         published = tmp_path / name / "generation" / "attempt-1" / "full_scale" / "a"
         published.mkdir(parents=True)
@@ -166,12 +166,12 @@ def test_generation_stops_before_booting_without_the_disk_it_needs(tmp_path, mon
                                          r"and only 22\.4 GiB are free at .*; free 7\.6 GiB more\. Generated images "
                                          r"there: I1, I2; fmb run with --delete-image"):
         run.disk_space("I3", tmp_path)
-    # Just short: the message must not read as if there were enough.
+    # Just short: within the few GiB free space moves by on its own, so a warning that must not read as enough.
     monkeypatch.setattr(host, "image_need_gib", lambda: 35.97)
     monkeypatch.setattr(host, "free_gib", lambda path: 35.66)
-    with pytest.raises(run.NoSpace, match=r"needs about 36\.0 GiB free, and only 35\.6 GiB are free at .*; free "
-                                          r"0\.4 GiB more"):
-        run.disk_space("I3", tmp_path)
+    run.disk_space("I3", tmp_path)
+    assert re.search(r"needs about 36\.0 GiB free, and only 35\.6 GiB are free at .*; free 0\.4 GiB more to be safe; "
+                     r"going ahead", capsys.readouterr().err)
     monkeypatch.setattr(host, "free_gib", lambda path: 36.0)
     run.disk_space("I3", tmp_path)
 
@@ -194,6 +194,7 @@ def test_fmb_run_generates_runs_and_deletes_one_image_at_a_time(tmp_path, monkey
 
     monkeypatch.setattr(run, "implementation", lambda paper: {})
     monkeypatch.setattr(run, "prepare", lambda images, where: order.append(("prepare", [i.name for i in images])))
+    monkeypatch.setattr(run, "list_space", lambda *_: None)
     monkeypatch.setattr(run, "generate_one", generate_one)
     monkeypatch.setattr(run, "analyse", lambda name, *_: order.append(("run", name)) or {"image": name,
                                                                                          "admission": "passed"})
@@ -285,3 +286,43 @@ def test_a_clock_bias_below_the_hosts_is_refused_when_the_image_is_checked(tmp_p
     path.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="early.json: generation.clock_bias_minutes is at least 480 on this host"):
         image_files.check(image_files.load(path))
+
+
+def test_a_new_workspace_gets_its_disk_checked_before_it_exists(tmp_path, monkeypatch):
+    monkeypatch.setenv("FMB_HOME", str(tmp_path / "new" / "workspace"))
+    monkeypatch.setattr(host, "image_need_gib", lambda: 1.0)
+    monkeypatch.setattr(host, "leftovers", lambda: [])
+    monkeypatch.setattr(host, "which", lambda name: None)
+    row = next(row for row in host.checks() if row[0].startswith("free disk"))
+    assert row[2].endswith(f"free at {tmp_path}")
+
+
+def test_fmb_run_generates_an_image_given_as_a_path(tmp_path, monkeypatch, capsys):
+    from fmb.replication import report
+
+    mine = tmp_path / "elsewhere" / "mine.json"
+    mine.parent.mkdir()
+    mine.write_text(EXAMPLE.read_text())
+    root = tmp_path / "generated"
+    root.mkdir()
+    generated = []
+
+    def generate_one(image, lock, where, attempts, again=False):
+        generated.append((image.name, image.path))
+        published = where / image.name / "generation" / "attempt-1" / "full_scale" / "a"
+        published.mkdir(parents=True)
+        (published / "manifest.json").write_text("{}")
+        (published / "full_scale.vmdk").write_bytes(b"")
+        (where / image.name / "recipe").mkdir()
+        return published
+
+    monkeypatch.setattr(run, "implementation", lambda paper: {})
+    monkeypatch.setattr(run, "prepare", lambda images, where: None)
+    monkeypatch.setattr(run, "generate_one", generate_one)
+    monkeypatch.setattr(run, "paper_image", lambda folder: False)
+    monkeypatch.setattr(run, "analyse", lambda name, *_: {"image": name, "admission": "passed"})
+    monkeypatch.setattr(host, "windows_base", lambda: None)
+    monkeypatch.setattr(report, "complete", lambda *_: None)
+    monkeypatch.setattr(report, "headline", lambda row, output: [row["image"]])
+    assert run.run_images([str(mine)], None, root, tmp_path / "results") == 0
+    assert generated == [("mine", mine)]

@@ -147,7 +147,7 @@ def write_report(*, runs: list[Path], output: Path) -> dict:
         writer = csv.writer(stream)
         writer.writerow(["image", "condition", "cost_per_pass_usd", "f1_percent", "admission"])
         writer.writerows(figure)
-    (output / "results.md").write_text(_markdown(images) + "\n")
+    (output / "results.md").write_text(_markdown(images) + "\n", encoding="utf-8")
     report = {"schema_version": SCHEMA, "images": images, "provider_calls": 0}
     write_json(output / "report.json", report)
     return {"status": "reported", "output": str(output), "images": labels, "rows": len(table)}

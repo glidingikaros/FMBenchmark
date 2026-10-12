@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from pwsh_helpers import PWSH_TIMEOUT
+
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / 'src/fmb/generation/ansible/roles/manipulation/files/native_shellbag.ps1'
 TASK = ROOT / 'src/fmb/generation/ansible/roles/manipulation/tasks/shellbag_path_residue_01.yml'
@@ -20,7 +22,7 @@ LIMITS = {'max_elapsed_ms': 2000, 'max_node_count': 4096, 'max_depth': 64,
 def run(script: str, *args: str) -> object:
     result = subprocess.run([PWSH, '-NoProfile', '-NonInteractive', '-CommandWithArgs',
                              '. $args[0]\n' + script, str(HELPER), *args],
-                            text=True, capture_output=True, timeout=30, check=False)
+                            text=True, capture_output=True, timeout=PWSH_TIMEOUT, check=False)
     assert result.returncode == 0, result.stderr
     assert not result.stderr.strip(), result.stderr
     assert 'PRIVATE_DO_NOT_EMIT' not in result.stdout

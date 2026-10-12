@@ -28,10 +28,44 @@ def _recorded_outputs(index: Mapping[str, Any]) -> list[PurePath]:
     return paths
 
 
-def original_root(analysis: Path, recorded: list[PurePath]) -> PurePath:
+def relative_to_collection(index: Mapping[str, Any], analysis: Path) -> dict:
+    """The index with the parser outputs under the collection folder named relative to it, as CollectionPaths reads
+    them, so that it names no host folder and reads the same wherever the collection is made."""
+    root = Path(analysis).resolve()
+
+    def relative(row: Any) -> Any:
+        path = Path(row["path"]) if isinstance(row, Mapping) and isinstance(row.get("path"), str) else None
+        if path is None or not path.is_absolute() or not path.resolve().is_relative_to(root):
+            return row
+        return {**row, "path": path.resolve().relative_to(root).as_posix()}
+
+    def run(value: Any) -> Any:
+        if not isinstance(value, Mapping):
+            return value
+        value = dict(value)
+        if isinstance(value.get("raw_outputs"), list):
+            value["raw_outputs"] = [relative(row) for row in value["raw_outputs"]]
+        if value.get("normalized_output"):
+            value["normalized_output"] = relative(value["normalized_output"])
+        return value
+
+    return {**index, "parser_runs": [run(value) for value in index["parser_runs"]]}
+
+
+def evidence_content(index: Mapping[str, Any]) -> dict:
+    """The index without its collector runs, which record when, where and by whom the collection ran: the part two
+    collections of one image share."""
+    return {key: value for key, value in index.items() if key != "collector_runs"}
+
+
+def original_root(analysis: Path, recorded: list[PurePath], made_in: str | None = None) -> PurePath:
     root = Path(analysis).resolve(strict=True)
     if not recorded:
         raise ValueError("the collection index records no parser output")
+    # A collection names its own files relative to its folder; older ones name them under the folder they were made in.
+    recorded = [path for path in recorded if path.is_absolute()]
+    if not recorded:
+        return _normal(made_in) if made_in else root
     for candidate in (root, _normal(Path(analysis).absolute())):
         if all(path.is_relative_to(candidate) for path in recorded):
             return candidate
@@ -55,10 +89,11 @@ class CollectionPaths:
     def __init__(self, analysis: Path, index: Mapping[str, Any], *, generation: Path | None = None):
         self.root = Path(analysis).resolve(strict=True)
         record = self.root / "factual-collection.json"
-        self.collected_from = _normal(read_json(record)["evidence"]).parent if record.is_file() else None
+        collection = read_json(record) if record.is_file() else None
+        self.collected_from = _normal(collection["evidence"]).parent if collection is not None else None
         self.generation = Path(generation).resolve(strict=True) if generation is not None else None
         recorded = [path for path in _recorded_outputs(index) if not self._from_generation(path)]
-        self.original = original_root(analysis, recorded)
+        self.original = original_root(analysis, recorded, (collection or {}).get("analysis"))
         self.relocated = self.original not in (self.root, _normal(Path(analysis).absolute()))
 
     def _from_generation(self, path: PurePath) -> bool:

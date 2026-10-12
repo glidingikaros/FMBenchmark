@@ -119,12 +119,18 @@ foreach($m in $ordered) {
   }
   if($q -eq 'BQ-EXEC-01') {
     Start-Process -FilePath $p -ArgumentList 'cmd.exe' -WindowStyle Hidden -Wait
-    $deadline=(Get-Date).AddSeconds(40); $name=[IO.Path]::GetFileName($p)
+    # Windows writes the .pf in the background, as in prefetch_wipe_01: its 180 s deadline; the loop ends once it exists.
+    $waitStarted=Get-Date; $deadline=$waitStarted.AddSeconds(180); $name=[IO.Path]::GetFileName($p)
     do {
       $pf=@(Get-ChildItem -LiteralPath 'C:\Windows\Prefetch' -Filter "$name-*.pf" -ErrorAction SilentlyContinue)
       if($pf.Count -eq 0){Start-Sleep -Seconds 2}
     } while($pf.Count -eq 0 -and (Get-Date) -lt $deadline)
-    if($pf.Count -eq 0){throw 'Pilot executable has no native Prefetch record'}
+    if($pf.Count -eq 0){
+      # Counts and guest state only: the reason must not name the pilot file.
+      $sysMain=Get-Service -Name 'SysMain' -ErrorAction SilentlyContinue
+      $prefetcher=(Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters' -Name 'EnablePrefetcher' -ErrorAction SilentlyContinue).EnablePrefetcher
+      throw ('Pilot executable has no native Prefetch record: 0 of 1 .pf files after {0} s (SysMain: {1}, EnablePrefetcher: {2})' -f [int]((Get-Date)-$waitStarted).TotalSeconds, $(if($sysMain){[string]$sysMain.Status}else{'missing'}), $prefetcher)
+    }
     $witnesses=@($pf | ForEach-Object {@{path=$_.FullName; length=$_.Length; sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()}})
   }
   if($q -in @('BQ-DELETE-01','BQ-SHELLBAG-01','BQ-EXEC-01')) {

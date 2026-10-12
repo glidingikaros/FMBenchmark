@@ -1,0 +1,18 @@
+---
+# The rescue of each no_log guest task. Its result stays hidden, because stderr can quote the private inputs; only
+# values that cannot carry them are printed: the exit code, the script line of each PowerShell error and the exception
+# type. A task whose inputs are public sets fmb_failure_is_public to add the error message itself.
+- name: Report why the hidden guest task failed
+  vars:
+    fmb_failure_stderr: "{{ ansible_failed_result.stderr | default('') | trim }}"
+    fmb_failure_lines: >-
+      {{ fmb_failure_stderr | regex_findall('At [^\r\n]*?:(\d+) char:\d+') | unique | join(', ') }}
+    fmb_failure_types: >-
+      {{ fmb_failure_stderr | regex_findall('(?:\], |FullyQualifiedErrorId *: *)([A-Za-z_][A-Za-z0-9_.]*Exception)(?=[ \t]*(?:_x000D_)?(?:_x000A_|\r?$))', multiline=True) | unique | join(', ') }}
+  ansible.builtin.fail:
+    msg: >-
+      {{ ansible_failed_task.name }} failed: exit code {{ ansible_failed_result.rc | default('unavailable') }},
+      script line {{ fmb_failure_lines or 'unavailable' }}, exception {{ fmb_failure_types or 'unavailable' }}{{
+      (': ' ~ (fmb_failure_stderr.splitlines() + [''])[0]) if fmb_failure_is_public | default(false)
+      else ' (the rest is hidden: it can name private paths)' }}
+  no_log: false

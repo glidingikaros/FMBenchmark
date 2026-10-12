@@ -138,8 +138,9 @@ def pecmd_prefetch_parser_run(
     mft_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     observations = []
-    candidate_count = 0
+    candidate_count = row_count = 0
     for row_index, row in enumerate(stream_csv_rows(csv_path), start=1):
+        row_count = row_index
         executable_name = row_first(row, "ExecutableName", "Executable Name")
         explicit_executable_path = row_first(row, *PECMD_EXECUTABLE_PATH_HEADERS)
         referenced_paths = [explicit_executable_path]
@@ -229,6 +230,11 @@ def pecmd_prefetch_parser_run(
                 "source_record_ref": f"{csv_path.name}:row={row_index}",
             }
         )
+    scope = prefetch_coverage_scope(collector_run, csv_path=csv_path, record_count=candidate_count)
+    unavailable = (
+        f"PECmd wrote no row for the {scope['pf_file_count']} collected Prefetch file(s)"
+        if not row_count and scope["pf_file_count"] else None
+    )
     return parser_run_from_observations(
         parser="PECmd",
         parser_kind="windows_prefetch",
@@ -239,13 +245,14 @@ def pecmd_prefetch_parser_run(
         collector_run=collector_run,
         raw_output=csv_path,
         observations=observations,
-        coverage_scope=prefetch_coverage_scope(
-            collector_run, csv_path=csv_path, record_count=candidate_count
-        ),
+        coverage_scope=None if unavailable else scope,
+        unavailable_reason=unavailable,
         additional_raw_outputs=[Path(p) for p in (mft_context or {}).get("source_paths", [])]
             + [Path(p) for p in (mft_context or {}).get("native_volume_source_paths", [])],
         coverage_status=(
-            "complete"
+            "unavailable"
+            if unavailable
+            else "complete"
             if candidate_count <= MAX_PECMD_PREFETCH_OBSERVATIONS
             and csv_has_required_headers(
                 csv_path,

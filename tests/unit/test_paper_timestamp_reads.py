@@ -5,7 +5,9 @@ import subprocess
 
 import pytest
 
-pytestmark = pytest.mark.pwsh
+from pwsh_helpers import PWSH_TIMEOUT, requires_pwsh
+
+pytestmark = [pytest.mark.pwsh, requires_pwsh]
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "src/fmb/generation/ansible/roles/manipulation/files/pilot_challenge.ps1"
@@ -18,7 +20,7 @@ def run_powershell(tmp_path, source, target):
         ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(script), str(target)],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=PWSH_TIMEOUT,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert not result.stderr.strip(), result.stderr

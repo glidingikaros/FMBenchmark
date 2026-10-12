@@ -85,7 +85,7 @@ def test_the_report_builds_table_3_and_figure_2_from_the_runs(tmp_path):
          "admission": "passed"},
         {"image": "I3", "condition": "luna-high", "cost_per_pass_usd": "0.250", "f1_percent": "95.0",
          "admission": "failed"}]
-    text = (tmp_path / "report" / "results.md").read_text()
+    text = (tmp_path / "report" / "results.md").read_text(encoding="utf-8")
     assert "Admission passed (strict)." in text
     assert "Admission failed (report-only). The rule-based answers did not match" in text
     with pytest.raises(FileExistsError):
@@ -105,7 +105,7 @@ def test_the_report_shows_an_f1_without_positive_or_false_positive_findings_as_m
         ("I1", "rules", "100.0"), ("I1", "luna-high", ""), ("I2", "rules", "")]
     figure = list(csv.DictReader((tmp_path / "report" / "figure-f1-cost.csv").open()))
     assert [(r["condition"], r["f1_percent"]) for r in figure] == [("luna-high", "")]
-    text = (tmp_path / "report" / "results.md").read_text()
+    text = (tmp_path / "report" / "results.md").read_text(encoding="utf-8")
     assert "| luna-high | 0/2 | – | 0 | 0 |" in text
     assert "| Rule-based baseline | 2/2 | – | 0 | 0 |" in text
 

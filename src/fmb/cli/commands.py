@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 
 # The check rows that fmb setup itself takes care of; any other missing row is for the user to fix first.
-SET_UP_BY_FMB = (".NET runtime", "Ansible with WinRM", "Windows base image", "Windows box", "free disk", "no VMs left")
+SET_UP_BY_FMB = (".NET runtime", "Ansible with WinRM", "Windows base image", "Windows box", "free disk", "no VMs left",
+                 "Windows parsers")
 
 
 def add_parsers(commands, argv: Sequence[str] = ()) -> None:
@@ -134,16 +135,17 @@ def where() -> None:
 
 
 def generate_command(args: argparse.Namespace) -> int:
-    from fmb.replication import image_files, run
+    from fmb.replication import awake, image_files, run
 
     run.VERBOSE = args.verbose
     where()
     names = args.images or pick_images()
-    return run.generate_images([image_files.resolve(name) for name in names], args.attempts, again=args.again)
+    with awake.kept_awake():
+        return run.generate_images([image_files.resolve(name) for name in names], args.attempts, again=args.again)
 
 
 def pipeline_command(args: argparse.Namespace) -> int:
-    from fmb.replication import image_files, run
+    from fmb.replication import awake, image_files, run
 
     run.VERBOSE = args.verbose
     where()
@@ -154,8 +156,9 @@ def pipeline_command(args: argparse.Namespace) -> int:
     if compare and not chosen:
         raise ValueError("--compare S3 needs --llm CONDITION, the LLM to compare: " + ", ".join(conditions(own)))
     llm = image_files.llm_dispatch(chosen, cap, prices, dict(os.environ), own=own, passes=args.passes)
-    return run.run_images(names, llm, delete_image=args.delete_image, attempts=args.attempts,
-                          recollect=args.recollect)
+    with awake.kept_awake():
+        return run.run_images(names, llm, delete_image=args.delete_image, attempts=args.attempts,
+                              recollect=args.recollect)
 
 
 def pick(title: str, rows: list[tuple[str, str]], prompt: str, default: list[str]) -> list[str]:

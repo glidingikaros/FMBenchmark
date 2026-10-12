@@ -6,6 +6,8 @@ import subprocess
 import pytest
 import yaml
 
+from pwsh_helpers import PWSH_TIMEOUT
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -23,7 +25,7 @@ def test_resolved_noise_keeps_each_operation_separate(tmp_path, legacy_array_beh
     plan = [dict(path=str(tmp_path / f'object-{i}.txt'), content=f'original {i}',
                  append_content=f'append {i}', delete=i % 3 != 0, sleep_ms=0) for i in range(36)]
     result = subprocess.run([pwsh, '-NoLogo', '-NoProfile', '-NonInteractive', '-File', str(script), '-ResolvedPlan'],
-                            input=json.dumps(plan), text=True, capture_output=True, timeout=30)
+                            input=json.dumps(plan), text=True, capture_output=True, timeout=PWSH_TIMEOUT)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)['completed_count'] == 36
     for row in plan:

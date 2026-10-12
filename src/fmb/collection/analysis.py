@@ -6,6 +6,8 @@ from typing import Any
 
 from fmb.analysis.inputs import population_ntfs_scope_and_references
 from fmb.analysis.population_binding import bind_population_manifest
+from fmb.core.errors import FmbInputError
+from fmb.core.json_io import write_json
 from fmb.core.schemas import validate_payload
 from fmb.core.truth_guard import is_disk_image
 from fmb.index.adapters.logfile import raw_logfile_reference_parser_run
@@ -14,6 +16,7 @@ from fmb.index.adapters.mft import (
     raw_mft_path_for_root,
 )
 from fmb.index.adapters.ntfs_files import mftecmd_ads_reference_parser_run
+from fmb.index.adapters.parser_output import unavailable_coverage
 from fmb.index.adapters.usn import raw_usn_reference_parser_run
 from fmb.index.scanners.usn import ntfs_reference_set_sha256
 
@@ -107,6 +110,22 @@ def _kape_output_root(path: Path) -> Path | None:
     )
 
 
+def _note_reference_scope_skips(output_dir: Path, usn_scopes, logfile_scopes, journal_path: Path | None,
+                                logfile_path: Path | None, mft_volume_id: Any) -> None:
+    # A reference-scoped population whose scanner does not run stays indeterminate; this file says why.
+    skipped = [
+        {"scanner": scanner, "filesystem_scope_id": scope,
+         "reason": f"no single raw {name} among the parser outputs" if path is None
+         else f"the collected $MFT is volume {mft_volume_id}, not the population's volume {scope}"}
+        for scanner, name, path, scopes in (("usn", "$J", journal_path, usn_scopes),
+                                            ("logfile", "$LogFile", logfile_path, logfile_scopes))
+        for scope, _references in scopes
+        if path is None or mft_volume_id != scope
+    ]
+    if skipped:
+        write_json(output_dir / "execution/02-normalization/reference-scope-skips.json", {"skipped": skipped})
+
+
 def add_reference_scoped_usn(
     evidence_index: Mapping[str, Any],
     *,
@@ -144,6 +163,8 @@ def add_reference_scoped_usn(
     journal_path = _raw_usn_journal_path(prepared)
     logfile_path = _raw_logfile_path(prepared)
     if journal_path is None and logfile_path is None:
+        _note_reference_scope_skips(output_dir, scoped_population_references, logfile_population_references,
+                                    None, None, None)
         return prepared
     collector_runs = prepared.get("collector_runs")
     if (
@@ -156,6 +177,8 @@ def add_reference_scoped_usn(
     if kape_root is None:
         raise ValueError("raw journal or $LogFile is outside a KAPE output root")
     mft_context = build_mft_presence_context(kape_root)
+    _note_reference_scope_skips(output_dir, scoped_population_references, logfile_population_references,
+                                journal_path, logfile_path, mft_context.get("mft_volume_id"))
     parser_runs = prepared.get("parser_runs")
     if not isinstance(parser_runs, list):
         raise ValueError("evidence index parser_runs must be an array")
@@ -333,13 +356,24 @@ def add_reference_scoped_ads(
     return rebound
 
 
+def refuse_unavailable_families(index: Mapping[str, Any], families: set[str]) -> None:
+    # A family whose every parser run certifies no coverage stops S2 here, naming the parsers and why, before
+    # population binding fails on the same gap with a message about the population.
+    runs = [run for run in index.get("parser_runs", []) if isinstance(run, Mapping)]
+    for family in sorted(families):
+        reasons = [unavailable_coverage(run) for run in runs if family in (run.get("coverage_families") or [])]
+        if reasons and all(reasons):
+            raise ValueError(f"S2 collected no usable source for {family}, which the profile requires: "
+                             + "; ".join(sorted(set(reasons))))
+
+
 def collect_evidence_index(evidence: Path, *, profile: dict, output_dir: Path, run_id: str,
                            windows_parsers: Path | None, host_toolchain_root: Path | None = None,
                            vm_work_root: Path | None = None) -> dict:
     from fmb.analysis.population_binding import bind_population_manifest, load_generated_population_bundle
     from fmb.collection.alignment import add_native_population_surfaces
     from fmb.collection.factual_challenge import load_public_population, add_factual_population
-    from fmb.collection.paper_host import collect_host
+    from fmb.collection.paper_host import collect_host, evidence_change, file_identity
 
     evidence = evidence.expanduser().absolute()
     if not evidence.is_file() or not is_disk_image(evidence.name):
@@ -362,11 +396,13 @@ def collect_evidence_index(evidence: Path, *, profile: dict, output_dir: Path, r
         if public is not None:
             limit += sum(member['path'].casefold().endswith('.bmp') for member in public['members']
                          if not selective or member['question_id'] in questions)
+    identity = file_identity(evidence)
     collected = collect_host(profile=profile, evidence=evidence, output=output_dir, run_id=run_id,
         windows_parsers=windows_parsers, host_toolchain_root=host_toolchain_root,
         vm_work_root=vm_work_root, expected_sha256=generated.evidence_sha256,
         bounded_content_subject_limit=limit,
         bounded_i30_directory_paths=generated.i30_directory_paths if 'ntfs.i30' in families else ())
+    refuse_unavailable_families(collected, families)
     collected = add_native_population_surfaces(collected, manifest=generated.population_manifest,
         evidence_image=evidence, evidence_sha256=generated.evidence_sha256, output_dir=output_dir,
         **({**selection, "system_volume": 'ntfs.mft' in families} if selective else {}))
@@ -381,4 +417,7 @@ def collect_evidence_index(evidence: Path, *, profile: dict, output_dir: Path, r
         prepared = add_factual_population(prepared, evidence=evidence, public=public,
                                          output_dir=output_dir / 'factual-supplement',
                                          **({"questions": questions} if selective else {}))
+    # Checked after the last read of the image, so every step above read the image that was hashed.
+    if changed := evidence_change(evidence, identity, generated.evidence_sha256):
+        raise FmbInputError(f"evidence image changed during collection ({changed})")
     return prepared
