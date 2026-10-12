@@ -1,7 +1,12 @@
 import hashlib
 import io
+import os
 import re
+import signal
+import sys
 import tarfile
+import threading
+import time
 import urllib.error
 import zipfile
 from pathlib import Path
@@ -149,3 +154,88 @@ def test_ez_tools_outside_fmbs_cache_are_never_replaced(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="unset FMB_HOST_TOOLCHAIN_ROOT"):
         setup.eztools()
     assert (own / "RECmd.dll").read_bytes() == b"my build"
+
+
+def test_a_second_base_build_is_refused_while_one_runs(tmp_path):
+    lock = tmp_path / "base-build" / "build.lock"
+    with setup.exclusive(lock):
+        with pytest.raises(SystemExit, match=f"another fmb setup is building the Windows base in "
+                                             f"{re.escape(str(lock.parent))}"):
+            with setup.exclusive(lock):
+                pass
+    with setup.exclusive(lock):
+        pass
+
+
+def test_a_failed_base_build_names_its_exit_code_last_line_logs_and_what_it_left(tmp_path, capsys):
+    work = tmp_path / "base-build"
+    work.mkdir()
+    (work / "win.qcow2").write_bytes(b"\0" * 4096)
+    script = ("print('[04:30:00] install2 20: qemu cpu 200%', flush=True); import sys; "
+              "sys.exit('Windows Setup stalled twice: no disk writes for 10 minutes at 20971520000 bytes')")
+    with pytest.raises(SystemExit) as failure:
+        setup.build([sys.executable, "-c", script], work)
+    message = str(failure.value)
+    assert message.startswith("the Windows base build failed (exit 1): Windows Setup stalled twice: no disk writes")
+    assert f"in {work / 'install.log'};" in message and "qemu.log" in message and "shots/" in message
+    assert f"{work} holds " in message and "deleting it is safe" in message
+    log = (work / "install.log").read_text(encoding="utf-8")
+    assert "install2 20: qemu cpu 200%" in log and "Windows Setup stalled twice" in log
+    assert "install2 20: qemu cpu 200%" in capsys.readouterr().out
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    stat = Path(f"/proc/{pid}/stat")
+    return not (stat.exists() and stat.read_text().split(") ", 1)[1].startswith("Z"))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="a kill of fmb is a POSIX signal")
+def test_a_kill_of_setup_stops_the_whole_base_build_and_says_what_is_left(tmp_path):
+    work, started = tmp_path / "base-build", tmp_path / "qemu.pid"
+    qemu = ("import pathlib, subprocess, sys, time; pid = subprocess.Popen([sys.executable, '-c', "
+            "'import time; time.sleep(60)']).pid; part = pathlib.Path(sys.argv[1] + '.part'); "
+            "part.write_text(str(pid)); part.replace(sys.argv[1]); time.sleep(60)")
+    before, done = signal.getsignal(signal.SIGTERM), threading.Event()
+
+    def kill_when_qemu_runs():
+        while not done.wait(0.05):
+            if started.exists() and signal.getsignal(signal.SIGTERM) != before:
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+
+    threading.Thread(target=kill_when_qemu_runs, daemon=True).start()
+    try:
+        with pytest.raises(KeyboardInterrupt, match=r"the base build was stopped \(SIGTERM\) and its processes "
+                                                    f"ended\\. {re.escape(str(work))} holds"):
+            setup.build([sys.executable, "-c", qemu, started], work)
+    finally:
+        done.set()
+    pid = int(started.read_text())
+    deadline = time.monotonic() + 20
+    while alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not alive(pid)
+    assert signal.getsignal(signal.SIGTERM) == before
+
+
+def test_the_base_build_needs_room_for_its_disk_and_the_compressed_base(tmp_path, monkeypatch):
+    work = tmp_path / "cache" / "base-build"
+    work.mkdir(parents=True)
+    monkeypatch.setenv("FMB_CACHE", str(tmp_path / "cache"))
+    monkeypatch.delenv("FMB_QEMU_BASE_HOME", raising=False)
+    free = {work: 30.0}
+    monkeypatch.setattr(host, "free_gib", lambda path: free[path])
+    monkeypatch.setattr(host, "allocated_gib", lambda path: 0.0)
+    with pytest.raises(SystemExit, match=f"needs about 40 GiB free at {re.escape(str(work))}, and it has 30 GiB"):
+        setup.room(work)
+    monkeypatch.setattr(host, "allocated_gib", lambda path: 24.0)  # an earlier build's disk, which this one replaces
+    setup.room(work)
+    elsewhere = tmp_path / "bases"
+    monkeypatch.setenv("FMB_QEMU_BASE_HOME", str(elsewhere))
+    free[elsewhere] = 5.0
+    with pytest.raises(SystemExit, match=f"moves to {re.escape(str(elsewhere))} once built, and it has 5 GiB free"):
+        setup.room(work)

@@ -122,15 +122,14 @@ def test_setup_builds_the_base_only_from_the_pinned_iso_unless_told_otherwise(tm
 
     commands = []
 
-    def install(command, **kwargs):
+    def install(command, work):
         commands.append([str(part) for part in command])
-        work = host.cache() / "base-build"
-        work.mkdir(parents=True)
         for name in ("base.qcow2", "base-vars.fd"):
             (work / name).write_bytes(b"")
         (work / "guest.json").write_text(json.dumps({"build": "26300", "ubr": 9999}))
 
-    monkeypatch.setattr(setup, "run", install)
+    monkeypatch.setattr(setup, "build", install)
+    monkeypatch.setattr(setup, "room", lambda work: None)
     assert setup.base(Path("~/Downloads/newer.iso"), unpinned_iso=True) == {"build": "26300", "ubr": 9999}
     command, = commands
     assert command[command.index("--iso-url") + 1] == str((tmp_path / "Downloads" / "newer.iso").resolve())

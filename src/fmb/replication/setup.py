@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -14,12 +15,17 @@ import tempfile
 import time
 import urllib.request
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 
 from fmb.replication import host
 
 AGENT = {"User-Agent": "Mozilla/5.0"}
 RETRY_SECONDS = (5, 30)
+# The base build's peak in the cache on CI: its installed disk (about 24 GiB) beside the compressed base (10 GiB).
+BASE_BUILD_GIB = 40
+BASE_GIB = 11
+BUILD_HOURS = 8
 
 
 def log(message: str) -> None:
@@ -204,25 +210,121 @@ def box(iso: Path | None = None, *, unpinned_iso: bool = False) -> dict | None:
 def base(iso: Path | None = None, *, unpinned_iso: bool = False) -> dict:
     from fmb.generation.recipe import qemu_box
 
-    facts = host.base_guest_facts()
-    if facts is not None:
-        return facts
-    iso, sha256 = checked_iso(iso, host.PINS["windows_iso"], unpinned_iso)
-    pin = host.PINS["windows_iso"]
     work = host.cache() / "base-build"
-    pins = host.PINS["base_builder"]
-    run(["uv", "run", "--no-project", "--python", platform.python_version(), "--with", f"pycdlib=={pins['pycdlib']}",
-         "--with", f"pywinrm=={pins['pywinrm']}", "--with", f"psutil=={pins['psutil']}", "--with", "tzdata",
-         "python", host.REPO / "tools" / "base-image" / "windows11-x64" / "install.py",
-         "--iso-url", iso, "--iso-sha256", sha256, "--edition", pin["edition"], "--work", work])
-    box = host.base_home() / qemu_box().replace("/", "-VAGRANTSLASH-") / "0"
-    target = box / "amd64" / "qemu"
-    target.mkdir(parents=True, exist_ok=True)
-    for name in ("base.qcow2", "base-vars.fd"):
-        shutil.move(work / name, target / name)
-    shutil.move(work / "guest.json", box / "guest.json")
+    with exclusive(work / "build.lock"):
+        facts = host.base_guest_facts()
+        if facts is not None:
+            return facts
+        iso, sha256 = checked_iso(iso, host.PINS["windows_iso"], unpinned_iso)
+        room(work)
+        pin, pins = host.PINS["windows_iso"], host.PINS["base_builder"]
+        build(["uv", "run", "--no-project", "--python", platform.python_version(), "--with",
+               f"pycdlib=={pins['pycdlib']}", "--with", f"pywinrm=={pins['pywinrm']}", "--with",
+               f"psutil=={pins['psutil']}", "--with", "tzdata",
+               "python", host.REPO / "tools" / "base-image" / "windows11-x64" / "install.py",
+               "--iso-url", iso, "--iso-sha256", sha256, "--edition", pin["edition"], "--work", work], work)
+        box = host.base_home() / qemu_box().replace("/", "-VAGRANTSLASH-") / "0"
+        target = box / "amd64" / "qemu"
+        target.mkdir(parents=True, exist_ok=True)
+        for name in ("base.qcow2", "base-vars.fd"):
+            shutil.move(work / name, target / name)
+        shutil.move(work / "guest.json", box / "guest.json")
     log(f"base placed in {target}")
     return json.loads((box / "guest.json").read_text(encoding="utf-8"))
+
+
+@contextmanager
+def exclusive(path: Path):
+    """An OS lock, which ends with its process: a second base build cannot share the build folder."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as handle:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise SystemExit(f"another fmb setup is building the Windows base in {path.parent}; wait for it to end, "
+                             "then run fmb setup again") from None
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def room(work: Path) -> None:
+    """Refuses a base build that would fill the disk: QEMU then pauses the install, which only looks stalled."""
+    free = host.free_gib(work) + host.allocated_gib(work)  # the build replaces what an earlier one left there
+    if free < BASE_BUILD_GIB:
+        raise SystemExit(f"building the Windows base needs about {BASE_BUILD_GIB} GiB free at {work}, and it has "
+                         f"{free:.0f} GiB. Free some, or set FMB_CACHE to a folder on a larger disk, then run fmb "
+                         "setup again.")
+    home = host.base_home()
+    if not home.resolve().is_relative_to(work.parent.resolve()) and host.free_gib(home) < BASE_GIB:
+        raise SystemExit(f"the Windows base (about {BASE_GIB} GiB) moves to {home} once built, and it has "
+                         f"{host.free_gib(home):.0f} GiB free. Free some there, or unset FMB_QEMU_BASE_HOME, then run "
+                         "fmb setup again.")
+
+
+def build(command: list, work: Path) -> None:
+    """Runs the base build in its own process group, which Ctrl-C or a kill of fmb ends whole, QEMU included; its
+    output goes to the terminal and to install.log, and a failure ends in an error that names its last line."""
+    from fmb.core.owned_process import run_owned
+
+    log(" ".join(str(part) for part in command))
+    work.mkdir(parents=True, exist_ok=True)
+    last = [""]
+    with (work / "install.log").open("w", encoding="utf-8") as stream, interruptible():
+        def show(line: str) -> None:
+            line = line.rstrip("\r\n")
+            stream.write(line + "\n")
+            stream.flush()
+            print(line, flush=True)
+            last[0] = line.strip() or last[0]
+
+        try:
+            run_owned([str(part) for part in command], env=host.environment(), timeout=BUILD_HOURS * 3600,
+                      on_line=show)
+        except KeyboardInterrupt as error:
+            raise KeyboardInterrupt(f"the base build was stopped ({error}) and its processes ended. "
+                                    + left_behind(work)) from None
+        except subprocess.SubprocessError as error:
+            ending = (f"exit {error.returncode}" if isinstance(error, subprocess.CalledProcessError)
+                      else f"still running after {BUILD_HOURS} hours")
+            raise SystemExit(f"the Windows base build failed ({ending}): {last[0] or 'it printed nothing'}. Its whole "
+                             f"output is in {work / 'install.log'}; QEMU's log (qemu.log), the guest's serial log "
+                             f"(serial.log) and screenshots (shots/) are beside it. {left_behind(work)}") from None
+
+
+def left_behind(work: Path) -> str:
+    return (f"{work} holds {host.allocated_gib(work):.1f} GiB: the next fmb setup --iso starts over there, and "
+            "deleting it is safe.")
+
+
+@contextmanager
+def interruptible():
+    """A kill of fmb or a closed terminal (SIGTERM, SIGHUP) stops it as Ctrl-C does; later signals wait for the
+    cleanup that follows."""
+    names = [name for name in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, name)]
+
+    def interrupt(number, frame):
+        for name in names:
+            signal.signal(getattr(signal, name), signal.SIG_IGN)
+        raise KeyboardInterrupt(signal.Signals(number).name)
+
+    previous = {name: signal.signal(getattr(signal, name), interrupt) for name in names}
+    try:
+        yield
+    finally:
+        for name, handler in previous.items():
+            signal.signal(getattr(signal, name), handler)
 
 
 def all_steps(*, build_base: bool = True, iso: Path | None = None, unpinned_iso: bool = False) -> None:
