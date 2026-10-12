@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import io
 import os
 import re
@@ -10,6 +11,7 @@ import time
 import urllib.error
 import zipfile
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -239,3 +241,47 @@ def test_the_base_build_needs_room_for_its_disk_and_the_compressed_base(tmp_path
     free[elsewhere] = 5.0
     with pytest.raises(SystemExit, match=f"moves to {re.escape(str(elsewhere))} once built, and it has 5 GiB free"):
         setup.room(work)
+
+
+def load_builder(monkeypatch):
+    builder = Path(__file__).resolve().parents[2] / "tools" / "base-image" / "windows11-x64"
+    for name in ("psutil", "pycdlib", "winrm"):
+        monkeypatch.setitem(sys.modules, name, ModuleType(name))
+    console = ModuleType("guest_console")
+    console.diagnose = console.wsman_status = lambda *args, **kwargs: None
+    monkeypatch.setitem(sys.modules, "guest_console", console)
+    monkeypatch.syspath_prepend(str(builder))
+    spec = importlib.util.spec_from_file_location("fmb_base_install_robustness", builder / "install.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("stall_seconds", [600, None])
+def test_a_base_install_paused_on_a_full_host_disk_says_the_disk_is_full(tmp_path, monkeypatch, stall_seconds):
+    install = load_builder(monkeypatch)
+    (tmp_path / "serial.log").write_bytes(b"")
+    clock = [1000.0]
+    status = ["VM status: paused (io-error)\r\n(qemu) "]
+    monkeypatch.setattr(install, "ready", lambda port: None)
+    monkeypatch.setattr(install, "disk_writes", lambda port: 20_971_520_000)
+    monkeypatch.setattr(install, "monitor", lambda port, command: None)
+    monkeypatch.setattr(install, "monitor_query", lambda port, command: status[0] if command == "info status" else "")
+    monkeypatch.setattr(install.psutil, "Process", lambda pid: SimpleNamespace(cpu_percent=lambda: 0.0), raising=False)
+    monkeypatch.setattr(install.psutil, "Error", Exception, raising=False)
+    monkeypatch.setattr(install, "time", SimpleNamespace(
+        monotonic=lambda: clock[0], sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds)))
+    monkeypatch.setattr(install, "log", lambda message: None)
+    vm = SimpleNamespace(pid=1, poll=lambda: None)
+    install.GUEST_SPOKE[0], install.SERIAL_SEEN[0] = False, 0
+    deadline = clock[0] + 75 * 60
+
+    def wait():
+        install.wait_ready(vm, tmp_path, 5985, 4444, deadline, "install1", stall_seconds=stall_seconds)
+
+    with pytest.raises(SystemExit, match=f"the host disk under {re.escape(str(tmp_path))} is full"):
+        wait()
+    clock[0], status[0] = 1000.0, "VM status: running\r\n(qemu) "
+    with pytest.raises(install.Stalled if stall_seconds else SystemExit,
+                       match="no disk writes for 10 minutes" if stall_seconds else r"no WinRM \(install1\)"):
+        wait()
