@@ -13,6 +13,7 @@ import yaml
 from fmb.index.adapters.file_content import bmp_content_observation, storage_observation
 from fmb.index.scanners.mft import parse_mft_record
 from paper_fixtures import projected_input
+from pwsh_helpers import PWSH_TIMEOUT
 from test_file_content_adapter import bmp_bytes
 from test_ntfs_surfaces import _record, _resident
 from test_rule_analysis import assess
@@ -101,7 +102,7 @@ def test_actual_guest_body_and_strict_receipt_with_public_files(tmp_path, varian
     script = tmp_path / 'guest.ps1'
     script.write_text(body)
     completed = subprocess.run([pwsh, '-NoLogo', '-NoProfile', '-NonInteractive', '-File', str(script)],
-                               input=json.dumps(inputs), capture_output=True, text=True, timeout=20)
+                               input=json.dumps(inputs), capture_output=True, text=True, timeout=PWSH_TIMEOUT)
     assert completed.returncode == 0, completed.stderr
     receipt = json.loads(completed.stdout)
     plan = {'schema_version': 'generation_inputs.v1', 'scenario_inputs': {'bitmap_trailing_data_01': inputs}}

@@ -10,6 +10,7 @@ from copy import deepcopy
 import pytest
 
 from fmb.analysis.catalog import TECHNIQUES
+from pwsh_helpers import PWSH_TIMEOUT
 from rule_helpers import analyze_input
 from fmb.analysis.inputs import build_analysis_input
 from fmb.analysis.structured_content import zip_content_evidence
@@ -213,7 +214,7 @@ def test_exact_native_ziparchive_creation_block(tmp_path):
     result = subprocess.run([pwsh, '-NoProfile', '-NonInteractive', '-File', str(path)],
         input=json.dumps({'zip_stage_name': 'public.zip', 'zip_member_name': 'records.csv',
                           'zip_member_content': 'record,value\n1,public-document\n2,retained-data\n'}),
-        env=environment, text=True, capture_output=True, timeout=20, check=False)
+        env=environment, text=True, capture_output=True, timeout=PWSH_TIMEOUT, check=False)
     assert result.returncode == 0, result.stderr
     data = base64.b64decode(result.stdout.strip(), validate=True)
     assert data == (tmp_path / 'public.zip').read_bytes()

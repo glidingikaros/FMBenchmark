@@ -23,6 +23,9 @@ import pytest
 import yaml
 
 
+from pwsh_helpers import PWSH_TIMEOUT, requires_pwsh
+
+
 from fmb.generation.factual_challenge import build_plan
 
 
@@ -355,6 +358,7 @@ def test_backing_reconciliation_uses_native_serials_and_refuses_ambiguity(defect
 
 
 @pytest.mark.pwsh
+@requires_pwsh
 def test_all_pilot_powershell_parses_without_running_guest_operations(tmp_path):
     source = ROOT / "src/fmb/generation/ansible/roles/manipulation"
     files = list((source / "files").glob("pilot_*.ps1"))
@@ -385,7 +389,7 @@ def test_all_pilot_powershell_parses_without_running_guest_operations(tmp_path):
         ["pwsh", "-NoProfile", "-File", str(checker), *map(str, files)],
         capture_output=True,
         text=True,
-        timeout=45,
+        timeout=PWSH_TIMEOUT,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 

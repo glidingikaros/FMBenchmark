@@ -10,6 +10,7 @@ import subprocess
 import pytest
 
 from fmb.collection.run.lock import process_is_running
+from pwsh_helpers import PWSH_TIMEOUT
 
 HELPER = Path(__file__).resolve().parents[2] / "src/fmb/generation/ansible/roles/manipulation/files/native_shellbag.ps1"
 PWSH = shutil.which("pwsh")
@@ -25,7 +26,7 @@ def build_watchdog(tmp_path: Path, child: str, timeout: int = 10) -> Path:
     )
     subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-CommandWithArgs", builder,
                     str(HELPER), str(path), str(timeout)],
-                   input=child, text=True, capture_output=True, check=True, timeout=120)
+                   input=child, text=True, capture_output=True, check=True, timeout=PWSH_TIMEOUT)
     return path
 
 
@@ -42,9 +43,11 @@ def build_watchdog(tmp_path: Path, child: str, timeout: int = 10) -> Path:
     ("[Console]::Error.Write(('z'*262144));[Console]::Error.Flush();[Console]::Out.WriteLine('FMB_STAGE:218');[Console]::Out.WriteLine('FMB_DONE:0');exit 0", 0),
 ])
 def test_watchdog_classifies_real_process_boundaries_without_relaying_output(tmp_path, child, expected):
-    script = build_watchdog(tmp_path, child)
+    # Only the cases that end at the watchdog's own deadline get a short one: the others must not race a slow pwsh start.
+    ends_at_deadline = "Start-Sleep" in child and expected != 221
+    script = build_watchdog(tmp_path, child, timeout=10 if ends_at_deadline else 60)
     result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-File", str(script)],
-                            text=True, capture_output=True, check=False, timeout=30)
+                            text=True, capture_output=True, check=False, timeout=PWSH_TIMEOUT)
     assert result.returncode == expected, result.stderr
     assert not result.stdout.strip()
     assert not result.stderr.strip()
@@ -60,7 +63,7 @@ def test_watchdog_kills_only_its_owned_process(tmp_path):
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-File", str(script)],
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, timeout=PWSH_TIMEOUT)
         assert result.returncode == 213
         assert unrelated.poll() is None
         owned_pid = int(pid_file.read_text())
@@ -114,7 +117,7 @@ $rows=@(foreach($length in @(90,260,1024)){
 $rows|ConvertTo-Json -Compress
 '''
     result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-CommandWithArgs", audit, str(HELPER)],
-                            capture_output=True, text=True, check=True, timeout=20)
+                            capture_output=True, text=True, check=True, timeout=PWSH_TIMEOUT)
     rows = json.loads(result.stdout)
     assert len(rows) == 6
     assert {r["kind"] for r in rows} == {"child", "watchdog"}
@@ -145,7 +148,7 @@ $valid=Get-LocalNativeShellbagDispatchDiagnostic
 @($invalid,$valid)|ConvertTo-Json -Compress
 '''
     result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-CommandWithArgs", audit, str(HELPER)],
-                            capture_output=True, text=True, check=True, timeout=15)
+                            capture_output=True, text=True, check=True, timeout=PWSH_TIMEOUT)
     invalid, valid = json.loads(result.stdout)
     assert invalid == dict(task_state="unobserved", fresh_registration_verified=False, ran_this_dispatch=False,
                            last_task_result=None, start_scheduled_task_elapsed_ms=None, parent_elapsed_ms=None,
@@ -197,7 +200,7 @@ $throwing=[PSCustomObject]@{kind='worker';process=$throwingNative}
 ) | ConvertTo-Json -Compress
 '''
     result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-CommandWithArgs", audit, str(HELPER)],
-                            capture_output=True, text=True, check=True, timeout=15)
+                            capture_output=True, text=True, check=True, timeout=PWSH_TIMEOUT)
     rows = json.loads(result.stdout)
     unknown = dict(age_wall_ms=None, cpu_cumulative_ms=None, thread_count=None)
     assert 9900 <= rows[0]["age_wall_ms"] < 15000
@@ -265,7 +268,7 @@ try {
  diagnostic=Get-LocalNativeShellbagDispatchDiagnostic}|ConvertTo-Json -Compress
 '''
     result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-CommandWithArgs", audit,
-                             str(HELPER), failure], capture_output=True, text=True, check=True, timeout=15)
+                             str(HELPER), failure], capture_output=True, text=True, check=True, timeout=PWSH_TIMEOUT)
     response = json.loads(result.stdout)
     diagnostic = response["diagnostic"]
     assert response["code"] == ("scheduled_task_queued_timeout" if failure == "start" else "child_watchdog_timeout")
@@ -365,7 +368,7 @@ try {
 '''
     result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-CommandWithArgs", audit, str(HELPER),
                              str(child_result), str(cleanup_failure).lower(), state, str(changed).lower(), str(baseline_result)],
-                            capture_output=True, text=True, check=True, timeout=15)
+                            capture_output=True, text=True, check=True, timeout=PWSH_TIMEOUT)
     response = json.loads(result.stdout)
     assert response["code"] == expected_code, result.stderr
     diagnostic = response["diagnostic"]
@@ -403,7 +406,7 @@ Get-LocalNativeShellbagDispatchDiagnostic | ConvertTo-Json -Compress
 '''
     result = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-CommandWithArgs", audit,
                              str(HELPER), str(tmp_path / "does-not-exist")],
-                            capture_output=True, text=True, check=True, timeout=15)
+                            capture_output=True, text=True, check=True, timeout=PWSH_TIMEOUT)
     diagnostic = json.loads(result.stdout)
     assert diagnostic["task_state"] == "unobserved"
     assert diagnostic["last_task_result"] is None

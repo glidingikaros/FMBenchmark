@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from pwsh_helpers import PWSH_TIMEOUT
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENARIO_ROOT = PROJECT_ROOT / "src/fmb/generation/ansible/roles/manipulation/tasks"
@@ -720,7 +722,7 @@ $functions[0].Extent.Text
 """
     extracted = subprocess.run(
         [pwsh, "-NoProfile", "-NonInteractive", "-CommandWithArgs", extractor, str(helper)],
-        text=True, capture_output=True, check=False, timeout=30,
+        text=True, capture_output=True, check=False, timeout=PWSH_TIMEOUT,
     )
     assert extracted.returncode == 0, extracted.stderr
     assert not extracted.stderr.strip(), extracted.stderr
@@ -737,7 +739,7 @@ $functions[0].Extent.Text
                       "@($messages|ForEach-Object{Get-LocalNativeShellbagFailureCode -Message $_})|ConvertTo-Json -Compress\n")
     result = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-File", str(script)],
                             input=json.dumps([message for message, _ in cases]),
-                            text=True, capture_output=True, check=False, timeout=30)
+                            text=True, capture_output=True, check=False, timeout=PWSH_TIMEOUT)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == [code for _, code in cases]
     assert sentinel not in result.stdout + result.stderr
