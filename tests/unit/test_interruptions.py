@@ -157,8 +157,9 @@ def test_a_generation_left_running_is_stopped_and_removed(tmp_path, monkeypatch)
     assert killed == [(4242, signal.SIGTERM)]
 
 
-def listing(*lines):
-    return lambda *_, **__: subprocess.CompletedProcess([], 0, stdout="\n".join(lines))
+def listing(*lines, uid="501"):
+    rows = [line.replace(" ", f" {uid} ", 1) for line in lines]
+    return lambda *_, **__: subprocess.CompletedProcess([], 0, stdout="\n".join(rows))
 
 
 def test_leftovers_are_only_reported_while_no_generation_runs(tmp_path, monkeypatch):
@@ -166,6 +167,7 @@ def test_leftovers_are_only_reported_while_no_generation_runs(tmp_path, monkeypa
     (tmp_path / "vm-work" / "20261010_101010_000000").mkdir(parents=True)
     monkeypatch.setattr(host, "WINDOWS", False)
     monkeypatch.setattr(host, "MACOS", True)
+    monkeypatch.setattr(host.os, "getuid", lambda: 501, raising=False)
     monkeypatch.setattr(host.subprocess, "run", listing("1 /bin/zsh"))
     assert host.leftovers() == [("clone", str(tmp_path / "vm-work" / "20261010_101010_000000"))]
     monkeypatch.setattr(host.subprocess, "run", listing("1 /bin/zsh", "77 python -m fmb.replication.steps generate {}"))

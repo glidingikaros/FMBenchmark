@@ -311,3 +311,79 @@ def test_a_published_image_is_never_touched(tmp_path, monkeypatch):
     (done / "full_scale.vmdk").write_bytes(b"disk")
     (done / "manifest.json").write_text("{}")
     assert generate() == done and (done / "full_scale.vmdk").read_bytes() == b"disk"
+
+
+def listing(*rows):
+    return lambda *_, **__: subprocess.CompletedProcess([], 0, stdout="\n".join(rows))
+
+
+def test_only_this_users_generation_leftovers_are_removed(tmp_path, monkeypatch):
+    from fmb.replication import host
+
+    monkeypatch.setenv("FMB_CACHE", str(tmp_path))
+    clone = tmp_path / "vm-work" / "20261010_101010_000000"
+    clone.mkdir(parents=True)
+    (tmp_path / "vm-work" / "fmb-parser-1a2b3c").mkdir()
+    monkeypatch.setattr(host, "WINDOWS", False)
+    monkeypatch.setattr(host, "MACOS", True)
+    monkeypatch.setattr(host.os, "getuid", lambda: 501, raising=False)
+    monkeypatch.setattr(host.subprocess, "run", listing("1 501 /bin/zsh"))
+    assert host.leftovers() == [("clone", str(clone))]
+    monkeypatch.setattr(host.subprocess, "run", listing("77 0 python -m fmb.replication.steps generate {}"))
+    assert host.leftovers() == [("clone", str(clone))]
+    monkeypatch.setattr(host, "MACOS", False)
+    monkeypatch.setenv("FMB_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(host.subprocess, "run", listing(
+        "5 501 qemu-system-x86_64 -drive file=/w/attempt-1/.vagrant/system.qcow2",
+        "6 1000 qemu-system-x86_64 -drive file=/home/other/attempt-1/.vagrant/system.qcow2"))
+    assert host.leftovers() == [("qemu", "5")]
+
+
+def test_a_leftover_that_cannot_be_removed_is_reported_and_skipped(tmp_path, monkeypatch):
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    monkeypatch.setattr(run.host, "leftovers", lambda: [("qemu", "5"), ("qemu", "6"), ("overlay", str(overlay))])
+    errors = {5: ProcessLookupError(3, "No such process"), 6: PermissionError(1, "Operation not permitted")}
+
+    def kill(pid, _):
+        raise errors[pid]
+
+    monkeypatch.setattr(run.os, "kill", kill)
+    events = []
+    monkeypatch.setattr(run, "log", events.append)
+    run.remove_leftovers()
+    assert not overlay.exists()
+    assert events[0] == "could not remove 6, left by an interrupted generation: [Errno 1] Operation not permitted"
+    assert len(events) == 2
+
+
+HOLDER = """
+import sys, time
+sys.path.insert(0, sys.argv[2])
+from pathlib import Path
+from fmb.replication import run
+with run.generating(Path(sys.argv[1])):
+    print("held", flush=True)
+    time.sleep(120)
+"""
+
+
+def test_one_image_is_generated_by_one_fmb_at_a_time(tmp_path):
+    import sys
+
+    folder = tmp_path / "I1"
+    source = str(Path(run.__file__).resolve().parents[2])
+    holder = subprocess.Popen([sys.executable, "-c", HOLDER, str(folder), source], stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(SystemExit, match="I1: another fmb is generating this image now"):
+            with run.generating(folder):
+                pass
+    finally:
+        holder.kill()
+        holder.wait()
+        holder.stdout.close()
+    with run.generating(folder):
+        pass
+    with run.generating(folder):
+        pass

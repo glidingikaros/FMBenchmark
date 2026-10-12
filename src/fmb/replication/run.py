@@ -81,19 +81,24 @@ def step(name: str, *, log_path: Path, label: str | None = None, **arguments) ->
 
 def remove_leftovers() -> None:
     for kind, target in host.leftovers():
-        if kind == "qemu":
-            os.kill(int(target), signal.SIGTERM)
-            log(f"stopped QEMU process {target}, left by an interrupted generation")
-            continue
-        if kind == "overlay":
+        try:
+            if kind == "qemu":
+                os.kill(int(target), signal.SIGTERM)
+                log(f"stopped QEMU process {target}, left by an interrupted generation")
+                continue
+            if kind == "overlay":
+                shutil.rmtree(target)
+                log(f"removed {target}, the guest disk of an interrupted generation")
+                continue
+            for vmx in Path(target).rglob("*.vmx"):
+                subprocess.run([str(host.VMRUN), "-T", "fusion", "stop", str(vmx), "hard"], capture_output=True,
+                               check=False, timeout=180)
             shutil.rmtree(target)
-            log(f"removed {target}, the guest disk of an interrupted generation")
-            continue
-        for vmx in Path(target).rglob("*.vmx"):
-            subprocess.run([str(host.VMRUN), "-T", "fusion", "stop", str(vmx), "hard"], capture_output=True,
-                           check=False, timeout=180)
-        shutil.rmtree(target)
-        log(f"removed {target}, the VM of an interrupted generation")
+            log(f"removed {target}, the VM of an interrupted generation")
+        except ProcessLookupError:
+            continue  # it exited after it was listed
+        except (OSError, subprocess.TimeoutExpired) as error:
+            log(f"could not remove {target}, left by an interrupted generation: {error}")
 
 
 def discard_disks(attempt: Path) -> float:
@@ -260,7 +265,37 @@ def freeze(image, lock: Path, folder: Path, renew: bool = True) -> None:
     freeze(image, lock, folder, renew=False)
 
 
+@contextmanager
+def generating(folder: Path):
+    """An OS lock on the image's folder while it is generated, which the system drops if fmb dies."""
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / ".lock").open("a+b") as stream:
+        stream.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise SystemExit(f"{folder.name}: another fmb is generating this image now; wait until it is done") from None
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
+    with generating(folder):
+        return generate_attempts(image, lock, folder, attempts)
+
+
+def generate_attempts(image, lock: Path, folder: Path, attempts: int) -> Path:
     """Generates from the frozen recipe; failures and $LogFile wraps each get up to `attempts` attempts."""
     recipe = folder / "recipe"
     discard_unpublished(image.name, folder / "generation", "its earlier unfinished attempts")

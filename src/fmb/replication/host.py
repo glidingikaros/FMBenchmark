@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,7 @@ LINUX_QEMU = {
     "suse": "sudo zypper install qemu-x86 qemu-tools qemu-ovmf-x86_64",
 }
 VMRUN = Path("/Applications/VMware Fusion.app/Contents/Public/vmrun")
+GENERATION_CLONE = re.compile(r"\d{8}_\d{6}_\d{6}")
 RESERVE_GIB = 8
 RESULT_GIB = 2
 LONG_PATHS = ("admin PowerShell: New-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem "
@@ -134,10 +136,16 @@ def image_need_gib() -> float:
     return 2 * (allocated_gib(base) if base.is_dir() else 10) + RESERVE_GIB + RESULT_GIB
 
 
+def processes() -> list[tuple[str, str]]:
+    """The pid and command line of this user's processes (macOS and Linux)."""
+    listing = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,uid=,args="], capture_output=True, text=True,
+                             check=False).stdout
+    rows = [line.split(None, 2) for line in listing.splitlines()]
+    return [(row[0], row[2]) for row in rows if len(row) == 3 and row[1] == str(os.getuid())]
+
+
 def generation_running() -> bool:
-    listing = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,args="], capture_output=True, text=True, check=False).stdout
-    return any("fmb.replication.steps generate" in line and line.split(None, 1)[0] != str(os.getpid())
-               for line in listing.splitlines())
+    return any("fmb.replication.steps generate" in args and pid != str(os.getpid()) for pid, args in processes())
 
 
 def leftovers() -> list[tuple[str, str]]:
@@ -146,11 +154,12 @@ def leftovers() -> list[tuple[str, str]]:
     found = []
     work = cache() / "vm-work"
     if MACOS and work.is_dir():
-        found += [("clone", str(folder)) for folder in sorted(work.iterdir()) if folder.is_dir()]
+        # A generation names its clone by its start time; fmb run's parser VM (fmb-parser-*) is not one.
+        found += [("clone", str(folder)) for folder in sorted(work.iterdir())
+                  if folder.is_dir() and GENERATION_CLONE.fullmatch(folder.name)]
     if not MACOS:
-        listing = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,args="], capture_output=True, text=True, check=False).stdout
-        found += [("qemu", line.split(None, 1)[0]) for line in listing.splitlines()
-                  if "qemu-system" in line and "/.vagrant/system.qcow2" in line]
+        found += [("qemu", pid) for pid, args in processes()
+                  if "qemu-system" in args and "/.vagrant/system.qcow2" in args]
         found += [("overlay", str(disk.parent)) for disk in
                   sorted(generated().glob("*/generation/attempt-*/full_scale/*/.vagrant/system.qcow2"))]
     return found
