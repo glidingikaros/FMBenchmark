@@ -270,3 +270,44 @@ def test_logfile_wraps_have_their_own_attempts(tmp_path, monkeypatch):
 def test_no_failure_hint_names_a_flag_that_does_not_exist():
     source = (Path(__file__).resolve().parents[2] / "src/fmb/generation/pipeline.py").read_text(encoding="utf-8")
     assert "--resume-post-export" not in source
+
+
+def test_an_unpublished_attempt_never_keeps_its_disks(tmp_path, monkeypatch):
+    generate, folder, events = attempts_of(tmp_path, monkeypatch, [failed("preflight")])
+    stale = folder / "generation" / "attempt-1" / "full_scale" / "old"
+    stale.mkdir(parents=True)
+    (stale / "full_scale.vmdk.0a1b2c3d.partial").write_bytes(b"\0" * 2**26)
+    (stale / "full_scale.vmdk").write_bytes(b"\0" * 2**26)
+    (stale / "receipt.json").write_text("{}")
+    with pytest.raises(SystemExit, match="generation failed"):
+        generate()
+    assert sorted(path.name for path in (folder / "generation").rglob("*") if path.is_file()) == ["receipt.json"]
+    assert "I1: removed the disk images of its earlier unfinished attempts (0.1 GiB); their logs stay" in events
+
+
+@pytest.mark.parametrize("how", ["code", "signal"])
+def test_an_interrupted_attempt_leaves_no_disk_behind(tmp_path, monkeypatch, how):
+    generate, folder, events = attempts_of(tmp_path, monkeypatch, [])
+
+    def interrupted(name, **arguments):
+        published = Path(arguments["output_root"]) / "full_scale" / "a"
+        published.mkdir(parents=True)
+        (published / "full_scale.vmdk").write_bytes(b"\0" * 2**27)
+        if how == "signal":
+            raise KeyboardInterrupt("generate stopped after cleaning up")
+        return run.INTERRUPTED
+
+    monkeypatch.setattr(run, "step", interrupted)
+    with pytest.raises(KeyboardInterrupt if how == "signal" else SystemExit):
+        generate()
+    assert not list(folder.rglob("*.vmdk"))
+    assert "I1: removed the disk images of interrupted attempt 1 (0.1 GiB); their logs stay" in events
+
+
+def test_a_published_image_is_never_touched(tmp_path, monkeypatch):
+    generate, folder, _ = attempts_of(tmp_path, monkeypatch, [])
+    done = folder / "generation" / "attempt-1" / "full_scale" / "a"
+    done.mkdir(parents=True)
+    (done / "full_scale.vmdk").write_bytes(b"disk")
+    (done / "manifest.json").write_text("{}")
+    assert generate() == done and (done / "full_scale.vmdk").read_bytes() == b"disk"

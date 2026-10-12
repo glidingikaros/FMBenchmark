@@ -99,7 +99,7 @@ def remove_leftovers() -> None:
 def discard_disks(attempt: Path) -> float:
     """Deletes the disk images of an attempt that will not be published, keeping its logs and receipts."""
     freed = 0
-    for disk in [*attempt.rglob("*.vmdk"), *attempt.rglob("*.qcow2")]:
+    for disk in [*attempt.rglob("*.vmdk"), *attempt.rglob("*.qcow2"), *attempt.rglob("*.partial")]:
         try:
             size = disk.stat().st_size
             disk.unlink()
@@ -107,6 +107,12 @@ def discard_disks(attempt: Path) -> float:
             continue
         freed += size
     return freed / 2**30
+
+
+def discard_unpublished(name: str, root: Path, which: str) -> None:
+    """Deletes the disks under root unless an attempt there was published, and says how much that freed."""
+    if completed(root) is None and (freed := discard_disks(root)) >= 0.05:
+        log(f"{name}: removed the disk images of {which} ({freed:.1f} GiB); their logs stay")
 
 
 def vm_work_root() -> Path | None:
@@ -257,6 +263,7 @@ def freeze(image, lock: Path, folder: Path, renew: bool = True) -> None:
 def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
     """Generates from the frozen recipe; failures and $LogFile wraps each get up to `attempts` attempts."""
     recipe = folder / "recipe"
+    discard_unpublished(image.name, folder / "generation", "its earlier unfinished attempts")
     freeze(image, lock, folder)
     await_base_clock(recipe)
     attempt = failures = wraps = 0
@@ -267,11 +274,16 @@ def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
         attempt += 1
         output, log_path = folder / "generation" / f"attempt-{attempt}", folder / f"generate-{attempt}.log"
         log(f"{image.name}: generating, attempt {attempt}; its whole output goes to {log_path}")
-        code = step("generate", recipe=recipe, output_root=output, vm_work_root=vm_work_root(), log_path=log_path,
-                    label=image.name)
+        try:
+            code = step("generate", recipe=recipe, output_root=output, vm_work_root=vm_work_root(), log_path=log_path,
+                        label=image.name)
+        except KeyboardInterrupt:
+            discard_unpublished(image.name, output, f"interrupted attempt {attempt}")
+            raise
         if code == 0 and (done := completed(output)) is not None:
             return done
         if code == INTERRUPTED:
+            discard_unpublished(image.name, output, f"interrupted attempt {attempt}")
             raise SystemExit(f"{image.name}: generation interrupted; its VM is removed")
         text = log_path.read_text(encoding="utf-8", errors="replace")
         if (found := STALE_LOCK.search(text)) and not renewed:
@@ -282,10 +294,11 @@ def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
             continue
         records, wrapped = phase_records(text), LOGFILE_WRAP.search(text) is not None
         failures, wraps, phase = failures + (not wrapped), wraps + wrapped, failed_phase(records)
-        if not wrapped and (phase not in RETRYABLE or disk_full(text)):
-            raise SystemExit(f"{image.name}: generation failed{failure(text)}; see {log_path}")
         if any(record["phase"] == "cleanup" and record.get("outcome") == "error" for record in records):
             remove_leftovers()
+        if not wrapped and (phase not in RETRYABLE or disk_full(text)):
+            discard_unpublished(image.name, output, f"failed attempt {attempt}")
+            raise SystemExit(f"{image.name}: generation failed{failure(text)}; see {log_path}")
         freed = discard_disks(output)
         if wrapped:
             log(f"{image.name}: attempt {attempt} lost a timestamp change from the $LogFile before export, which "
