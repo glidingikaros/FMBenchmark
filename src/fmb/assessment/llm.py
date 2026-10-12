@@ -321,7 +321,8 @@ def execute_schedule(
                         and error.details.get("provider_failure_kind") != "billing_error"
                     )
                     if (usage or returned_unusable) and not retryable:
-                        outcome["status"] = "invalid_response"
+                        if not error.details.get("refused_response"):  # a refused response is billed but no answer
+                            outcome["status"] = "invalid_response"
                         outcome["response_received"] = True
                         write_json(
                             folder / "provider-response.json",

@@ -18,6 +18,7 @@ from fmb.core.errors import ExternalToolError
 from fmb.core.sealed_records import read_json
 from fmb.interpretation import provider as provider_module
 from fmb.interpretation.provider import LLMResponse
+from fmb.interpretation.provider_adapters import _normalized_response
 from fmb.paper import workflow as execution
 from fmb.replication import host, image_files, run
 from test_paper_execution import admit, answer, frozen as frozen  # noqa: F401  (fixture)
@@ -238,6 +239,32 @@ def test_the_cap_counts_the_cost_the_provider_reports_when_it_is_more(frozen):  
     assert outcomes[2]["error"]["type"] == "budget_exhausted"
     assert [Decimal(row["conservative_exposure_usd"]) for row in outcomes[:2]] == [Decimal("2.5")] * 2
     assert Decimal(result["conservative_exposure_usd"]) == 5
+
+
+@pytest.mark.parametrize("metadata, sent", [
+    (None, 1),  # what every call would repeat
+    ({"requested": "anthropic/claude-sonnet-5", "strategy": "direct", "attempt": 2}, 3),  # an upstream retry, once
+])
+def test_a_response_refused_for_its_route_counts_its_cost_and_stops_what_every_call_would_repeat(frozen, metadata,  # noqa: F811
+                                                                                                 sent):
+    admit(frozen)
+    calls = []
+
+    def routed(**kwargs):
+        calls.append(kwargs["model"])
+        raw = {"model": "anthropic/claude-sonnet-5", "usage": {"prompt_tokens": 1000, "completion_tokens": 20,
+                                                               "cost": 2.5},
+               **({"openrouter_metadata": metadata} if metadata else {})}
+        return _normalized_response(provider="openrouter", model="anthropic/claude-sonnet-5", text="{}", raw=raw,
+                                    latency_ms=1.0, pinned_route="anthropic")
+
+    result, outcomes, _ = dispatch(frozen[2], routed)
+    assert len(calls) == sent
+    assert [row["status"] for row in outcomes] == ["execution_failure"] * 3
+    assert [row["response_received"] for row in outcomes] == [True] * sent + [False] * (3 - sent)
+    assert [row["error"]["type"] for row in outcomes] == ["ExternalToolError"] * sent + ["response_mismatch_stop"] * (
+        3 - sent)
+    assert Decimal(result["conservative_exposure_usd"]) == Decimal("2.5") * sent
 
 
 def test_a_served_model_other_than_the_requested_one_stops_the_condition(frozen, monkeypatch):  # noqa: F811
