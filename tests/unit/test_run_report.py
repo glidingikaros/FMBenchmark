@@ -3,6 +3,8 @@ from pathlib import Path
 
 from fmb.core.hashing import sha256_file
 from fmb.replication import report, run
+from fmb.core.case_contract import QIDS
+from fmb.pipeline.report import _markdown
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -71,3 +73,23 @@ def test_a_run_that_stopped_before_its_assessors_still_gets_a_report(tmp_path):
     (output / "run/run-manifest.json").write_text(json.dumps({"gates": {}, "stages": []}))
     report.complete(output, {"image": "small", "admission": "not reached"}, generated, generation)
     assert "## Assessors" in (output / "report.md").read_text()
+
+
+def test_question_columns_keep_the_papers_numbers_when_an_image_asks_fewer_questions():
+    def image(label, questions):  # each cell holds its question's number, so a right header equals its cell
+        row = {"condition": "rules", "exact": f"0/{len(questions)}", "f1_percent": "", "fn": 0, "fp": 0,
+               "cost_per_pass_usd": "", **{q: QIDS.index(q) + 1 for q in questions}}
+        return {"case_label": label, "findings": 1, "positive": 1, "admission": "passed",
+                "admission_policy": "strict", "rows": [row]}
+
+    def columns(text, label):
+        lines = text.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.startswith("## " + label + ":"))
+        header = next(line for line in lines[start:] if line.startswith("| Approach"))
+        row = next(line for line in lines[start:] if line.startswith("| Rule-based baseline"))
+        return dict(zip([c.strip() for c in header.strip("|").split("|")][5:-3],
+                        [c.strip() for c in row.strip("|").split("|")][5:-3]))
+
+    text = _markdown([image("I1", list(QIDS)), image("R7", [q for q in QIDS if q != "BQ-SHELLBAG-01"])])
+    assert columns(text, "I1")["3"] == "3"
+    assert all(name == cell for name, cell in columns(text, "R7").items())

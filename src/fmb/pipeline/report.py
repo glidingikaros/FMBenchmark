@@ -85,7 +85,7 @@ def _markdown(images: list[dict], title: str | None = "# Results") -> str:
                   + ("" if image["admission"] == "passed" else
                      " The rule-based answers did not match the reference labels on every request, so the image is "
                      "not admitted, and any model rows below are development runs, not results."), "",
-                  "| Approach | Exact | F1 | FN | FP | " + " | ".join(str(i + 1) for i in range(len(questions)))
+                  "| Approach | Exact | F1 | FN | FP | " + " | ".join(str(QIDS.index(q) + 1) for q in questions)
                   + " | Cost per pass | Selection policy | Lineage |",
                   "|---|---|---|---|---|" + "---|" * len(questions) + "---|---|---|"]
         for row in rows:
