@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import zipfile
 from pathlib import Path
@@ -266,22 +267,24 @@ def test_the_run_lock_names_its_holder_and_dies_with_it(tmp_path):
 
     holder = subprocess.Popen(
         [sys.executable, "-c", (
-            "import sys, time\n"
+            "import os, sys, time\n"
             "from pathlib import Path\n"
             "from fmb.collection.run.lock import acquire_evidence_image_run_lock\n"
             "with acquire_evidence_image_run_lock(current_root=Path(sys.argv[1]), requested_run_id='run-held'):\n"
-            "    print('held', flush=True)\n"
+            "    print('held', os.getpid(), flush=True)\n"
             "    time.sleep(120)\n"
         ), str(tmp_path)],
         stdout=subprocess.PIPE, text=True, env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
     )
+    said, pid = holder.stdout.readline().split()  # on Windows a venv's python.exe is a launcher: its child holds it
     try:
-        assert holder.stdout.readline().strip() == "held"
+        assert said == "held"
         with pytest.raises(run_lock.ActiveEvidenceImageRunError,
-                           match=rf"already active: run-held at .*\(pid {holder.pid} on "):
+                           match=rf"already active: run-held at .*\(pid {pid} on "):
             with run_lock.acquire_evidence_image_run_lock(current_root=tmp_path, requested_run_id="run-next"):
                 pass
     finally:
+        os.kill(int(pid), getattr(signal, "SIGKILL", signal.SIGTERM))
         holder.kill()
         holder.wait(timeout=30)
         holder.stdout.close()

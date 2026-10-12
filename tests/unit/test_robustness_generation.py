@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 from copy import deepcopy
 from pathlib import Path
@@ -337,14 +338,22 @@ def test_a_leftover_that_cannot_be_removed_is_reported_and_skipped(tmp_path, mon
 
 
 HOLDER = """
-import sys, time
+import os, sys, time
 sys.path.insert(0, sys.argv[2])
 from pathlib import Path
 from fmb.replication import run
 with run.generating(Path(sys.argv[1])):
-    print("held", flush=True)
+    print("held", os.getpid(), flush=True)
     time.sleep(120)
 """
+
+
+def stop(holder: subprocess.Popen, pid: str) -> None:
+    """Kills the lock holder; on Windows a venv's python.exe is a launcher whose child holds the lock."""
+    os.kill(int(pid), getattr(signal, "SIGKILL", signal.SIGTERM))
+    holder.kill()
+    holder.wait(timeout=30)
+    holder.stdout.close()
 
 
 def test_one_image_is_generated_by_one_fmb_at_a_time(tmp_path):
@@ -354,14 +363,13 @@ def test_one_image_is_generated_by_one_fmb_at_a_time(tmp_path):
     source = str(Path(run.__file__).resolve().parents[2])
     holder = subprocess.Popen([sys.executable, "-c", HOLDER, str(folder), source], stdout=subprocess.PIPE, text=True)
     try:
-        assert holder.stdout.readline().strip() == "held"
+        said, pid = holder.stdout.readline().split()
+        assert said == "held"
         with pytest.raises(SystemExit, match="I1: another fmb is generating this image now"):
             with run.generating(folder):
                 pass
     finally:
-        holder.kill()
-        holder.wait()
-        holder.stdout.close()
+        stop(holder, pid)
     with run.generating(folder):
         pass
     with run.generating(folder):
