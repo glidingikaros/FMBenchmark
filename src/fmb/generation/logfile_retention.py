@@ -139,7 +139,7 @@ def check_logfile_retention(
         by_entry: dict[int, list[dict[str, Any]]] = {}
         for update in updates:
             by_entry.setdefault(int(update["mft_entry"]), []).append(update)
-        all_retained = True
+        all_retained, reasons = True, []
         for target in targets:
             entry = _resolve_entry(index, str(target["path"]))
             row: dict[str, Any] = {
@@ -195,17 +195,16 @@ def check_logfile_retention(
                         if committed:
                             break
             if not row["retained"]:
-                row["not_retained_reason"] = _not_retained(complete, entry, row)
+                reasons.append(_not_retained(complete, entry, row))
             all_retained = all_retained and bool(row["retained"])
             receipt["targets"].append(row)
         receipt["status"] = "retained" if all_retained and targets else "not_retained"
         if receipt["status"] != "retained":
-            reasons = [row["not_retained_reason"] for row in receipt["targets"] if not row["retained"]]
-            receipt["not_retained_reason"] = next((reason for reason in reasons if reason != "no_candidate_update"),
-                                                  "no_candidate_update" if reasons else "no_targets")
+            receipt["reason"] = next((reason for reason in reasons if reason != "no_candidate_update"),
+                                     "no_candidate_update" if reasons else "no_targets")
     _write(output_dir, receipt)
     if require and receipt["status"] != "retained":
-        reason = receipt["not_retained_reason"]
+        reason = receipt["reason"]
         if reason == "no_candidate_update":
             raise ValueError(
                 "the intended timestamp transitions are not retained in the exported $LogFile; "

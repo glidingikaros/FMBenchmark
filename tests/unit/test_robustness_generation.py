@@ -37,12 +37,21 @@ def retention(tmp_path, monkeypatch, records, *, entry=10, coverage=True):
                                                   require=True)
 
 
+def written(folder):
+    """The receipt as written, which must still match its schema."""
+    from test_iteration2_generation import definition_validator
+
+    receipt = json.loads((folder / "logfile-retention-receipt.json").read_text(encoding="utf-8"))
+    definition_validator("logfile_retention_receipt").validate(receipt)
+    return receipt
+
+
 def test_only_a_logfile_that_lost_the_change_is_called_a_wrap(tmp_path, monkeypatch):
     check = retention(tmp_path, monkeypatch, [stomp_record(lsn=500, entry=11)])
     with pytest.raises(ValueError) as error:
         check()
     assert run.LOGFILE_WRAP.search(str(error.value))
-    assert '"not_retained_reason": "no_candidate_update"' in (tmp_path / "logfile-retention-receipt.json").read_text()
+    assert written(tmp_path)["reason"] == "no_candidate_update"
 
 
 @pytest.mark.parametrize("case, reason", [("coverage", "parse_coverage_unverified"),
@@ -55,12 +64,12 @@ def test_other_logfile_failures_name_their_reason_and_are_not_a_wrap(tmp_path, m
     with pytest.raises(ValueError, match=rf"not retained \({reason}\)") as error:
         check()
     assert not run.LOGFILE_WRAP.search(str(error.value))
+    assert written(tmp_path)["reason"] == reason
 
 
 def test_a_retained_receipt_is_unchanged(tmp_path, monkeypatch):
     receipt = retention(tmp_path, monkeypatch, [stomp_record(lsn=500, entry=10)])()
-    assert receipt["status"] == "retained"
-    assert "not_retained_reason" not in receipt and "not_retained_reason" not in receipt["targets"][0]
+    assert receipt["status"] == "retained" and "reason" not in written(tmp_path)
 
 
 def hmp_monitor(reply: bytes, delay: float):
