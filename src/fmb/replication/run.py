@@ -290,6 +290,13 @@ def generating(folder: Path):
                 msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
 
 
+def keep_log(path: Path) -> None:
+    """Keeps an earlier run's log of this attempt number under the time it was written."""
+    if path.is_file():
+        written = datetime.fromtimestamp(path.stat().st_mtime)
+        path.replace(path.with_name(f"{path.stem}-{written:%Y%m%d-%H%M%S}{path.suffix}"))
+
+
 def generate_image(image, lock: Path, folder: Path, attempts: int) -> Path:
     with generating(folder):
         return generate_attempts(image, lock, folder, attempts)
@@ -308,6 +315,7 @@ def generate_attempts(image, lock: Path, folder: Path, attempts: int) -> Path:
             return done
         attempt += 1
         output, log_path = folder / "generation" / f"attempt-{attempt}", folder / f"generate-{attempt}.log"
+        keep_log(log_path)
         log(f"{image.name}: generating, attempt {attempt}; its whole output goes to {log_path}")
         try:
             code = step("generate", recipe=recipe, output_root=output, vm_work_root=vm_work_root(), log_path=log_path,

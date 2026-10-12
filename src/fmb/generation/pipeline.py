@@ -2383,6 +2383,8 @@ class GenerationPipeline:
                 generation_manifest = self.extract_disk(source_disk)
         except BaseException as error:
             pipeline_error = error
+            if isinstance(error, Exception):
+                self.keep_vm_logs()
         try:
             with _host_phase("cleanup"):
                 cleanup_receipt = self.cleanup()
@@ -2405,6 +2407,20 @@ class GenerationPipeline:
         print("\n[+] Pipeline completed successfully!")
         print(f"[+] Artifacts available in: {self.output_dir}")
 
+
+    def keep_vm_logs(self):
+        """Copies the VM's own logs into the attempt before cleanup deletes them, and says why QEMU exited."""
+        try:
+            report = getattr(getattr(self, "_vm_backend", None), "exit_report", lambda: None)()
+            if report:
+                print(f"[!] {report}", flush=True)
+            state = getattr(self, "vagrant_state_dir", None)
+            logs = [*(state / name for name in ("qemu.log", "serial.log")), *state.rglob("vmware*.log")] if state else []
+            for path in [path for path in logs if path.is_file()]:
+                (self.output_dir / "vm-logs").mkdir(exist_ok=True)
+                shutil.copy2(path, self.output_dir / "vm-logs" / path.name)
+        except Exception as error:  # never hide the failure being reported
+            print(f"[!] Warning: could not keep the VM's logs: {error}", flush=True)
 
     def post_export_directory(self):
         return self.output_dir / POST_EXPORT_DIRECTORY

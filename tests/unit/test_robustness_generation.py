@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from copy import deepcopy
 from pathlib import Path
@@ -387,3 +388,71 @@ def test_one_image_is_generated_by_one_fmb_at_a_time(tmp_path):
         pass
     with run.generating(folder):
         pass
+
+
+def failing_pipeline(tmp_path, provider):
+    from fmb.generation.pipeline import GenerationPipeline
+
+    instance = GenerationPipeline.__new__(GenerationPipeline)
+    instance.provider, instance.output_dir = provider, tmp_path / "attempt"
+    instance.vagrant_state_dir, instance.population_guest_plan = tmp_path / "state", None
+    instance.output_dir.mkdir()
+    instance.vagrant_state_dir.mkdir()
+    for step in ("preflight_checks", "prepare_population", "prepare_native_media", "record_post_export_cleanup"):
+        setattr(instance, step, lambda *_: None)
+
+    def provision():
+        raise RuntimeError("ansible lost the guest")
+
+    def cleanup():
+        shutil.rmtree(instance.vagrant_state_dir)
+        return {"status": "destroyed"}
+
+    instance.provision_vm, instance.cleanup = provision, cleanup
+    return instance
+
+
+def test_a_failed_attempt_keeps_the_logs_of_its_vm(tmp_path, capsys):
+    from fmb.generation.backends import QemuBackend
+
+    instance = failing_pipeline(tmp_path, "qemu")
+    (instance.vagrant_state_dir / "qemu.log").write_text("qemu: fatal: KVM internal error\n", encoding="utf-8")
+    (instance.vagrant_state_dir / "serial.log").write_text("boot\n", encoding="utf-8")
+    instance._vm_backend = QemuBackend(instance)
+    instance._vm_backend.process = Guest(1, -9)
+    instance._vm_backend.process.wait()
+    with pytest.raises(RuntimeError, match="ansible lost the guest"):
+        instance.run()
+    kept = instance.output_dir / "vm-logs"
+    assert sorted(path.name for path in kept.iterdir()) == ["qemu.log", "serial.log"]
+    assert "[!] QEMU exited with -9; the end of its log:\nqemu: fatal: KVM internal error" in capsys.readouterr().out
+
+
+def test_a_failed_vmware_attempt_keeps_its_vmware_log(tmp_path, capsys):
+    instance = failing_pipeline(tmp_path, "vmware_desktop")
+    machine = instance.vagrant_state_dir / "machines" / "default" / "vmware_desktop" / "1a2b"
+    machine.mkdir(parents=True)
+    (machine / "vmware.log").write_text("vcpu-0 panic\n", encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        instance.run()
+    assert (instance.output_dir / "vm-logs" / "vmware.log").read_text(encoding="utf-8") == "vcpu-0 panic\n"
+    assert "QEMU exited" not in capsys.readouterr().out
+
+
+def test_a_halted_qemu_says_nothing_about_its_exit(tmp_path):
+    from fmb.generation.backends import QemuBackend
+
+    backend = QemuBackend(SimpleNamespace(vagrant_state_dir=tmp_path))
+    backend.process = Guest(1, 0)
+    backend._guest_powershell = lambda script, timeout=180: subprocess.CompletedProcess([], 0, "", "")
+    backend.halt()
+    assert backend.exit_report() is None
+
+
+def test_a_rerun_keeps_the_earlier_log_of_the_same_attempt(tmp_path, monkeypatch):
+    generate, folder, _ = attempts_of(tmp_path, monkeypatch, [None])
+    (folder / "generate-1.log").write_text("the failure being investigated", encoding="utf-8")
+    generate()
+    kept = [path for path in folder.glob("generate-1-*.log")]
+    assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == "the failure being investigated"
+    assert (folder / "generate-1.log").read_text(encoding="utf-8") == "done"

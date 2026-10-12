@@ -277,6 +277,7 @@ class QemuBackend:
         self.pipeline = pipeline
         self.process = None
         self.winrm_port = None
+        self.halted = False
 
     @staticmethod
     def _which(name: str) -> str | None:
@@ -567,6 +568,16 @@ class QemuBackend:
                                    "an uncleanly stopped guest")
         if self.process.returncode != 0:
             raise RuntimeError(f"QEMU exited with {self.process.returncode}; refusing forensic export")
+        self.halted = True
+
+    def exit_report(self) -> str | None:
+        """QEMU's exit code and the end of its log, when it exited without being halted."""
+        if self.process is None or self.process.poll() is None or self.halted:
+            return None
+        log = self.pipeline.vagrant_state_dir / "qemu.log"
+        tail = log.read_text(encoding="utf-8", errors="replace")[-2000:].strip() if log.is_file() else ""
+        return f"QEMU exited with {self.process.returncode}; " + (f"the end of its log:\n{tail}" if tail else
+                                                                   "its log is empty")
 
     def _ask_shutdown(self) -> str:
         """Asks Windows to shut down; returns how asking failed, if it did."""
