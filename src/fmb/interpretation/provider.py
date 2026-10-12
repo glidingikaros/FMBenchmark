@@ -7,6 +7,8 @@ import json
 import os
 import socket
 import ssl
+import sys
+import threading
 import urllib.request
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -29,6 +31,8 @@ PROVIDER_ENDPOINTS = {
 
 
 MAX_PROVIDER_ERROR_DETAIL_CHARS = 500
+# On Windows a blocking socket read does not see Ctrl-C, so there the exchange runs in a worker thread.
+THREADED = sys.platform == "win32"
 
 
 CONTEXT_LIMIT_HTTP_STATUSES = {400, 413, 422}
@@ -198,6 +202,32 @@ def _open_provider_request(
     return urllib.request.build_opener(_RejectRedirects()).open(
         request, timeout=timeout_seconds
     )
+
+
+def _exchange(request: urllib.request.Request, timeout_seconds: int) -> bytes:
+    with _open_provider_request(request, timeout_seconds) as response:
+        return response.read()
+
+
+def _interruptible(function, *args):
+    """Runs function in a daemon thread and waits in short steps, so that Ctrl-C reaches the caller at once."""
+    if not THREADED:
+        return function(*args)
+    result = {}
+
+    def work():
+        try:
+            result["value"] = function(*args)
+        except BaseException as error:
+            result["error"] = error
+
+    worker = threading.Thread(target=work, name="fmb-provider-call", daemon=True)
+    worker.start()
+    while worker.is_alive():
+        worker.join(0.5)
+    if "error" in result:
+        raise result["error"]
+    return result["value"]
 
 
 def _provider_error_code(detail: str) -> int | str | None:
@@ -395,8 +425,7 @@ def post_json(
         method="POST",
     )
     try:
-        with _open_provider_request(request, timeout_seconds) as response:
-            body = response.read().decode("utf-8")
+        body = _interruptible(_exchange, request, timeout_seconds).decode("utf-8")
     except urllib.error.HTTPError as error:
         try:
             raw_body = error.read()

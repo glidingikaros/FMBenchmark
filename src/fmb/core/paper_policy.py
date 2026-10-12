@@ -2,6 +2,8 @@ from fmb.core.paper_results import execution_state
 
 MAX_ATTEMPTS = 3
 BACKOFF_SECONDS = (2, 5)
+# A provider's Retry-After lengthens the wait before a retry up to this; a longer one is not waited for in full.
+RETRY_AFTER_MAX_SECONDS = 120
 PAPER_POLICY = "paper_transport.v1"
 ALTERNATE_POLICY = "alternate_route_completion.v1"
 
@@ -36,6 +38,7 @@ def resolve_policy(protocol, *, for_execution=False):
         "max_total_attempts": MAX_ATTEMPTS,
         "request_policy": "declared_alternate_route_non_paper" if alternate else "identical_wire_request",
         "backoff_seconds": list(BACKOFF_SECONDS),
+        "retry_after_max_seconds": RETRY_AFTER_MAX_SECONDS,
         "question": completion.get("question"),
     }
 

@@ -1,5 +1,11 @@
+import _thread
+import email.message
+import io
 import json
 import shutil
+import threading
+import time
+import urllib.error
 from decimal import Decimal
 from pathlib import Path
 
@@ -167,6 +173,9 @@ def test_the_spend_of_a_dispatch_that_crashed_is_reported(wrapped, monkeypatch, 
     monkeypatch.setattr(llm, "_validate_answer", full_disk)
     assert run.run_images(["I1"], LLM, root, results, delete_image=True) == 1
     out = capsys.readouterr().out
+    manifest = json.loads(next(results.glob("I1/*/run/run-manifest.json")).read_text())
+    dispatched = next(stage for stage in manifest["stages"] if stage["step"] == "S3':dispatch")
+    assert Decimal(dispatched["detail"]["exposure_usd"]["luna-high"]) > 0
     assert "  S3'  luna-high              not scored; $" in out and "spent before the pipeline stopped" in out
 
 
@@ -180,3 +189,97 @@ def test_an_image_that_cannot_be_deleted_whole_no_longer_counts_as_generated(wra
     assert run.run_images(["I1"], None, root, results, delete_image=True) == 0
     assert run.completed(root / "I1" / "generation") is None
     assert f"delete {root / 'I1'} by hand" in capsys.readouterr().err
+
+
+class Returned(io.BytesIO):
+    status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def rate_limited(retry_after):
+    def opener(request, timeout):
+        message = email.message.Message()
+        message["Retry-After"] = retry_after
+        raise urllib.error.HTTPError(request.full_url, 429, "Too Many Requests", message,
+                                     io.BytesIO(b'{"error": {"message": "Rate limit reached for requests"}}'))
+    return opener
+
+
+@pytest.mark.parametrize("retry_after, waits", [("30", [30, 30]), ("3600", [120, 120]), ("1", [2, 5])])
+def test_a_rate_limited_call_waits_as_long_as_the_provider_asks_up_to_a_limit(frozen, monkeypatch, retry_after,  # noqa: F811
+                                                                               waits):
+    admit(frozen)
+    monkeypatch.setenv("OPENAI_API_KEY", "key")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.setattr(provider_module, "_open_provider_request", rate_limited(retry_after))
+    _, outcomes, sleeps = dispatch(frozen[2])
+    assert sleeps == waits * 3 and all(row["attempts"] == 3 for row in outcomes)
+    policy = read_json(frozen[2] / "run/schedule.json")["execution_policy"]
+    assert policy["backoff_seconds"] == [2, 5] and policy["retry_after_max_seconds"] == 120
+
+
+def test_the_cap_counts_the_cost_the_provider_reports_when_it_is_more(frozen):  # noqa: F811
+    admit(frozen)
+
+    def costly(**kwargs):
+        response = answer(**kwargs)
+        return LLMResponse(response.provider, response.model, response.text, {},
+                           usage={"input_tokens": 100, "output_tokens": 20, "cost_usd": 2.5})
+
+    result, outcomes, _ = dispatch(frozen[2], costly, cap="4")
+    assert [row["status"] for row in outcomes] == ["completed", "completed", "execution_failure"]
+    assert outcomes[2]["error"]["type"] == "budget_exhausted"
+    assert [Decimal(row["conservative_exposure_usd"]) for row in outcomes[:2]] == [Decimal("2.5")] * 2
+    assert Decimal(result["conservative_exposure_usd"]) == 5
+
+
+def test_a_served_model_other_than_the_requested_one_stops_the_condition(frozen, monkeypatch):  # noqa: F811
+    admit(frozen)
+    monkeypatch.setenv("OPENAI_API_KEY", "key")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    sent = []
+
+    def snapshot(request, timeout):
+        payload = json.loads(request.data)
+        sent.append(payload["model"])
+        reasons = {target["finding_id"]: "r" for card in json.loads(payload["input"])["candidate_roster"]
+                   for target in card["assessment_targets"]}
+        return Returned(json.dumps({
+            "id": "resp_1", "status": "completed", "model": payload["model"] + "-2026-05-14",
+            "output_text": json.dumps({"supported_findings": [], "insufficient_findings": [], "reasons": reasons}),
+            "usage": {"input_tokens": 1000, "output_tokens": 20}}).encode())
+
+    monkeypatch.setattr(provider_module, "_open_provider_request", snapshot)
+    _, outcomes, _ = dispatch(frozen[2])
+    assert sent == ["gpt-5.6-luna"]
+    assert [(row["attempts"], row["error"]["type"]) for row in outcomes] == [
+        (1, "ExternalToolError"), (0, "response_mismatch_stop"), (0, "response_mismatch_stop")]
+    assert outcomes[1]["error"]["message"] == ("openai response model gpt-5.6-luna-2026-05-14 does not match the "
+                                               "requested model gpt-5.6-luna")
+
+
+def test_ctrl_c_reaches_fmb_while_a_provider_call_waits_for_its_answer(monkeypatch):
+    released = threading.Event()
+
+    def hanging(request, timeout):
+        released.wait(20)
+        return Returned(b"{}")
+
+    monkeypatch.setattr(provider_module, "_open_provider_request", hanging)
+    monkeypatch.setattr(provider_module, "THREADED", True)
+    timer = threading.Timer(0.2, _thread.interrupt_main)
+    started = time.monotonic()
+    timer.start()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            provider_module.post_json("https://api.openai.com/v1/responses", {}, 1800,
+                                      headers={"Authorization": "Bearer key"})
+        assert time.monotonic() - started < 10
+    finally:
+        released.set()
+        timer.cancel()
