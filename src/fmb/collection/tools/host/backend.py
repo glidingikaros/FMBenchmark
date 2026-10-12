@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import shutil
 import sys
+import threading
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -236,7 +237,13 @@ def run_host_collector_extraction(
     evidence_sha256: str,
     run_id: str,
     progress: Callable[[str], None] | None = None,
+    after_extraction: Callable[[Path], None] | None = None,
+    after_host_module: Callable[[Path, str], None] | None = None,
+    confirm_evidence: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
+    # after_extraction gets the collector output root once the target files are on disk, after_host_module the root
+    # and the module name of each of the host's own parsers once it wrote its outputs; confirm_evidence, when given,
+    # raises unless the evidence matched evidence_sha256, and the result is written only after it returned.
     if extracted_dir.exists():
         raise HostCollectorError(f"refusing to overwrite existing extracted bundle: {extracted_dir}")
     evidence = Path(str(args.evidence)).expanduser().resolve()
@@ -244,12 +251,24 @@ def run_host_collector_extraction(
     drive_letter = DEFAULT_DRIVE_LETTER
     clock = _PhaseClock()
     log_lines: list[str] = []
+    log_lock = threading.Lock()
+
+    def emit(line: str) -> None:
+        # The parser VM's boot thread logs too.
+        with log_lock:
+            log_lines.append(line)
+            if progress is not None:
+                progress(line)
 
     def log(message: str) -> None:
-        line = f"{_utc_now().isoformat()} {message}"
-        log_lines.append(line)
-        if progress is not None:
-            progress(line)
+        emit(f"{_utc_now().isoformat()} {message}")
+
+    # The Windows-only parsers run while the host runs its own; their lines are held, and follow the host's as when
+    # they ran after them, so the log does not depend on which ends first.
+    held: list[str] = []
+
+    def hold(message: str) -> None:
+        held.append(f"{_utc_now().isoformat()} {message}")
 
     extracted_dir.mkdir(parents=True)
     output_root = extracted_dir / COLLECTOR_OUTPUT_HINT
@@ -266,6 +285,7 @@ def run_host_collector_extraction(
     command_line = f"target: {target_line}; module: {module_line}"
     started = _utc_now()
     parser_vm = None
+    parsers = None
 
     def load_definitions() -> KapeDefinitions:
         definitions = KapeDefinitions(bundled_targets=BUNDLED_KAPE_TARGETS)
@@ -327,6 +347,12 @@ def run_host_collector_extraction(
             ),
         )
         log(f"extracted {len(extraction.copied)} files, skipped {len(extraction.skipped)}")
+        if after_extraction is not None:
+            after_extraction(output_root)
+        parsers = _start_windows_only_processors(
+            processors, windows_only_modules, args=args, stage_dir=stage_dir, targets_root=targets_root,
+            modules_root=modules_root, tool_logs=tool_logs, progress=hold, parser_vm=parser_vm,
+        )
         module_runs: list[ProcessorRun] = clock.run(
             "run_modules",
             lambda: run_module_processors(
@@ -338,16 +364,23 @@ def run_host_collector_extraction(
                 tool_logs_dir=tool_logs,
                 progress=log,
                 skip_executables=frozenset({SBECMD_EXECUTABLE}),
+                after_processor=None if after_host_module is None else (
+                    lambda processor: after_host_module(output_root, processor.module_name)),
             ),
         )
-        appliance_record = clock.run(
-            "parser_appliance",
-            lambda: _run_windows_only_processors(
-                processors, module_runs, mode=PARSER_APPLIANCE_RUN, args=args, stage_dir=stage_dir,
-                targets_root=targets_root, modules_root=modules_root, tool_logs=tool_logs,
-                progress=log, parser_vm=parser_vm,
-            ),
-        )
+
+        def finish_parsers() -> dict[str, Any]:
+            try:
+                return _run_windows_only_processors(
+                    processors, module_runs, mode=PARSER_APPLIANCE_RUN, args=args, stage_dir=stage_dir,
+                    targets_root=targets_root, modules_root=modules_root, tool_logs=tool_logs,
+                    progress=log, parser_vm=parser_vm, parsers=parsers,
+                )
+            finally:
+                for line in held:
+                    emit(line)
+
+        appliance_record = clock.run("parser_appliance", finish_parsers)
         module_console = modules_root / f"{kape_log_stamp(started)}_ConsoleLog.txt"
         modules_root.mkdir(parents=True, exist_ok=True)
         module_console.write_text(
@@ -365,6 +398,8 @@ def run_host_collector_extraction(
             encoding="utf-8",
         )
         _record_appliance_runs(module_runs, appliance_record, bundle_root=output_root)
+        if confirm_evidence is not None:
+            confirm_evidence()
         ended = _utc_now()
         stdout_path = tool_logs / "host-collector.stdout.txt"
         stderr_path = tool_logs / "host-collector.stderr.txt"
@@ -377,8 +412,10 @@ def run_host_collector_extraction(
             definitions_sha256=definitions.tree_sha256,
             toolchain=toolchain_record,
             source_hash_basis=(
-                "evidence hashed by the host pipeline before extraction; the image was "
-                "opened read-only through The Sleuth Kit (a VMDK through libvmdk) and never written"
+                ("evidence hashed by the host pipeline before extraction; " if confirm_evidence is None else
+                 "evidence hashed by the host pipeline while extraction ran and matched before this result was "
+                 "written; ")
+                + "the image was opened read-only through The Sleuth Kit (a VMDK through libvmdk) and never written"
             ),
         )
         result = build_host_result(
@@ -453,12 +490,10 @@ def run_host_collector_extraction(
         )
     except (KapeDefinitionError, NtfsIndexError, HostModuleError, HostToolchainError, ExecutionEnvelopeError) as error:
         failure = HostCollectorError(str(error))
-        if parser_vm is not None:
-            parser_vm.discard(failure)
+        _discard_parsers(parsers, parser_vm, failure)
         raise failure from error
     except BaseException as error:
-        if parser_vm is not None:
-            parser_vm.discard(error)
+        _discard_parsers(parsers, parser_vm, error)
         raise
     summary = {
         "schema_version": HOST_COLLECTOR_SUMMARY_SCHEMA,
@@ -540,6 +575,40 @@ def _start_parser_vm(args: argparse.Namespace, stage_dir: Path, windows_only_mod
     return ParserVM(args=args, stage_dir=stage_dir, progress=progress).start()
 
 
+def _start_windows_only_processors(
+    processors,
+    windows_only_modules: list[str],
+    *,
+    args: argparse.Namespace,
+    stage_dir: Path,
+    targets_root: Path,
+    modules_root: Path,
+    tool_logs: Path,
+    progress: Callable[[str], None],
+    parser_vm=None,
+):
+    # The Windows-only parsers need only the extracted targets, so they run (natively, or in the parser VM) while the
+    # host runs its own parsers. The host defers exactly the processors of windows_only_modules: processor_deferral
+    # decides both.
+    native = getattr(args, "collection_provider", None) == "native_windows"
+    if parser_vm is None and not (native and windows_only_modules and getattr(args, "windows_parsers", None)):
+        return None
+    from fmb.collection.tools.host.parser_appliance import ParserRun
+
+    return ParserRun(
+        processors=[item for item in processors if item.module_name in windows_only_modules], args=args,
+        stage_dir=stage_dir, targets_root=targets_root, modules_root=modules_root, tool_logs=tool_logs,
+        progress=progress, vm=parser_vm,
+    ).start()
+
+
+def _discard_parsers(parsers, parser_vm, error: BaseException) -> None:
+    if parsers is not None:
+        parsers.discard(error)
+    elif parser_vm is not None:
+        parser_vm.discard(error)
+
+
 def _run_windows_only_processors(
     processors,
     module_runs: list[ProcessorRun],
@@ -552,7 +621,10 @@ def _run_windows_only_processors(
     tool_logs: Path,
     progress: Callable[[str], None],
     parser_vm=None,
+    parsers=None,
 ) -> dict[str, Any]:
+    if parsers is not None:
+        return parsers.finish()
     deferred = {run.module_name for run in module_runs if run.status == "deferred"}
     pending = [item for item in processors if item.module_name in deferred]
     if not pending:

@@ -31,10 +31,13 @@ from fmb.collection.tools.host.modules import (
 )
 from fmb.collection.tools.host import vmware as runner
 from fmb.collection.tools.host.toolchain import DEFAULT_LOCK_PATH
+from fmb.core.background import Background
 from fmb.core.hashing import sha256_bytes, sha256_file
 from fmb.core.json_io import json_text, write_json
 
 GUEST_ROOT = "C:\\FMB-Parsers"
+# The VMware guest gets the inputs package and the script in one archive, copied where any user may write.
+GUEST_TRANSPORT = "C:\\Windows\\Temp\\fmb-parsers.zip"
 NATIVE_ROOT_LOCK = "fmb-parsers.lock"
 WINDOWS_PARSERS = ("PECmd.exe", "SBECmd.exe")
 APPLIANCE_DIR_NAME = "parser-appliance"
@@ -71,31 +74,49 @@ if ($plan.file_times) {
 $logs = Join-Path $work 'logs'
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
 $targets = Join-Path $work 'targets'
-$results = @()
-foreach ($item in @($plan.commands)) {
-  $exe = Join-Path (Join-Path $work 'bin') ([string]$item.executable)
-  $outDir = Join-Path (Join-Path $work 'modules') ([string]$item.category)
-  New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-  $arguments = @()
-  foreach ($arg in @($item.arguments)) {
-    $value = ([string]$arg).Replace('%targets%', $targets).Replace('%out%', $outDir)
-    if ($value.Contains(' ')) { $value = '"' + $value + '"' }
-    $arguments += $value
+# The parsers run at the same time, each writing into its own folder (one whose folder another still writes into
+# waits for it), and the receipt lists them in the plan's order whichever ends first.
+$runs = @()
+$writing = @{}
+try {
+  foreach ($item in @($plan.commands)) {
+    $exe = Join-Path (Join-Path $work 'bin') ([string]$item.executable)
+    $outDir = Join-Path (Join-Path $work 'modules') ([string]$item.category)
+    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    $arguments = @()
+    foreach ($arg in @($item.arguments)) {
+      $value = ([string]$arg).Replace('%targets%', $targets).Replace('%out%', $outDir)
+      if ($value.Contains(' ')) { $value = '"' + $value + '"' }
+      $arguments += $value
+    }
+    $stdout = Join-Path $logs ([string]$item.label + '.stdout.txt')
+    $stderr = Join-Path $logs ([string]$item.label + '.stderr.txt')
+    if ($writing.ContainsKey($outDir)) { $writing[$outDir].WaitForExit() }
+    $started = [DateTime]::UtcNow.ToString('o')
+    $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory (Split-Path $exe -Parent) -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    # Without -Wait, the exit code and time stay readable only if the handle is taken while the process runs.
+    $null = $process.Handle
+    $writing[$outDir] = $process
+    $runs += @{ item = $item; exe = $exe; arguments = $arguments; process = $process; started = $started }
   }
-  $stdout = Join-Path $logs ([string]$item.label + '.stdout.txt')
-  $stderr = Join-Path $logs ([string]$item.label + '.stderr.txt')
-  $started = [DateTime]::UtcNow.ToString('o')
-  $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory (Split-Path $exe -Parent) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-  $ended = [DateTime]::UtcNow.ToString('o')
+} catch {
+  # A parser that could not start leaves none of the others running.
+  $failure = $_
+  foreach ($run in $runs) { if (-not $run.process.HasExited) { $run.process.Kill() } }
+  throw $failure
+}
+$results = @()
+foreach ($run in $runs) {
+  $run.process.WaitForExit()
   $results += [ordered]@{
-    label = [string]$item.label
-    category = [string]$item.category
-    executable = [string]$item.executable
-    executable_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
-    arguments = $arguments
-    exit_code = [int]$process.ExitCode
-    started_at = $started
-    ended_at = $ended
+    label = [string]$run.item.label
+    category = [string]$run.item.category
+    executable = [string]$run.item.executable
+    executable_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $run.exe).Hash.ToLowerInvariant()
+    arguments = $run.arguments
+    exit_code = [int]$run.process.ExitCode
+    started_at = $run.started
+    ended_at = $run.process.ExitTime.ToUniversalTime().ToString('o')
   }
 }
 $receipt = [ordered]@{
@@ -114,14 +135,22 @@ $outputs = Join-Path $Root 'outputs.zip'
 if (Test-Path -LiteralPath $outputs) { Remove-Item -LiteralPath $outputs -Force }
 [System.IO.Compression.ZipFile]::CreateFromDirectory($staging, $outputs)
 """
+# Run by vmrun in the VMware guest: GUEST_ROOT then holds the package and the script, as if copied there one by one.
+GUEST_BOOTSTRAP = rf"""$ErrorActionPreference = 'Stop'
+$root = '{GUEST_ROOT}'
+if (Test-Path -LiteralPath $root) {{ Remove-Item -LiteralPath $root -Recurse -Force }}
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::ExtractToDirectory('{GUEST_TRANSPORT}', $root)
+& (Join-Path $root 'run_parsers.ps1') -Root $root
+"""
 
 
 class ParserApplianceError(runner.KapeApplianceError):
     pass
 
 
-class _BootCancelled(ParserApplianceError):
-    pass
+class _Cancelled(ParserApplianceError):
+    """The parsers, or their VM, were no longer needed: the collection failed meanwhile."""
 
 
 def _script_failed(completed: subprocess.CompletedProcess, stdout_path: Path, stderr_path: Path) -> ParserApplianceError:
@@ -340,12 +369,13 @@ def _lock_native_root(lock: Path) -> int | None:
 
 
 @contextmanager
-def _held_native_root(root: Path) -> Iterator[Path]:
+def _held_native_root(root: Path, cancelled: threading.Event | None = None) -> Iterator[Path]:
     # One fmb run at a time uses the fixed folder; the OS drops the lock if that run dies.
     from fmb.collection.run.lock import _unlock
 
     lock = root / NATIVE_ROOT_LOCK
     deadline = time.monotonic() + DEFAULT_GUEST_TIMEOUT_SECONDS
+    stop = cancelled or threading.Event()
     while True:
         root.mkdir(exist_ok=True)
         fd = _lock_native_root(lock)
@@ -353,7 +383,8 @@ def _held_native_root(root: Path) -> Iterator[Path]:
             break
         if time.monotonic() >= deadline:
             raise ParserApplianceError(f"another fmb run kept {root} for its parsers too long; try again")
-        time.sleep(1)
+        if stop.wait(1):
+            raise _Cancelled("the Windows-only parsers were no longer needed")
     try:
         yield root
     finally:
@@ -371,17 +402,20 @@ def _held_native_root(root: Path) -> Iterator[Path]:
             root.rmdir()
 
 
-def _run_native_windows_parsers(*, package_path: Path, script_path: Path, outputs_zip: Path) -> subprocess.CompletedProcess:
+def _run_native_windows_parsers(*, package_path: Path, script_path: Path, outputs_zip: Path,
+                                cancelled: threading.Event | None = None) -> subprocess.CompletedProcess:
+    # cancelled stops the parsers of a collection that failed meanwhile, with everything they started.
     from fmb.core.owned_process import run_owned
 
-    with _held_native_root(native_parser_root()) as root:
+    with _held_native_root(native_parser_root(), cancelled) as root:
         shutil.copyfile(package_path, root / "inputs.zip")
         shutil.copyfile(script_path, root / "run_parsers.ps1")
         powershell, env = _windows_powershell()
         command = [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                    "-File", str(root / "run_parsers.ps1"), "-Root", str(root)]
         try:
-            completed = run_owned(command, env=env, capture_output=True, timeout=DEFAULT_GUEST_TIMEOUT_SECONDS)
+            completed = run_owned(command, env=env, capture_output=True, timeout=DEFAULT_GUEST_TIMEOUT_SECONDS,
+                                  cancel=cancelled)
         except subprocess.CalledProcessError as error:
             return subprocess.CompletedProcess(command, error.returncode, error.output or "", error.stderr or "")
         shutil.copyfile(root / "outputs.zip", outputs_zip)
@@ -497,7 +531,7 @@ class ParserVM:
     """The disposable parser VM (VMware on macOS, QEMU elsewhere).
 
     start() boots it in a background thread, so it boots while the host indexes the volume and runs its own parsers;
-    run_parser_appliance then waits for it, runs the Windows-only parsers in it and removes it.
+    a ParserRun then waits for it, runs the Windows-only parsers in it and removes it.
     """
 
     def __init__(self, *, args: argparse.Namespace, stage_dir: Path,
@@ -522,6 +556,7 @@ class ParserVM:
         self._thread: threading.Thread | None = None
         self._boot_error: BaseException | None = None
         self._cancelled = threading.Event()
+        self._closing = threading.Lock()
 
     def start(self) -> ParserVM:
         self._claim()
@@ -548,12 +583,11 @@ class ParserVM:
             self._boot_error = error
 
     def wait(self) -> None:
-        if self._thread is not None:
-            self._thread.join()
-            self._thread = None
+        thread = self._thread
+        if thread is not None:
+            thread.join()
         if self._boot_error is not None:
-            error, self._boot_error = self._boot_error, None
-            raise error
+            raise self._boot_error
 
     def boot(self) -> None:
         self._claim()
@@ -597,7 +631,7 @@ class ParserVM:
         if cloned_vmx.resolve() != vmx_path.resolve():
             raise ParserApplianceError("parser clone returned a different owned VM path")
         if self._cancelled.is_set():
-            raise _BootCancelled("the parser VM was no longer needed")
+            raise _Cancelled("the parser VM was no longer needed")
         _phase(self.timings, "start_appliance",
                lambda: runner.vmrun_start_and_wait(vmx_path=vmx_path, provider=self.provider))
 
@@ -630,7 +664,7 @@ class ParserVM:
         deadline = time.monotonic() + 1800
         while not self._answered():
             if self._cancelled.is_set():
-                raise _BootCancelled("the parser VM was no longer needed")
+                raise _Cancelled("the parser VM was no longer needed")
             if self.process.poll() is not None:
                 tail = self._qemu_log.read_text(encoding="utf-8", errors="replace")[-2000:].strip()
                 raise ParserApplianceError(
@@ -639,7 +673,7 @@ class ParserVM:
                     + f"; the end of {self._qemu_log}:\n{tail or '(empty)'}")
             if time.monotonic() > deadline:
                 raise ParserApplianceError("the parser VM did not answer WinRM within 30 minutes")
-            time.sleep(2)
+            self._cancelled.wait(1)
         self.log("parser appliance: QEMU worker answered WinRM")
 
     @property
@@ -665,14 +699,15 @@ class ParserVM:
         except subprocess.TimeoutExpired:
             return False
 
-    def run_qemu_parsers(self, *, package_path: Path, script_path: Path,
-                         outputs_zip: Path) -> subprocess.CompletedProcess:
+    def run_qemu_parsers(self, *, package_path: Path, outputs_zip: Path,
+                         log: Callable[[str], None] | None = None) -> subprocess.CompletedProcess:
         from fmb.generation.backends import ansible_adhoc
 
+        log = log or self.log
         outputs = []
 
         def step(module: str, args: dict, timeout: int = 600) -> None:
-            # Creating the folder and copying a file in or out can be repeated, so a dropped WinRM call is retried.
+            # Copying files in or out can be repeated, so a dropped WinRM call is retried.
             for attempt in range(1, QEMU_STEP_ATTEMPTS + 1):
                 try:
                     result = ansible_adhoc(self.ansible, self.port, module, args, timeout=timeout)
@@ -685,13 +720,18 @@ class ParserVM:
                     failure = result.stdout[-2000:]
                 if attempt == QEMU_STEP_ATTEMPTS:
                     raise ParserApplianceError(f"parser VM step {module} failed {attempt} times; last: {failure}")
-                self.log(f"parser appliance: {module} failed (attempt {attempt}); retrying")
-                time.sleep(QEMU_STEP_RETRY_DELAY_SECONDS)
+                log(f"parser appliance: {module} failed (attempt {attempt}); retrying")
+                # A VM closed meanwhile, for a collection that failed, will not answer again.
+                if self._cancelled.wait(QEMU_STEP_RETRY_DELAY_SECONDS):
+                    raise _Cancelled("the parser VM was no longer needed")
                 self._answered()
 
-        step("ansible.windows.win_file", {"path": GUEST_ROOT, "state": "directory"})
-        step("ansible.windows.win_copy", {"src": str(package_path), "dest": GUEST_ROOT + "\\inputs.zip"})
-        step("ansible.windows.win_copy", {"src": str(script_path), "dest": GUEST_ROOT + "\\run_parsers.ps1"})
+        # One copy instead of a folder and two files: win_copy creates the guest folder and puts the folder's files in
+        # it. Gathered outside the run folder, the script from its text: the run reads no file it did not read before.
+        with tempfile.TemporaryDirectory(prefix="fmb-parser-inputs-") as transport:
+            shutil.copyfile(package_path, Path(transport) / "inputs.zip")
+            (Path(transport) / "run_parsers.ps1").write_text(GUEST_SCRIPT, encoding="utf-8")
+            step("ansible.windows.win_copy", {"src": transport + os.sep, "dest": GUEST_ROOT + "\\"})
         run = ansible_adhoc(self.ansible, self.port, "ansible.windows.win_command", {"argv": [
             "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
             "-File", GUEST_ROOT + "\\run_parsers.ps1", "-Root", GUEST_ROOT]},
@@ -704,13 +744,18 @@ class ParserVM:
 
     def close(self, *, graceful: bool = True) -> dict[str, Any] | None:
         """Stop and remove the VM. After a run it only holds copied inputs and outputs, so it is powered off."""
-        if self.closed:
-            return None
-        self._cancelled.set()
-        if self._thread is not None:
-            self._thread.join()
-            self._thread = None
-        self.closed = True
+        # The parsers' thread and a collection that failed meanwhile may both close it: the second waits, then returns.
+        with self._closing:
+            if self.closed:
+                return None
+            self._cancelled.set()
+            thread = self._thread
+            if thread is not None:
+                thread.join()
+            self.closed = True
+            return self._remove(graceful=graceful)
+
+    def _remove(self, *, graceful: bool) -> dict[str, Any] | None:
         if self.provider == "qemu":
             try:
                 if self.process is not None and self.process.poll() is None:
@@ -744,9 +789,188 @@ class ParserVM:
             error.add_note(
                 f"Parser VM cleanup failed ({type(cleanup_error).__name__}) at {self.vmx_path}: {cleanup_error}"
             )
-        if self._boot_error is not None and not isinstance(self._boot_error, _BootCancelled):
-            error.add_note(f"The parser VM had also failed to boot: {type(self._boot_error).__name__}: "
-                           f"{self._boot_error}")
+        boot_error = self._boot_error
+        if boot_error is not None and boot_error is not error and not isinstance(boot_error, _Cancelled):
+            error.add_note(f"The parser VM had also failed to boot: {type(boot_error).__name__}: {boot_error}")
+
+
+class ParserRun:
+    """The Windows-only parsers of one collection.
+
+    run() builds their input package, runs them (natively, or in the parser VM, which it then removes) and brings their
+    outputs back; start() does that on a thread of its own, so that they run while the host runs its own parsers.
+    merge() then adds their outputs to the bundle and writes the record, as when they ran after the host's parsers.
+    """
+
+    def __init__(self, *, processors: list[ModuleProcessor], args: argparse.Namespace, stage_dir: Path,
+                 targets_root: Path, modules_root: Path, tool_logs: Path,
+                 progress: Callable[[str], None] | None = None, vm: ParserVM | None = None) -> None:
+        self.processors = processors
+        self.args = args
+        self.stage_dir = stage_dir
+        self.targets_root = targets_root
+        self.modules_root = modules_root
+        self.tool_logs = tool_logs
+        self.log = progress or (lambda _message: None)
+        self.provider = str(args.collection_provider)
+        self.windows_box = str(args.windows_box)
+        self.appliance_dir = stage_dir / APPLIANCE_DIR_NAME
+        self.vm = vm
+        self.booted_early = vm is not None
+        self.timings: list[dict[str, Any]] = []
+        self.package: dict[str, Any] = {}
+        self.cleanup: dict[str, Any] | None = None
+        self._cancelled = threading.Event()
+        self._cleanup_error: BaseException | None = None
+        self._background: Background | None = None
+
+    def start(self) -> ParserRun:
+        self._background = Background(self.run, name="fmb-windows-parsers")
+        return self
+
+    def finish(self) -> dict[str, Any]:
+        """The record, once the parsers started by start() have ended and their outputs are in the bundle."""
+        if self._background is not None:
+            self._background.result()
+        return self.merge()
+
+    def discard(self, error: BaseException) -> None:
+        """Stop the parsers of a collection that failed, keeping its error; their thread and VM are gone after this."""
+        self._cancelled.set()
+        if self.vm is not None:
+            self.vm.discard(error)
+        if self._background is None:
+            return
+        try:
+            self._background.result()
+        except Exception as raised:
+            # The parsers' own error already notes a failed removal of their VM; the collection's error gets it here.
+            if raised is not error and self._cleanup_error is not None:
+                error.add_note(f"Parser VM cleanup failed ({type(self._cleanup_error).__name__}) at "
+                               f"{self.vm.vmx_path}: {self._cleanup_error}")
+
+    def _phase(self, name: str, callback):
+        if self._cancelled.is_set():
+            raise _Cancelled("the Windows-only parsers were no longer needed")
+        return _phase(self.timings, name, callback)
+
+    def run(self) -> None:
+        parsers_dir = getattr(self.args, "windows_parsers", None)
+        if not parsers_dir:
+            raise ParserApplianceError("the parser appliance needs --windows-parsers (PECmd.exe, SBECmd.exe)")
+        appliance_dir = self.appliance_dir
+        appliance_dir.mkdir(parents=True, exist_ok=True)
+        package_path = appliance_dir / "inputs.zip"
+        self.package = self._phase(
+            "build_input_package",
+            lambda: build_input_package(
+                package_path=package_path,
+                parsers_dir=Path(str(parsers_dir)),
+                processors=self.processors,
+                targets_root=self.targets_root,
+            ),
+        )
+        self.log(
+            f"parser appliance: {len(self.processors)} processors, {self.package['input_file_count']} input files "
+            f"({Path(self.package['package']).stat().st_size} bytes packaged)"
+        )
+        script_path = appliance_dir / "run_parsers.ps1"
+        script_path.write_text(GUEST_SCRIPT, encoding="utf-8")
+        outputs_zip = appliance_dir / "outputs.zip"
+        guest_stdout = self.tool_logs / "parser-appliance.vmrun.stdout.txt"
+        guest_stderr = self.tool_logs / "parser-appliance.vmrun.stderr.txt"
+        if self.provider == "native_windows":
+            completed = self._phase("run_native_parsers", lambda: _run_native_windows_parsers(
+                package_path=package_path, script_path=script_path, outputs_zip=outputs_zip,
+                cancelled=self._cancelled))
+            guest_stdout.write_text(completed.stdout or "", encoding="utf-8")
+            guest_stderr.write_text(completed.stderr or "", encoding="utf-8")
+            if completed.returncode != 0:
+                raise _script_failed(completed, guest_stdout, guest_stderr)
+            self.cleanup = {"removed": True, "path": None,
+                            "policy": "temporary_parser_directory_or_disposable_overlay_removed"}
+            return
+        if self.vm is None:
+            self.vm = ParserVM(args=self.args, stage_dir=self.stage_dir, progress=self.log, timings=self.timings)
+        vm = self.vm
+        primary_error = None
+        try:
+            if self.booted_early:
+                self._phase("await_appliance", vm.wait)
+            else:
+                vm.boot()
+            if self.provider == "qemu":
+                completed = self._phase("run_qemu_parsers", lambda: vm.run_qemu_parsers(
+                    package_path=package_path, outputs_zip=outputs_zip, log=self.log))
+                guest_stdout.write_text(completed.stdout or "", encoding="utf-8")
+                guest_stderr.write_text(completed.stderr or "", encoding="utf-8")
+                if completed.returncode != 0:
+                    raise _script_failed(completed, guest_stdout, guest_stderr)
+            else:
+                self._phase(
+                    "stage_inputs",
+                    lambda: _stage_inputs(vmx_path=vm.vmx_path, provider=self.provider, package_path=package_path),
+                )
+                completed = self._phase(
+                    "run_guest_parsers",
+                    lambda: runner.run_powershell_command_with_vmrun(
+                        vmx_path=vm.vmx_path,
+                        provider=self.provider,
+                        command=GUEST_BOOTSTRAP,
+                        check=False,
+                        timeout_seconds=DEFAULT_GUEST_TIMEOUT_SECONDS,
+                    ),
+                )
+                guest_stdout.write_text(completed.stdout or "", encoding="utf-8")
+                guest_stderr.write_text(completed.stderr or "", encoding="utf-8")
+                if completed.returncode != 0:
+                    raise ParserApplianceError(
+                        f"guest parser script exited {completed.returncode}; see {guest_stderr}"
+                    )
+                self._phase(
+                    "collect_outputs",
+                    lambda: runner.copy_guest_file_to_host_with_vmrun_retries(
+                        vmx_path=vm.vmx_path, provider=self.provider,
+                        guest_path=f"{GUEST_ROOT}\\outputs.zip", host_path=outputs_zip,
+                    ),
+                )
+        except BaseException as error:
+            primary_error = error
+            raise
+        finally:
+            try:
+                self.cleanup = _phase(self.timings, "stop_and_cleanup", lambda: vm.close(graceful=False))
+            except BaseException as cleanup_error:
+                self._cleanup_error = cleanup_error
+                if primary_error is None:
+                    raise
+                primary_error.add_note(
+                    f"Parser VM cleanup failed ({type(cleanup_error).__name__}) at {vm.vmx_path}: {cleanup_error}"
+                )
+
+    def merge(self) -> dict[str, Any]:
+        record = _phase(
+            self.timings,
+            "merge_outputs",
+            lambda: _merge_outputs(
+                outputs_zip=self.appliance_dir / "outputs.zip", appliance_dir=self.appliance_dir,
+                modules_root=self.modules_root, tool_logs=self.tool_logs, package=self.package,
+                source_times=copy_log_source_times(self.targets_root),
+            ),
+        )
+        record.update(
+            {
+                "schema_version": RECORD_SCHEMA,
+                "mode": "run",
+                "windows_box": self.windows_box,
+                "provider": self.provider,
+                "guest_root": None if self.provider == "native_windows" else GUEST_ROOT,
+                "vm_cleanup": self.cleanup,
+                "phase_timings": (self.vm.timings if self.booted_early else []) + self.timings,
+            }
+        )
+        write_json(self.appliance_dir / "parser-appliance-record.json", record)
+        return record
 
 
 def run_parser_appliance(
@@ -760,144 +984,23 @@ def run_parser_appliance(
     progress: Callable[[str], None] | None = None,
     vm: ParserVM | None = None,
 ) -> dict[str, Any]:
-    log = progress or (lambda _message: None)
-    parsers_dir = getattr(args, "windows_parsers", None)
-    if not parsers_dir:
-        raise ParserApplianceError("the parser appliance needs --windows-parsers (PECmd.exe, SBECmd.exe)")
-    provider = str(args.collection_provider)
-    windows_box = str(args.windows_box)
-    appliance_dir = stage_dir / APPLIANCE_DIR_NAME
-    appliance_dir.mkdir(parents=True, exist_ok=True)
-    timings: list[dict[str, Any]] = []
-
-    def phase(name: str, callback):
-        return _phase(timings, name, callback)
-
-    package = phase(
-        "build_input_package",
-        lambda: build_input_package(
-            package_path=appliance_dir / "inputs.zip",
-            parsers_dir=Path(str(parsers_dir)),
-            processors=processors,
-            targets_root=targets_root,
-        ),
-    )
-    log(
-        f"parser appliance: {len(processors)} processors, {package['input_file_count']} input files "
-        f"({Path(package['package']).stat().st_size} bytes packaged)"
-    )
-    script_path = appliance_dir / "run_parsers.ps1"
-    script_path.write_text(GUEST_SCRIPT, encoding="utf-8")
-    outputs_zip = appliance_dir / "outputs.zip"
-    guest_stdout = tool_logs / "parser-appliance.vmrun.stdout.txt"
-    guest_stderr = tool_logs / "parser-appliance.vmrun.stderr.txt"
-    if provider == "native_windows":
-        completed = phase("run_native_parsers", lambda: _run_native_windows_parsers(
-            package_path=appliance_dir / "inputs.zip", script_path=script_path, outputs_zip=outputs_zip))
-        guest_stdout.write_text(completed.stdout or "", encoding="utf-8")
-        guest_stderr.write_text(completed.stderr or "", encoding="utf-8")
-        if completed.returncode != 0:
-            raise _script_failed(completed, guest_stdout, guest_stderr)
-        record = phase("merge_outputs", lambda: _merge_outputs(
-            outputs_zip=outputs_zip, appliance_dir=appliance_dir, modules_root=modules_root,
-            tool_logs=tool_logs, package=package, source_times=copy_log_source_times(targets_root)))
-        record.update({"schema_version": RECORD_SCHEMA, "mode": "run", "windows_box": windows_box,
-                       "provider": provider, "guest_root": None,
-                       "vm_cleanup": {"removed": True, "path": None,
-                                      "policy": "temporary_parser_directory_or_disposable_overlay_removed"},
-                       "phase_timings": timings})
-        write_json(appliance_dir / "parser-appliance-record.json", record)
-        return record
-    booted_early = vm is not None
-    if vm is None:
-        vm = ParserVM(args=args, stage_dir=stage_dir, progress=log, timings=timings)
-    primary_error = None
-    try:
-        if booted_early:
-            phase("await_appliance", vm.wait)
-        else:
-            vm.boot()
-        if provider == "qemu":
-            completed = phase("run_qemu_parsers", lambda: vm.run_qemu_parsers(
-                package_path=appliance_dir / "inputs.zip", script_path=script_path, outputs_zip=outputs_zip))
-            guest_stdout.write_text(completed.stdout or "", encoding="utf-8")
-            guest_stderr.write_text(completed.stderr or "", encoding="utf-8")
-            if completed.returncode != 0:
-                raise _script_failed(completed, guest_stdout, guest_stderr)
-        else:
-            phase(
-                "stage_inputs",
-                lambda: _stage_inputs(vmx_path=vm.vmx_path, provider=provider,
-                                      package_path=appliance_dir / "inputs.zip", script_path=script_path),
-            )
-            completed = phase(
-                "run_guest_parsers",
-                lambda: runner.run_powershell_file_with_vmrun(
-                    vmx_path=vm.vmx_path,
-                    provider=provider,
-                    script_path=f"{GUEST_ROOT}\\run_parsers.ps1",
-                    args=["-Root", GUEST_ROOT],
-                    check=False,
-                    timeout_seconds=DEFAULT_GUEST_TIMEOUT_SECONDS,
-                ),
-            )
-            guest_stdout.write_text(completed.stdout or "", encoding="utf-8")
-            guest_stderr.write_text(completed.stderr or "", encoding="utf-8")
-            if completed.returncode != 0:
-                raise ParserApplianceError(
-                    f"guest parser script exited {completed.returncode}; see {guest_stderr}"
-                )
-            phase(
-                "collect_outputs",
-                lambda: runner.copy_guest_file_to_host_with_vmrun_retries(
-                    vmx_path=vm.vmx_path, provider=provider,
-                    guest_path=f"{GUEST_ROOT}\\outputs.zip", host_path=outputs_zip,
-                ),
-            )
-    except BaseException as error:
-        primary_error = error
-        raise
-    finally:
-        try:
-            cleanup = phase("stop_and_cleanup", lambda: vm.close(graceful=False))
-        except BaseException as cleanup_error:
-            if primary_error is None:
-                raise
-            primary_error.add_note(
-                f"Parser VM cleanup failed ({type(cleanup_error).__name__}) at {vm.vmx_path}: {cleanup_error}"
-            )
-    record = phase(
-        "merge_outputs",
-        lambda: _merge_outputs(
-            outputs_zip=outputs_zip, appliance_dir=appliance_dir, modules_root=modules_root,
-            tool_logs=tool_logs, package=package, source_times=copy_log_source_times(targets_root),
-        ),
-    )
-    record.update(
-        {
-            "schema_version": RECORD_SCHEMA,
-            "mode": "run",
-            "windows_box": windows_box,
-            "provider": provider,
-            "guest_root": GUEST_ROOT,
-            "vm_cleanup": cleanup,
-            "phase_timings": (vm.timings if booted_early else []) + timings,
-        }
-    )
-    write_json(appliance_dir / "parser-appliance-record.json", record)
-    return record
+    parsers = ParserRun(processors=processors, args=args, stage_dir=stage_dir, targets_root=targets_root,
+                        modules_root=modules_root, tool_logs=tool_logs, progress=progress, vm=vm)
+    parsers.run()
+    return parsers.merge()
 
 
-def _stage_inputs(*, vmx_path: Path, provider: str, package_path: Path, script_path: Path) -> None:
-    runner.create_guest_directory_with_vmrun(vmx_path=vmx_path, provider=provider, guest_path=GUEST_ROOT)
-    runner.copy_host_file_to_guest_with_vmrun_retries(
-        vmx_path=vmx_path, provider=provider, host_path=package_path,
-        guest_path=f"{GUEST_ROOT}\\inputs.zip",
-    )
-    runner.copy_host_file_to_guest_with_vmrun_retries(
-        vmx_path=vmx_path, provider=provider, host_path=script_path,
-        guest_path=f"{GUEST_ROOT}\\run_parsers.ps1",
-    )
+def _stage_inputs(*, vmx_path: Path, provider: str, package_path: Path) -> None:
+    # One vmrun copy instead of a folder and two files; GUEST_BOOTSTRAP unpacks it. Built outside the run folder, from
+    # the script's text, so that the run reads no file it did not read before.
+    with tempfile.TemporaryDirectory(prefix="fmb-parser-inputs-") as passing:
+        transport = Path(passing) / ntpath.basename(GUEST_TRANSPORT)
+        with zipfile.ZipFile(transport, "w", zipfile.ZIP_STORED) as archive:
+            archive.write(package_path, "inputs.zip")
+            archive.writestr("run_parsers.ps1", GUEST_SCRIPT)
+        runner.copy_host_file_to_guest_with_vmrun_retries(
+            vmx_path=vmx_path, provider=provider, host_path=transport, guest_path=GUEST_TRANSPORT,
+        )
 
 
 def _merge_outputs(
@@ -997,6 +1100,7 @@ __all__ = [
     "GUEST_ROOT",
     "INPUT_MASKS_BY_EXECUTABLE",
     "ParserApplianceError",
+    "ParserRun",
     "ParserVM",
     "build_input_package",
     "matching_inputs",

@@ -385,7 +385,7 @@ def test_logfile_records_name_no_run_folder_and_no_parse_time(tmp_path: Path, mo
     assert str(tmp_path) not in first["command_line"]
 
 
-def _native_parsers(tmp_path: Path, monkeypatch, root: Path) -> tuple[list[list[str]], Path]:
+def _native_parsers(tmp_path: Path, monkeypatch, root: Path, cancelled=None) -> tuple[list[list[str]], Path]:
     from fmb.collection.tools.host import parser_appliance
     from fmb.core import owned_process
 
@@ -403,7 +403,8 @@ def _native_parsers(tmp_path: Path, monkeypatch, root: Path) -> tuple[list[list[
     (tmp_path / "run_parsers.ps1").write_text("", encoding="utf-8")
     outputs = tmp_path / "outputs.zip"
     parser_appliance._run_native_windows_parsers(
-        package_path=tmp_path / "inputs.zip", script_path=tmp_path / "run_parsers.ps1", outputs_zip=outputs)
+        package_path=tmp_path / "inputs.zip", script_path=tmp_path / "run_parsers.ps1", outputs_zip=outputs,
+        cancelled=cancelled)
     return commands, outputs
 
 
@@ -430,6 +431,28 @@ def test_native_windows_parsers_wait_for_another_run_to_leave_the_folder(tmp_pat
     finally:
         os.close(holder)
     assert _native_parsers(tmp_path, monkeypatch, root)[0]
+
+
+def test_native_windows_parsers_stop_waiting_for_the_folder_once_not_needed(tmp_path: Path, monkeypatch) -> None:
+    import threading
+    import time
+
+    from fmb.collection.run.lock import _try_lock
+    from fmb.collection.tools.host import parser_appliance
+
+    root = tmp_path / "FMB-Parsers"
+    root.mkdir()
+    holder = os.open(root / parser_appliance.NATIVE_ROOT_LOCK, os.O_RDWR | os.O_CREAT)
+    assert _try_lock(holder)
+    cancelled = threading.Event()
+    threading.Timer(0.2, cancelled.set).start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(parser_appliance.ParserApplianceError, match="no longer needed"):
+            _native_parsers(tmp_path, monkeypatch, root, cancelled)
+    finally:
+        os.close(holder)
+    assert time.monotonic() - started < 5
 
 
 # One collection as the host tools leave it: their path columns relative to the bundle (targets/...).

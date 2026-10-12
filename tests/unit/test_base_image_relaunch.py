@@ -50,3 +50,15 @@ def test_a_relaunch_after_a_guest_restart_starts_the_guest_clock_from_now(monkey
     assert machine.relaunched_after_guest_restart()
     assert [command[2] for command in launched] == [
         "base=2026-10-10T07:34:58", "base=2026-10-10T07:44:04", "base=2026-10-10T07:58:14"]
+
+
+def test_the_licence_is_asked_again_while_the_service_names_no_product(monkeypatch):
+    install = load_builder(monkeypatch)
+    answers = ['{"name":null,"status":0,"grace_minutes":0,"evaluation_end":""}',
+               '{"name":"Windows(R), Professional edition","status":5,"grace_minutes":0,"evaluation_end":""}']
+    monkeypatch.setattr(install, "guest", lambda port, script: answers.pop(0))
+    monkeypatch.setattr(install, "log", lambda message: None)
+    monkeypatch.setattr(install.time, "sleep", lambda seconds: None)
+    facts = install.licence(5985)
+    assert facts["name"] == "Windows(R), Professional edition" and install.licensed(facts)
+    assert not install.licensed({"name": None, "status": 0, "grace_minutes": 0, "evaluation_end": ""})

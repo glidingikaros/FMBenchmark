@@ -46,6 +46,27 @@ def test_silent_command_obeys_deadline(capture, monkeypatch):
     assert stopped and stopped[0] - start < 3
 
 
+@pytest.mark.parametrize("capture", [False, True])
+def test_a_command_cancelled_from_another_thread_is_stopped_at_once(capture, monkeypatch):
+    import threading
+
+    stop_group = owned_process._stop_group
+    stopped = []
+
+    def timed_stop(process):
+        stopped.append(time.monotonic())
+        stop_group(process)
+
+    monkeypatch.setattr(owned_process, "_stop_group", timed_stop)
+    cancel = threading.Event()
+    threading.Timer(0.2, cancel.set).start()
+    start = time.monotonic()
+    with pytest.raises(RuntimeError, match="command cancelled"):
+        run_owned([sys.executable, "-c", "import time;time.sleep(30)"], timeout=60, capture_output=capture,
+                  cancel=cancel)
+    assert stopped and stopped[0] - start < 3
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process group assertion")
 def test_parent_exit_does_not_orphan_a_descendant_holding_output(tmp_path):
     pidfile = tmp_path / "child.pid"

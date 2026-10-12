@@ -19,8 +19,8 @@ FMBenchmark does three tasks:
 |---|---|
 | `fmb setup --check` | Checks the host. Shows the missing items and the commands that install them. |
 | `fmb setup --iso ISO` | Checks the host, installs the pinned tools and builds the Windows base from the ISO (approximately 30 min). |
-| `fmb generate NAME` | Generates `images/NAME.json` into `generated/NAME/` (approximately 12 min on an M2 Pro Mac, 18 to 22 min on a Linux or Windows cloud machine with 4 CPUs). |
-| `fmb run NAME` | Generates `NAME` first if it is not generated yet. Runs S1 to S4 on `generated/NAME/`. Writes `results/NAME/<time>/` (approximately 4 min on the Mac, 5 to 7 min on the cloud machines). |
+| `fmb generate NAME` | Generates `images/NAME.json` into `generated/NAME/` (approximately 10 min on an M2 Pro Mac, 18 to 22 min on a Linux or Windows cloud machine with 4 CPUs). |
+| `fmb run NAME` | Generates `NAME` first if it is not generated yet. Runs S1 to S4 on `generated/NAME/`. Writes `results/NAME/<time>/` (approximately 2 min on the Mac, 3.5 to 6 min on the cloud machines). |
 
 Without `NAME`, `fmb generate` and `fmb run` show the choices and ask.
 

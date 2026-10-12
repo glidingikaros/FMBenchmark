@@ -842,6 +842,26 @@ def _public_mft_observations(
     return identity_observations, timestamp_observations
 
 
+def _mft_row_scan(csv_path: Path, source_id: str) -> dict[str, Any]:
+    key = (source_id, csv_path.name)
+    scan = _MFT_ROW_SCANS.get(key)
+    if scan is None:
+        scan = _scan_mft_rows(csv_path, mft_volume_id=f"mft-source:{source_id}")
+        _MFT_ROW_SCANS.clear()
+        _MFT_ROW_SCANS[key] = scan
+    return scan
+
+
+def prescan_mftecmd_mft_csvs(root: Path) -> None:
+    """Reads the MFTECmd $MFT CSV under root as the import will, so the import finds both scans cached.
+
+    It runs while the host's other parsers run; it opens what the import opens, so the run records the same reads.
+    """
+    build_mft_presence_context(root)
+    for path in mftecmd_mft_csv_files(root):
+        _mft_row_scan(path, source_scope_id(path))
+
+
 def mftecmd_mft_parser_run(
     *,
     csv_path: Path,
@@ -852,12 +872,7 @@ def mftecmd_mft_parser_run(
 ) -> dict[str, Any]:
     source_id = source_scope_id(csv_path)
     mft_volume_id = f"mft-source:{source_id}"
-    key = (source_id, csv_path.name)
-    scan = _MFT_ROW_SCANS.get(key)
-    if scan is None:
-        scan = _scan_mft_rows(csv_path, mft_volume_id=mft_volume_id)
-        _MFT_ROW_SCANS.clear()
-        _MFT_ROW_SCANS[key] = scan
+    scan = _mft_row_scan(csv_path, source_id)
     source_row_count = scan["source_row_count"]
     identity_candidate_row_count = scan["identity_candidate_row_count"]
     candidate_row_count = scan["candidate_row_count"]

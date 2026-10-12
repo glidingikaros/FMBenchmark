@@ -218,7 +218,9 @@ def run_module_processors(
     timeout_seconds: int = DEFAULT_PROCESSOR_TIMEOUT_SECONDS,
     progress: Callable[[str], None] | None = None,
     skip_executables: frozenset[str] = frozenset(),
+    after_processor: Callable[[ModuleProcessor], None] | None = None,
 ) -> list[ProcessorRun]:
+    # after_processor gets each processor that ran, once its outputs are written.
     targets_root, modules_root, tool_logs_dir = (
         targets_root.absolute(), modules_root.absolute(), tool_logs_dir.absolute()
     )
@@ -280,6 +282,8 @@ def run_module_processors(
                     ),
                 )
             )
+        if after_processor is not None:
+            after_processor(processor)
     return runs
 
 

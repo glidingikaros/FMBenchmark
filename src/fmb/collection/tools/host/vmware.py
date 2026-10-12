@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import ctypes
 from collections.abc import Callable
+from concurrent.futures import Future
 from functools import partial
 import os
 import re
@@ -13,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from fmb.core.errors import ExternalToolError
-from fmb.core.hashing import sha256_file
+from fmb.core.hashing import hashing_threads, sha256_file
 from fmb.core.json_io import write_json as _write_json
 from fmb.core.processes import process_output_excerpt
 
@@ -37,7 +39,7 @@ APPLIANCE_VMX_SETTINGS = {
     "time.synchronize.tools.startup": "FALSE",
     "time.synchronize.tools.enable": "FALSE",
     "time.synchronize.resume.host": "FALSE",
-    "memsize": "8192",
+    "memsize": "4096",
     "numvcpus": "4",
 }
 
@@ -302,15 +304,15 @@ def clone_apfs_worker_files(
     library = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
     library.clonefile.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
     library.clonefile.restype = ctypes.c_int
-    copied = []
     started = time.monotonic()
-    for source in sorted(source_root.rglob("*")):
+
+    def clone(source: Path) -> Path | None:
         target = destination / source.relative_to(source_root)
         if source.is_symlink():
             raise KapeApplianceError("APFS source closure contains a symlink")
         if source.is_dir():
             target.mkdir(exist_ok=True)
-            continue
+            return None
         if not source.is_file():
             raise KapeApplianceError("APFS source closure contains a non-file")
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -319,11 +321,29 @@ def clone_apfs_worker_files(
             raise OSError(error, os.strerror(error), str(target))
         if source.stat().st_ino == target.stat().st_ino:
             raise KapeApplianceError("worker shares a writable file identity with its source")
-        digest = sha256_file(target)
-        if digest != sha256_file(source):
+        return target
+
+    def verified(source: Path, target_digest: Future, source_digest: Future) -> dict[str, Any]:
+        digest = target_digest.result()
+        if digest != source_digest.result():
             raise KapeApplianceError("APFS worker read-back hash mismatch")
-        copied.append({"path": source.relative_to(source_root).as_posix(), "sha256": digest,
-                       "size_bytes": source.stat().st_size})
+        return {"path": source.relative_to(source_root).as_posix(), "sha256": digest,
+                "size_bytes": source.stat().st_size}
+
+    # Every clone and its source are hashed a few files at once while the next files are cloned; the files are
+    # checked in order, so a failure is reported as a loop of one file at a time would have met it first.
+    cloned: list[tuple[Path, Future, Future]] = []
+    failure = None
+    with hashing_threads() as submit:
+        try:
+            for source in sorted(source_root.rglob("*")):
+                if (target := clone(source)) is not None:
+                    cloned.append((source, submit(sha256_file, target), submit(sha256_file, source)))
+        except Exception as error:
+            failure = error  # raised once the files cloned before it are checked
+        copied = [verified(*row) for row in cloned]
+    if failure is not None:
+        raise failure
     original_vmx = destination / source_vmx.name
     if original_vmx != destination_vmx:
         original_vmx.rename(destination_vmx)
@@ -451,6 +471,8 @@ def _copy_with_vmrun_retries(
             return copy()
         except KapeApplianceError as error:
             errors.append(f"attempt {attempt}: {error}")
+            if not vmx_path.exists():
+                break  # removed meanwhile, by a collection that failed: it will not take another copy
             if attempt < attempts:
                 try:
                     wait_for_vmrun_guest(
@@ -524,12 +546,15 @@ def wait_for_vmrun_guest(
     vmx_path: Path,
     provider: str,
     timeout_seconds: int = 600,
-    poll_seconds: int = 5,
+    poll_seconds: int = 1,
     probe_timeout_seconds: int = DEFAULT_VMRUN_GUEST_PROBE_TIMEOUT_SECONDS,
 ) -> None:
     deadline = time.monotonic() + timeout_seconds
     last_error: KapeApplianceError | None = None
     while time.monotonic() < deadline:
+        if not vmx_path.exists():
+            # Removed meanwhile, by a collection that failed: it will not come up.
+            raise KapeApplianceError(f"the VM was removed while waiting for VMware Tools: {vmx_path}")
         try:
             completed = vmrun_guest_command(
                 vmx_path=vmx_path,
@@ -764,33 +789,17 @@ def copy_host_file_to_guest_with_vmrun_retries(
     )
 
 
-def create_guest_directory_with_vmrun(
+def run_powershell_command_with_vmrun(
     *,
     vmx_path: Path,
     provider: str,
-    guest_path: str,
-    timeout_seconds: int | None = DEFAULT_VMRUN_GUEST_COMMAND_TIMEOUT_SECONDS,
-) -> None:
-    vmrun_guest_command(
-        vmx_path=vmx_path,
-        provider=provider,
-        command="createDirectoryInGuest",
-        args=[guest_path],
-        check=False,
-        timeout_seconds=timeout_seconds,
-    )
-
-
-def run_powershell_file_with_vmrun(
-    *,
-    vmx_path: Path,
-    provider: str,
-    script_path: str,
-    args: list[str] | None = None,
+    command: str,
     check: bool = True,
     timeout_seconds: int | None = DEFAULT_VMRUN_GUEST_POWERSHELL_TIMEOUT_SECONDS,
     retry_tools_unavailable: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    # Encoded, so that vmrun hands the guest one word without quotes or spaces to rewrite.
+    encoded = base64.b64encode(command.encode("utf-16-le")).decode("ascii")
     return vmrun_guest_command(
         vmx_path=vmx_path,
         provider=provider,
@@ -800,9 +809,8 @@ def run_powershell_file_with_vmrun(
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
-            "-File",
-            script_path,
-            *(args or []),
+            "-EncodedCommand",
+            encoded,
         ],
         check=check,
         timeout_seconds=timeout_seconds,

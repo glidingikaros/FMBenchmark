@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
-import os
 import platform
 import re
 import shutil
 import sys
 from pathlib import Path, PurePosixPath
 
+from fmb.core.hashing import in_order
 from fmb.generation.recipe import BOX, SHA256, VERSION, _object as _fields, digest, file_row
 
 LOCK_SCHEMA = "generation_dependency_lock.v2"
@@ -143,9 +143,9 @@ def tree_rows(root, selectors=None):
 
 
 def ansible_layout(ansible, collections=GUEST_COLLECTIONS, *, cwd=None):
-    from fmb.generation.backends import ansible_settings
+    from fmb.generation.backends import ansible_environment
 
-    env = {**os.environ, **ansible_settings()}  # what the playbook sees
+    env = ansible_environment()  # what the playbook sees
     text = _run_text([ansible, "--version"], cwd=cwd, env=env)
     core = re.search(r"^ansible \[core ([^\]]+)\]", text, re.M)
     module = re.search(r"^\s*ansible python module location = (.+)$", text, re.M)
@@ -207,7 +207,8 @@ def library_versions(imports):
 
 
 def base_rows(backend, directory):
-    return [file_row(path, path.relative_to(directory).as_posix()) for path in backend.base_files(directory)]
+    # The box's disk is split into many extent files; hashing a few at once reads a Mac's SSD several times faster.
+    return in_order(lambda path: file_row(path, path.relative_to(directory).as_posix()), backend.base_files(directory))
 
 
 def _tool_versions(tools):

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
+import pickle
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +29,7 @@ from fmb.index.adapters.parser_output import (
 from fmb.index.contract.evidence_index import normalize_parser_output
 from fmb.index.scanners.logfile import (
     preferred_file_name,
+    si_update_variants_from_records,
     si_updates_from_records,
 )
 from fmb.index.scanners.logfile_runtime import (
@@ -411,13 +416,56 @@ def logfile_coverage_scope(
     }
 
 
+# The last binding of $LogFile records to a raw $MFT, in both variants, keyed on the content of
+# the records and of the $MFT, with the entry sequences it was bound against: a run binds the same
+# records to the same $MFT for its scope run, its reference runs and the factual supplement's.
+_BOUND_SI_UPDATES: dict[tuple[str, str], tuple[dict[Any, Any] | None, dict[bool, Any]]] = {}
+
+
+def _records_sha256(*records: list[dict[str, Any]] | None) -> str:
+    # The driver's records are JSON values, which a pickle spells out in full; equal records
+    # pickled with different sharing between their strings would only miss the cache.
+    return hashlib.sha256(pickle.dumps(records, protocol=5)).hexdigest()
+
+
+def _reused_si_updates(
+    inputs: dict[str, Any],
+    *,
+    raw_mft_path: Path,
+    include_timestamp_fragments: bool,
+    references: Collection[tuple[int, int]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    # Hashing the raw $MFT reads it, so a run that finds its binding here still records the read.
+    key = (sha256_file(raw_mft_path), _records_sha256(inputs["records"], inputs["lifecycle_records"]))
+    sequences = inputs["mft_entry_sequences"]
+    cached = _BOUND_SI_UPDATES.get(key)
+    if cached is None or cached[0] != sequences:
+        # The sequences are (int, bool) tuples, so a copy of the mapping keeps them as bound.
+        cached = (
+            dict(sequences) if sequences is not None else None,
+            si_update_variants_from_records(**inputs, mft_path=raw_mft_path),
+        )
+        _BOUND_SI_UPDATES.clear()
+        _BOUND_SI_UPDATES[key] = cached
+    updates, diagnostics = cached[1][include_timestamp_fragments]
+    # The binding stays here for the next run, so a caller only ever gets copies.
+    return [
+        copy.deepcopy(item)
+        for item in updates
+        if (int(item["mft_entry"]), int(item["sequence_number"])) in references
+    ], copy.deepcopy(diagnostics)
+
+
 def _logfile_bound_updates(
     document: dict[str, Any],
     *,
     raw_mft_path: Path | None,
     mft_context: dict[str, Any] | None,
     include_timestamp_fragments: bool = False,
+    references: Collection[tuple[int, int]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    # With references, only the updates of those references, from the last binding of the same
+    # records to the same raw $MFT against the same entry sequences when there is one.
     if raw_mft_path is None or not raw_mft_path.is_file():
         return [], {
             "si_update_count": None,
@@ -447,12 +495,22 @@ def _logfile_bound_updates(
         }
     sequences = (mft_context or {}).get("entry_sequences")
     lifecycle = document.get("lifecycle_records")
-    updates, diagnostics = si_updates_from_records(
-        list(document.get("records") or []),
-        mft_path=raw_mft_path,
-        mft_entry_sequences=sequences if isinstance(sequences, dict) else None,
-        lifecycle_records=list(lifecycle) if isinstance(lifecycle, list) else None,
-        include_timestamp_fragments=include_timestamp_fragments,
+    inputs = {
+        "records": list(document.get("records") or []),
+        "mft_entry_sequences": sequences if isinstance(sequences, dict) else None,
+        "lifecycle_records": list(lifecycle) if isinstance(lifecycle, list) else None,
+    }
+    updates, diagnostics = (
+        si_updates_from_records(
+            **inputs, mft_path=raw_mft_path, include_timestamp_fragments=include_timestamp_fragments
+        )
+        if references is None
+        else _reused_si_updates(
+            inputs,
+            raw_mft_path=raw_mft_path,
+            include_timestamp_fragments=include_timestamp_fragments,
+            references=references,
+        )
     )
     return updates, {**diagnostics, "witnesses_withheld": None}
 
@@ -598,8 +656,9 @@ def raw_logfile_parser_run(
     )
     diagnostics: dict[str, Any] = {}
     if document is not None:
+        # The scope needs no update, but binding them here lets the reference runs reuse them.
         _updates, diagnostics = _logfile_bound_updates(
-            document, raw_mft_path=raw_mft_path, mft_context=mft_context
+            document, raw_mft_path=raw_mft_path, mft_context=mft_context, references=()
         )
         scope = logfile_coverage_scope(document, logfile_path=logfile_path, diagnostics=diagnostics)
         coverage_status = "complete" if _logfile_parse_complete(document) else "partial"
@@ -688,15 +747,10 @@ def raw_logfile_reference_parser_run(
     matched: list[dict[str, Any]] = []
     diagnostics: dict[str, Any] = {}
     if document is not None:
-        updates, diagnostics = _logfile_bound_updates(
+        matched, diagnostics = _logfile_bound_updates(
             document, raw_mft_path=raw_mft_path, mft_context=mft_context,
-            include_timestamp_fragments=include_timestamp_fragments,
+            include_timestamp_fragments=include_timestamp_fragments, references=references,
         )
-        matched = [
-            item
-            for item in updates
-            if (int(item["mft_entry"]), int(item["sequence_number"])) in references
-        ]
         parse = document.get("parse") or {}
         lsn_range = (parse.get("lsn_first"), parse.get("lsn_last"))
         observations = [

@@ -15,13 +15,12 @@ from fmb.index.adapters.mft import (
     mftecmd_mft_parser_run,
 )
 from fmb.index.adapters.parser_output import apply_host_processor_status, portable_path, source_bound_observations
-from fmb.index.adapters.usn import raw_usn_observation_from_record
+from fmb.index.adapters.usn import raw_usn_observation_from_record, raw_usn_record_table
 from fmb.index.support.windows_identity import (
     normalize_windows_compare_path,
     windows_compare_path_parts,
 )
 from fmb.index.contract.evidence_index import normalize_parser_output
-from fmb.index.scanners.usn import DEFAULT_SCAN_CHUNK_SIZE, _iter_usn_v2_records
 
 
 def load_public_population(evidence: Path) -> dict | None:
@@ -69,15 +68,19 @@ def _membership_usn_run(index: dict, public: dict, output: Path, context: dict) 
     paths = {normalize_windows_compare_path(m["path"]) for m in public["members"]
              if m["question_id"] in {"BQ-DELETE-01", "BQ-TIME-01"}}
     names = {p.rsplit("\\", 1)[-1] for p in paths}
-    observations, scan = [], {}
+    observations = []
+    # The journal's records as the run's other scans of it parsed them; only those named like a
+    # public path are parsed again.
+    table = raw_usn_record_table(journal)
+    scan = dict(table.scan)
     with journal.open("rb") as handle:
         def reader(offset, size):
             handle.seek(offset)
             return handle.read(size)
-        for record in _iter_usn_v2_records(reader, stream_size_bytes=journal.stat().st_size,
-                                           chunk_size_bytes=DEFAULT_SCAN_CHUNK_SIZE, scan=scan):
-            if str(record.get("file_name", "")).casefold() not in names:
+        for row, file_name in enumerate(table.file_names):
+            if file_name.casefold() not in names:
                 continue
+            record = table.record(reader, row)
             observation = raw_usn_observation_from_record(
                 journal_path=journal, record_index=len(observations) + 1, record=record,
                 scan_strategy="public_path_membership_scan", mft_context=context,
@@ -101,7 +104,7 @@ def _membership_usn_run(index: dict, public: dict, output: Path, context: dict) 
         source_collector=index["collector_runs"][0]["collector"], source_module="FMBPublicMembershipUSN",
         raw_outputs=[journal, *[Path(p) for p in context["source_paths"]]], normalized_output=path,
         observations=observations, tool_identity={"name": "fmb.public_path_membership_scan", "version": "1"},
-        observation_families=["ntfs.usn"], coverage_status="partial")
+        observation_families=["ntfs.usn"] if observations else [], coverage_status="partial")
 
 
 def _eligible_techniques(member: dict) -> tuple[str, ...]:
@@ -119,21 +122,30 @@ def _populations(index: dict, base_populations: list[dict], public: dict) -> lis
     observations = tuple(iter_observations(index))
     definitions = {t.technique_id: t for t in TECHNIQUES}
     seed = {p["technique_id"]: deepcopy(p) for p in base_populations}
+    # The observations that can hold a public member of each technique, by their compared path,
+    # in index order: a member takes those filed under its own path.
+    by_path: dict[str, dict[str, list]] = {}
     for member in public["members"]:
         for technique in _eligible_techniques(member):
             if technique not in seed:
                 continue
             definition = definitions[technique]
-            matches = [o for o in observations
-                if o.artifact_family in definition.candidate_artifact_families
-                and observation_matches_technique(definition, o)
-                and normalize_windows_compare_path(o.subject_ref) == normalize_windows_compare_path(member["path"])
-                and (technique != "timestamp_manipulation" or o.artifact_family == "ntfs.mft")
-                and (technique != "deleted_file_journal_residue" or o.artifact_family == "ntfs.usn")
-                and (technique != "prefetch_missing_executable" or o.artifact_family == "windows.prefetch")
-                and (technique != "shellbag_missing_directory" or o.artifact_family == "windows.registry.shellbag")
-                and (technique != "bitmap_trailing_data" or o.observation_type == "logical_allocated_size_record")
-                and (technique != "ntfs_allocation_inconsistency" or o.observation_type == "ntfs_allocation_record")]
+            if technique not in by_path:
+                by_path[technique] = {}
+                for o in observations:
+                    if (o.artifact_family in definition.candidate_artifact_families
+                            and observation_matches_technique(definition, o)
+                            and (technique != "timestamp_manipulation" or o.artifact_family == "ntfs.mft")
+                            and (technique != "deleted_file_journal_residue" or o.artifact_family == "ntfs.usn")
+                            and (technique != "prefetch_missing_executable" or o.artifact_family == "windows.prefetch")
+                            and (technique != "shellbag_missing_directory"
+                                 or o.artifact_family == "windows.registry.shellbag")
+                            and (technique != "bitmap_trailing_data"
+                                 or o.observation_type == "logical_allocated_size_record")
+                            and (technique != "ntfs_allocation_inconsistency"
+                                 or o.observation_type == "ntfs_allocation_record")):
+                        by_path[technique].setdefault(normalize_windows_compare_path(o.subject_ref), []).append(o)
+            matches = by_path[technique].get(normalize_windows_compare_path(member["path"]), [])
             identities = {}
             for observation in matches:
                 display, identity = candidate_identity(definition, observation)
@@ -147,13 +159,21 @@ def _populations(index: dict, base_populations: list[dict], public: dict) -> lis
     for technique, population in seed.items():
         definition = definitions[technique]
         subjects = {}
+        # The ids of the observations projecting onto each identity, in index order. Identities
+        # map names to strings, so their items name them as their equality does.
+        by_identity: dict[frozenset, list[str]] | None = None
         for subject in population["subjects"]:
             identity = subject["identity"]
             key = canonical_sha256(identity)
-            matches = [o.observation_id for o in observations
-                       if o.artifact_family in definition.projected_artifact_families
-                       and observation_matches_technique(definition, o)
-                       and candidate_identity(definition, o)[1] == identity]
+            if by_identity is None:
+                by_identity = {}
+                for o in observations:
+                    if (o.artifact_family in definition.projected_artifact_families
+                            and observation_matches_technique(definition, o)):
+                        by_identity.setdefault(
+                            frozenset(candidate_identity(definition, o)[1].items()), []
+                        ).append(o.observation_id)
+            matches = by_identity.get(frozenset(identity.items()), [])
             if not matches:
                 raise ValueError(f"no retained observations for a declared {technique} subject")
             subjects[key] = {**subject, "observation_ids": sorted(matches)}

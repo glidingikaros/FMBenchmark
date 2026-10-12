@@ -10,6 +10,7 @@ import signal
 import socket
 import tempfile
 import time
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -597,6 +598,10 @@ class GenerationPipeline:
 
 
     def prepare_env(self, env=None):
+        from fmb.generation.backends import ANSIBLE_CONFIG, ansible_environment
+
+        if (env or {}).get("ANSIBLE_CONFIG") == str(ANSIBLE_CONFIG):
+            return ansible_environment(env)  # an fmb Ansible run: the user's own ANSIBLE_* settings stay out
         return {**os.environ, **(env or {})}
 
     def resolve_command(self, cmd):
@@ -1763,7 +1768,10 @@ class GenerationPipeline:
                 partial_path.unlink()
 
     def convert_disk(self, source_disk, partial_path, output_format):
-        """qemu-img convert, tried once more unless the disk is full; converting does not change its source."""
+        """fmb's VMDK writer for a VMware sparse disk, else qemu-img convert, tried once more unless the disk is full;
+        converting does not change its source."""
+        if output_format == "vmdk" and self.copy_vmware_disk(source_disk, partial_path):
+            return
         command = ["qemu-img", "convert", "-O", output_format, str(source_disk), str(partial_path)]
         for attempt in (1, 2):
             try:
@@ -1775,6 +1783,40 @@ class GenerationPipeline:
                 if attempt == 2 or DISK_FULL.search(said):
                     raise RuntimeError(f"qemu-img convert failed: {said}") from error
                 print(f"[!] Warning: qemu-img convert failed ({said}); converting once more", flush=True)
+
+    def copy_vmware_disk(self, source_disk, partial_path):
+        """Writes a VMware sparse disk, as VMware Fusion keeps the VM's, into the VMDK qemu-img convert -O vmdk writes,
+        in large sequential writes; False leaves any other disk, and a copy that failed, to qemu-img convert."""
+        from fmb.generation import vmdk_writer
+
+        try:
+            source = vmdk_writer.SparseDisk(source_disk)
+        except vmdk_writer.Unsupported as error:
+            if Path(source_disk).suffix.casefold() == ".vmdk":  # QEMU's own images go to qemu-img without a word
+                print(f"[*] {error}; converting with qemu-img")
+            return False
+        with source:
+            print(f"[*] Copying {Path(source_disk).name} with fmb's VMDK writer")
+            try:
+                # qemu-img makes the empty VMDK, so its header and descriptor are the installed qemu-img's own.
+                self.run_command(["qemu-img", "create", "-q", "-f", "vmdk", str(partial_path), str(source.size)],
+                                 capture_output=True)
+                source.write_vmdk(partial_path)
+                return True
+            except vmdk_writer.Unsupported as error:
+                partial_path.unlink(missing_ok=True)
+                print(f"[*] {error}; converting with qemu-img")
+                return False
+            except subprocess.CalledProcessError as error:
+                said = ((error.stdout or "") + (error.stderr or "")).strip()[-400:] or f"exit code {error.returncode}"
+                failure = error
+            except OSError as error:
+                said, failure = str(error), error
+        partial_path.unlink(missing_ok=True)
+        if DISK_FULL.search(said):
+            raise RuntimeError(f"copying the VMware disk failed: {said}") from failure
+        print(f"[!] Warning: fmb's VMDK writer failed ({said}); converting with qemu-img", flush=True)
+        return False
 
     def native_surface_module(self):
         from fmb.generation import ntfs_surface_injection as native
@@ -1998,6 +2040,8 @@ class GenerationPipeline:
                 row["stage"]: {"guest_utc": row["guest_utc"], "host_received_utc": row["host_received_utc"]}
                 for row in clock.get("checkpoints", [])
             }
+        if getattr(self, "early_logfile_parse", None) is not None:
+            self.early_logfile_parse.result()
         result = module.check_logfile_retention(
             Path(image_path),
             targets=targets,
@@ -2046,6 +2090,15 @@ class GenerationPipeline:
     def complete_export(self, system_image):
         system_image = Path(system_image)
         final_artifacts = [system_image]
+        self.early_logfile_parse = self.early_logfile_released = None
+        if self.logfile_retention_planned() is not None:
+            # dfir_ntfs parses the $LogFile while the journal hashes the image; the retention check uses that
+            # parse only if its own copy of the $LogFile has the same bytes.
+            from fmb.core.background import Background
+            from fmb.generation import logfile_retention
+            self.early_logfile_released = threading.Event()
+            self.early_logfile_parse = Background(logfile_retention.parse_logfile, system_image,
+                                                  self.early_logfile_released, name="fmb-logfile-parse")
         journal = self.begin_post_export(system_image)
         self.apply_post_export_interventions(system_image)
         if self.logfile_retention_planned() is not None:
@@ -2485,6 +2538,13 @@ class GenerationPipeline:
 
     def run_post_export_intervention(self, name, image, action, *, read_only=False,
                                      creates_image=False):
+        released = getattr(self, "early_logfile_released", None)
+        if released is not None and not read_only:
+            write = action
+
+            def action():
+                released.wait()  # until the early $LogFile parse no longer has the image open
+                return write()
         journal = getattr(self, "post_export_journal", None)
         if journal is None:
             return action()

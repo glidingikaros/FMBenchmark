@@ -3,16 +3,24 @@ from __future__ import annotations
 import heapq
 import json
 import struct
-from collections.abc import Callable, Iterator
+from array import array
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from fmb.core.hashing import sha256_bytes
-from fmb.core.ntfs_time import filetime_to_utc_iso
-from fmb.index.support.windows_identity import split_ntfs_file_reference
+from fmb.core.ntfs_time import NTFS_EPOCH_UTC, filetime_to_utc_iso
 
 DEFAULT_SCAN_CHUNK_SIZE = 4 * 1024 * 1024
+
+# The largest FILETIME that filetime_to_utc_iso writes; a later one falls after the year 9999.
+_MAX_ISO_FILETIME = (
+    (datetime.max.replace(tzinfo=timezone.utc) - NTFS_EPOCH_UTC) // timedelta(microseconds=1) + 1
+) * 10 - 1
 
 MAX_USN_RECORD_LENGTH = 65536
 
@@ -110,41 +118,55 @@ def decode_usn_record_v2_name(
     return file_name
 
 
+_USN_RECORD_V2_HEADER = struct.Struct("<IHHQQqQIIIIHH")
+
+
+def _unpack_usn_record_v2(data: bytes, offset: int) -> tuple[tuple[int, ...], str] | None:
+    record_length = usn_record_v2_length(data, offset)
+    if record_length is None:
+        return None
+    header = _USN_RECORD_V2_HEADER.unpack_from(data, offset)
+    if header[1] != 2:
+        return None
+    file_name = decode_usn_record_v2_name(
+        data,
+        offset=offset,
+        record_length=record_length,
+        file_name_offset=header[12],
+        file_name_length=header[11],
+    )
+    if file_name is None:
+        return None
+    return header, file_name
+
+
 def parse_usn_record_v2(
     data: bytes,
     offset: int = 0,
     *,
     absolute_offset: int | None = None,
 ) -> dict[str, Any] | None:
-    record_length = usn_record_v2_length(data, offset)
-    if record_length is None:
+    unpacked = _unpack_usn_record_v2(data, offset)
+    if unpacked is None:
         return None
     (
-        _record_length,
-        major_version,
-        minor_version,
-        file_reference_number,
-        parent_file_reference_number,
-        usn,
-        timestamp_filetime,
-        reason,
-        source_info,
-        security_id,
-        file_attributes,
-        file_name_length,
-        file_name_offset,
-    ) = struct.unpack_from("<IHHQQqQIIIIHH", data, offset)
-    if major_version != 2:
-        return None
-    file_name = decode_usn_record_v2_name(
-        data,
-        offset=offset,
-        record_length=record_length,
-        file_name_offset=file_name_offset,
-        file_name_length=file_name_length,
-    )
-    if file_name is None:
-        return None
+        (
+            record_length,
+            major_version,
+            minor_version,
+            file_reference_number,
+            parent_file_reference_number,
+            usn,
+            timestamp_filetime,
+            reason,
+            source_info,
+            security_id,
+            file_attributes,
+            file_name_length,
+            file_name_offset,
+        ),
+        file_name,
+    ) = unpacked
     return {
         "record_offset": int(
             absolute_offset if absolute_offset is not None else offset
@@ -301,13 +323,13 @@ def ntfs_reference_set_sha256(references: set[tuple[int, int]]) -> str:
     return sha256_bytes(payload)
 
 
-def _iter_usn_v2_records(
+def _iter_unpacked_usn_v2_records(
     reader: Callable[[int, int], bytes],
     *,
     stream_size_bytes: int,
     chunk_size_bytes: int,
     scan: dict[str, Any],
-) -> Iterator[dict[str, Any]]:
+) -> Iterator[tuple[int, tuple[int, ...], str]]:
 
     if stream_size_bytes < 0:
         raise ValueError("USN stream_size_bytes must be non-negative")
@@ -353,15 +375,11 @@ def _iter_usn_v2_records(
             if absolute_record_offset >= primary_end:
                 continue
             candidate_signature_count += 1
-            record = parse_usn_record_v2(
-                chunk,
-                record_relative_offset,
-                absolute_offset=absolute_record_offset,
-            )
-            if record is None:
+            unpacked = _unpack_usn_record_v2(chunk, record_relative_offset)
+            if unpacked is None:
                 continue
             parsed_record_count += 1
-            yield record
+            yield absolute_record_offset, *unpacked
 
     scan.update(
         {
@@ -379,6 +397,78 @@ def _iter_usn_v2_records(
         scan["unsupported_record_count"] = len(unsupported_offsets)
 
 
+@dataclass(frozen=True)
+class UsnRecordTable:
+    # What one signature scan of a journal parsed, a column per header field a scan selects on, in
+    # the order the scan parsed the records; a scan parses a record it keeps again from its offset.
+    # Kept for a whole run, so it holds no parsed dictionaries and nobody changes its columns.
+    stream_size_bytes: int
+    chunk_size_bytes: int
+    scan: Mapping[str, Any]
+    offsets: array
+    lengths: array
+    file_references: array
+    usns: array
+    filetimes: array
+    reasons: array
+    file_names: tuple[str, ...]
+
+    def record(self, reader: Callable[[int, int], bytes], row: int) -> dict[str, Any]:
+        offset = self.offsets[row]
+        record = parse_usn_record_v2(reader(offset, self.lengths[row]), absolute_offset=offset)
+        if record is None:
+            raise ValueError("USN journal changed after it was scanned")
+        return record
+
+
+def usn_record_table(
+    reader: Callable[[int, int], bytes],
+    *,
+    stream_size_bytes: int,
+    chunk_size_bytes: int = DEFAULT_SCAN_CHUNK_SIZE,
+) -> UsnRecordTable:
+    columns = tuple(array(code) for code in "qIQqQI")
+    offsets, lengths, file_references, usns, filetimes, reasons = columns
+    file_names: list[str] = []
+    # A journal names the same few files over and over; the table keeps one string per name.
+    names: dict[str, str] = {}
+    scan: dict[str, Any] = {}
+    for offset, header, file_name in _iter_unpacked_usn_v2_records(
+        reader,
+        stream_size_bytes=stream_size_bytes,
+        chunk_size_bytes=chunk_size_bytes,
+        scan=scan,
+    ):
+        offsets.append(offset)
+        lengths.append(header[0])
+        file_references.append(header[3])
+        usns.append(header[5])
+        filetimes.append(header[6])
+        reasons.append(header[7])
+        file_names.append(names.setdefault(file_name, file_name))
+    return UsnRecordTable(
+        stream_size_bytes, chunk_size_bytes, MappingProxyType(scan), *columns, tuple(file_names)
+    )
+
+
+def _scanned(
+    table: UsnRecordTable | None,
+    reader: Callable[[int, int], bytes],
+    *,
+    stream_size_bytes: int,
+    chunk_size_bytes: int,
+) -> UsnRecordTable:
+    if (
+        table is not None
+        and table.stream_size_bytes == stream_size_bytes
+        and table.chunk_size_bytes == chunk_size_bytes
+    ):
+        return table
+    return usn_record_table(
+        reader, stream_size_bytes=stream_size_bytes, chunk_size_bytes=chunk_size_bytes
+    )
+
+
 def scan_usn_records_for_references(
     reader: Callable[[int, int], bytes],
     *,
@@ -386,6 +476,7 @@ def scan_usn_records_for_references(
     references: set[tuple[int, int]],
     max_records: int = MAX_REFERENCE_RECORDS,
     chunk_size_bytes: int = DEFAULT_SCAN_CHUNK_SIZE,
+    table: UsnRecordTable | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
     if not references:
@@ -393,21 +484,16 @@ def scan_usn_records_for_references(
     if max_records <= 0:
         raise ValueError("USN max_records must be positive")
     reference_sha256 = ntfs_reference_set_sha256(references)
-    scan: dict[str, Any] = {}
-    matched_record_count = 0
-    retained: list[dict[str, Any]] = []
-    for record in _iter_usn_v2_records(
-        reader,
-        stream_size_bytes=stream_size_bytes,
-        chunk_size_bytes=chunk_size_bytes,
-        scan=scan,
-    ):
-        reference = split_ntfs_file_reference(int(record["file_reference_number"]))
-        if reference not in references:
-            continue
-        matched_record_count += 1
-        if len(retained) < max_records:
-            retained.append(record)
+    table = _scanned(
+        table, reader, stream_size_bytes=stream_size_bytes, chunk_size_bytes=chunk_size_bytes
+    )
+    scan = table.scan
+    # The hash above accepts only 48-bit entries and 16-bit sequences, so each reference is
+    # exactly one file reference number.
+    wanted = {(sequence << 48) | entry for entry, sequence in references}
+    matched = [row for row, value in enumerate(table.file_references) if value in wanted]
+    matched_record_count = len(matched)
+    retained = [table.record(reader, row) for row in matched[:max_records]]
 
     complete = (
         not bool(scan["source_truncated"])
@@ -487,16 +573,12 @@ def scan_usn_records_by_reason(
     interesting_reason_labels: tuple[str, ...] = DEFAULT_TRUTH_BLIND_REASON_LABELS,
     max_records: int = 5000,
     chunk_size_bytes: int = DEFAULT_SCAN_CHUNK_SIZE,
+    table: UsnRecordTable | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
     interesting = {label.casefold() for label in interesting_reason_labels}
-    bytes_scanned = 0
-    candidate_signature_count = 0
-    parsed_record_count = 0
     selected_heap: list[RankedUsnRecord] = []
     interesting_record_count = 0
-    unsupported_offsets: set[int] = set()
-    overlap = MAX_USN_RECORD_LENGTH + len(USN_RECORD_V2_MAJOR_SIGNATURE)
     if max_records <= 0:
         return [], empty_reason_scan_stats(
             chunk_size_bytes=chunk_size_bytes,
@@ -505,66 +587,56 @@ def scan_usn_records_by_reason(
         )
     if chunk_size_bytes <= 0:
         raise ValueError("USN chunk_size_bytes must be positive")
-
-    for chunk_offset, chunk in usn_scan_chunks(
-        reader,
-        stream_size_bytes=stream_size_bytes,
-        chunk_size_bytes=chunk_size_bytes,
-        overlap=overlap,
-    ):
-        bytes_scanned += len(chunk)
-        unsupported_offsets.update(
-            offset for offset in usn_unsupported_record_offsets(chunk, base_offset=chunk_offset)
-            if offset < chunk_offset + chunk_size_bytes
-        )
-        primary_end = chunk_offset + min(
-            chunk_size_bytes,
-            stream_size_bytes - chunk_offset,
-        )
-        for (
-            record_relative_offset,
-            absolute_record_offset,
-        ) in usn_record_candidate_offsets(
-            chunk,
-            base_offset=chunk_offset,
-        ):
-            if absolute_record_offset >= primary_end:
-                continue
-            candidate_signature_count += 1
-            record = parse_usn_record_v2(
-                chunk,
-                record_relative_offset,
-                absolute_offset=absolute_record_offset,
+    table = _scanned(
+        table, reader, stream_size_bytes=stream_size_bytes, chunk_size_bytes=chunk_size_bytes
+    )
+    # A journal repeats a few reason masks over all its records; each mask is tested once.
+    interesting_masks: dict[int, bool] = {}
+    for row, reason in enumerate(table.reasons):
+        keep = interesting_masks.get(reason)
+        if keep is None:
+            keep = interesting_masks[reason] = record_has_interesting_reason(
+                {"reason_labels": reason_labels(reason)}, interesting
             )
-            if record is None:
-                continue
-            parsed_record_count += 1
-            if not record_has_interesting_reason(record, interesting):
-                continue
-            interesting_record_count += 1
-            record["candidate_score"] = usn_record_review_score(record)
-            keep_ranked_usn_record(
-                selected_heap,
-                record=record,
-                rank_offset=absolute_record_offset,
-                max_records=max_records,
-            )
+        if not keep:
+            continue
+        interesting_record_count += 1
+        # The fields the score and the rank read, as the parsed record holds them.
+        record = {
+            "row": row,
+            "record_offset": table.offsets[row],
+            "timestamp_utc": filetime_to_utc_iso(table.filetimes[row]),
+            "reason_labels": reason_labels(reason),
+            "file_name": table.file_names[row],
+        }
+        record["candidate_score"] = usn_record_review_score(record)
+        keep_ranked_usn_record(
+            selected_heap,
+            record=record,
+            rank_offset=record["record_offset"],
+            max_records=max_records,
+        )
 
-    records = ranked_usn_records(selected_heap)
+    records = []
+    for selected in ranked_usn_records(selected_heap):
+        record = table.record(reader, selected["row"])
+        record["candidate_score"] = selected["candidate_score"]
+        records.append(record)
+    scan = table.scan
     stats = {
         "scan_strategy": "truth_blind_usn_record_v2_signature_scan",
         "chunk_size_bytes": chunk_size_bytes,
         "interesting_reason_labels": list(interesting_reason_labels),
-        "bytes_scanned": bytes_scanned,
-        "candidate_signature_count": candidate_signature_count,
-        "parsed_record_count": parsed_record_count,
+        "bytes_scanned": scan["physical_bytes_read"],
+        "candidate_signature_count": scan["candidate_signature_count"],
+        "parsed_record_count": scan["parsed_record_count"],
         "interesting_record_count": interesting_record_count,
         "emitted_record_count": len(records),
         "duplicate_record_count": 0,
         "max_records": max_records,
     }
-    if unsupported_offsets:
-        stats["unsupported_record_count"] = len(unsupported_offsets)
+    if scan.get("unsupported_record_count"):
+        stats["unsupported_record_count"] = scan["unsupported_record_count"]
     return records, stats
 
 
@@ -678,7 +750,7 @@ def _first_record_at_or_above(
 
 def usn_journal_timestamp_order(
     journal_path: Path, *, max_bytes: int = 1024 * 1024 * 1024,
-    minimum_usn: int | None = None,
+    minimum_usn: int | None = None, table: UsnRecordTable | None = None,
 ) -> dict[str, Any]:
     if minimum_usn is not None and (type(minimum_usn) is not int or minimum_usn < 0):
         raise ValueError("minimum_usn must be a non-negative integer")
@@ -705,31 +777,48 @@ def usn_journal_timestamp_order(
     previous: int | None = None
     previous_usn: int | None = None
     position = 0
+    # The signature scan of these bytes parsed every record a step below parses: a record it parsed
+    # lies wholly in its chunk and its signature makes it a version 2.0 record, so this step reads
+    # such a record from the table and parses only the offsets the scan did not.
+    rows = table.offsets if table is not None and table.stream_size_bytes == size else ()
+    row = 0
     while position < len(data):
-        if not any(data[position:position + 8]):
-            position += 8
-            continue
-        length = usn_record_v2_length(data, position)
-        record = parse_usn_record_v2(data, position) if length else None
+        while row < len(rows) and rows[row] < position:
+            row += 1
+        if row < len(rows) and rows[row] == position:
+            length = table.lengths[row]
+            stamp = table.filetimes[row]
+            fields = (0, 0 < stamp <= _MAX_ISO_FILETIME, table.usns[row], stamp)
+        else:
+            if not any(data[position:position + 8]):
+                position += 8
+                continue
+            length = usn_record_v2_length(data, position)
+            record = parse_usn_record_v2(data, position) if length else None
+            fields = None if record is None else (
+                record["minor_version"], bool(record["timestamp_utc"]),
+                int(record["usn"]), int(record["timestamp_filetime"]))
         expected_usn = base + position
         if minimum_usn is not None and expected_usn < minimum_usn:
-            position += (length if record is not None and length % 8 == 0
-                         and int(record["usn"]) == expected_usn else 8)
+            position += (length if fields is not None and length % 8 == 0
+                         and fields[2] == expected_usn else 8)
             continue
-        if (record is None or length % 8 != 0 or position % 8 != 0
-                or record["minor_version"] != 0 or not record["timestamp_utc"]
-                or int(record["usn"]) != expected_usn
-                or (previous_usn is not None and int(record["usn"]) <= previous_usn)):
+        if fields is None:
             return result
-        stamp = int(record["timestamp_filetime"])
+        minor_version, timestamped, usn, stamp = fields
+        if (length % 8 != 0 or position % 8 != 0
+                or minor_version != 0 or not timestamped
+                or usn != expected_usn
+                or (previous_usn is not None and usn <= previous_usn)):
+            return result
         if previous is not None and stamp < previous:
             result["timestamp_reversal_count"] += 1
             if result["first_reversal_usn"] is None:
-                result["first_reversal_usn"] = int(record["usn"])
+                result["first_reversal_usn"] = usn
             backward = (previous - stamp) // 10_000_000
             result["max_backward_seconds"] = max(result["max_backward_seconds"], int(backward))
         previous = stamp
-        previous_usn = int(record["usn"])
+        previous_usn = usn
         result["checked_record_count"] += 1
         position += length
     result["order_checked"] = result["checked_record_count"] > 0

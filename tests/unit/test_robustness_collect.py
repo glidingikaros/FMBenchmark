@@ -508,29 +508,58 @@ def test_repeatable_qemu_parser_steps_are_retried(tmp_path, monkeypatch):
         return subprocess.CompletedProcess([], 0, "ok", "")
 
     monkeypatch.setattr(backends, "ansible_adhoc", adhoc)
-    outputs = tmp_path / "outputs.zip"
-    completed = vm.run_qemu_parsers(package_path=tmp_path / "inputs.zip", script_path=tmp_path / "run.ps1",
-                                    outputs_zip=outputs)
+    package, outputs = tmp_path / "inputs.zip", tmp_path / "outputs.zip"
+    package.write_bytes(b"inputs")
+    completed = vm.run_qemu_parsers(package_path=package, outputs_zip=outputs)
     assert completed.returncode == 0 and outputs.read_bytes() == b"outputs"
-    assert calls == ["ansible.windows.win_file", "ansible.windows.win_copy", "ansible.windows.win_copy",
-                     "ansible.windows.win_copy", "ansible.windows.win_command", "ansible.builtin.fetch",
-                     "ansible.builtin.fetch"]
+    assert calls == ["ansible.windows.win_copy", "ansible.windows.win_copy", "ansible.windows.win_command",
+                     "ansible.builtin.fetch", "ansible.builtin.fetch"]
     assert len(pings) == 2
 
     calls.clear()
-    failures.update({"ansible.windows.win_file": 5})
+    failures.update({"ansible.windows.win_copy": 5})
     with pytest.raises(appliance.ParserApplianceError,
-                       match="win_file failed 3 times; last: UNREACHABLE! connection reset"):
-        vm.run_qemu_parsers(package_path=tmp_path / "inputs.zip", script_path=tmp_path / "run.ps1",
-                            outputs_zip=outputs)
-    assert calls == ["ansible.windows.win_file"] * 3
+                       match="win_copy failed 3 times; last: UNREACHABLE! connection reset"):
+        vm.run_qemu_parsers(package_path=package, outputs_zip=outputs)
+    assert calls == ["ansible.windows.win_copy"] * 3
 
     monkeypatch.setattr(backends, "ansible_adhoc", lambda ansible, port, module, args, *, timeout: (
         calls.append(module), subprocess.CompletedProcess([], 1 if module.endswith("win_command") else 0, "x", ""))[1])
     calls.clear()
-    assert vm.run_qemu_parsers(package_path=tmp_path / "inputs.zip", script_path=tmp_path / "run.ps1",
-                               outputs_zip=outputs).returncode == 1
+    assert vm.run_qemu_parsers(package_path=package, outputs_zip=outputs).returncode == 1
     assert calls.count("ansible.windows.win_command") == 1
+
+
+def test_a_qemu_step_is_not_retried_once_its_vm_was_closed(tmp_path, monkeypatch):
+    from fmb.generation import backends
+
+    vm, _, _ = _qemu_vm(tmp_path, monkeypatch)
+    monkeypatch.setattr(appliance, "QEMU_STEP_RETRY_DELAY_SECONDS", 600)
+    calls: list[str] = []
+    monkeypatch.setattr(backends, "ansible_adhoc", lambda ansible, port, module, args, *, timeout: (
+        calls.append(module), subprocess.CompletedProcess([], 2, "UNREACHABLE! connection reset", ""))[1])
+    # Closed by a collection that failed while the parsers ran: the step fails at once, without its retries.
+    vm.close()
+    (tmp_path / "inputs.zip").write_bytes(b"inputs")
+    started = time.monotonic()
+    with pytest.raises(appliance.ParserApplianceError, match="no longer needed"):
+        vm.run_qemu_parsers(package_path=tmp_path / "inputs.zip", outputs_zip=tmp_path / "outputs.zip")
+    assert len(calls) == 1 and time.monotonic() - started < 60
+
+
+def test_a_booting_qemu_vm_is_asked_every_second(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from fmb.generation import backends
+
+    vm, _, _ = _qemu_vm(tmp_path, monkeypatch)
+    answers = iter([False, False, True])
+    monkeypatch.setattr(backends, "winrm_listening", lambda port: next(answers))
+    waits: list[float] = []
+    monkeypatch.setattr(vm, "_cancelled", SimpleNamespace(is_set=lambda: False, wait=waits.append, set=lambda: None))
+    vm.boot()
+    vm.close()
+    assert waits == [1, 1]
 
 
 def _clone_folder(work_root: Path, name: str, owner: dict | None) -> Path:
