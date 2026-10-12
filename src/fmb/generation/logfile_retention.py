@@ -56,6 +56,45 @@ def _matches_complete_transition(update: dict, expected: dict) -> bool:
                and _backdated_by_minute(old[field], new[field]) for field in old)
 
 
+# Driver documents parse_logfile made, by the SHA-256 of the $LogFile bytes they parsed.
+_EARLY_PARSES: dict[str, dict[str, Any]] = {}
+
+
+def parse_logfile(image_path: Path, released: Any) -> None:
+    """Parses the image's $LogFile with the driver while the export hashes the image, for check_logfile_retention.
+
+    released (a threading.Event) is set once this no longer has the image open, so a step that writes the image can
+    wait for it. The check uses the document only for a $LogFile copy with the same bytes (relocated_logfile_document
+    compares their SHA-256), so a parse that overlapped a change to the image is simply not used. Failures are left
+    to the check, which parses again and reports them.
+    """
+    import gc
+
+    from fmb.collection.tools.host.ntfs_index import VolumeIndex
+    from fmb.core.hashing import sha256_file
+    from fmb.index.scanners.logfile_runtime import logfile_runtime_availability, run_logfile_driver
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="fmb-logfile-parse-") as temp:
+            logfile_path = Path(temp) / "$LogFile"
+            try:
+                if not logfile_runtime_availability().get("available"):
+                    return
+                index = VolumeIndex(image_path)
+                with logfile_path.open("wb") as sink:
+                    index.copy_stream(2, "", sink.write)
+                del index
+            finally:
+                gc.collect()  # the image reader's objects form reference cycles; this closes the image now
+                released.set()
+            document = run_logfile_driver(logfile_path, output_path=Path(temp) / "records.json")
+            _EARLY_PARSES[sha256_file(logfile_path)] = document
+    except Exception:
+        return
+    finally:
+        released.set()
+
+
 def check_logfile_retention(
     image_path: Path,
     *,
@@ -65,10 +104,12 @@ def check_logfile_retention(
     timeline: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from fmb.collection.tools.host.ntfs_index import VolumeIndex
+    from fmb.core.hashing import sha256_file
     from fmb.index.adapters.logfile import _logfile_bound_updates
     from fmb.index.scanners.logfile_runtime import (
         LogFileRuntimeError,
         logfile_runtime_availability,
+        relocated_logfile_document,
         run_logfile_driver,
     )
 
@@ -109,7 +150,13 @@ def check_logfile_retention(
             return unchecked("image_unreadable", str(error),
                              "the $LogFile retention check could not read the exported image", error)
         try:
-            document = run_logfile_driver(logfile_path, output_path=work / "records.json")
+            early = _EARLY_PARSES.pop(sha256_file(logfile_path), None)
+            document = (relocated_logfile_document(early, logfile_path, output_path=work / "records.json")
+                        if early is not None else None)
+            if document is None:
+                document = run_logfile_driver(logfile_path, output_path=work / "records.json")
+            else:
+                print("[*] $LogFile retention check: using the $LogFile parse made during the export hashes")
         except LogFileRuntimeError as error:
             return unchecked("driver_failed", str(error),
                              "the $LogFile retention check could not parse the exported log", error)

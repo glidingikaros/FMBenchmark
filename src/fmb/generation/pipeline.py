@@ -10,6 +10,7 @@ import signal
 import socket
 import tempfile
 import time
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -2002,6 +2003,8 @@ class GenerationPipeline:
                 row["stage"]: {"guest_utc": row["guest_utc"], "host_received_utc": row["host_received_utc"]}
                 for row in clock.get("checkpoints", [])
             }
+        if getattr(self, "early_logfile_parse", None) is not None:
+            self.early_logfile_parse.result()
         result = module.check_logfile_retention(
             Path(image_path),
             targets=targets,
@@ -2050,6 +2053,15 @@ class GenerationPipeline:
     def complete_export(self, system_image):
         system_image = Path(system_image)
         final_artifacts = [system_image]
+        self.early_logfile_parse = self.early_logfile_released = None
+        if self.logfile_retention_planned() is not None:
+            # dfir_ntfs parses the $LogFile while the journal hashes the image; the retention check uses that
+            # parse only if its own copy of the $LogFile has the same bytes.
+            from fmb.core.background import Background
+            from fmb.generation import logfile_retention
+            self.early_logfile_released = threading.Event()
+            self.early_logfile_parse = Background(logfile_retention.parse_logfile, system_image,
+                                                  self.early_logfile_released, name="fmb-logfile-parse")
         journal = self.begin_post_export(system_image)
         self.apply_post_export_interventions(system_image)
         if self.logfile_retention_planned() is not None:
@@ -2489,6 +2501,13 @@ class GenerationPipeline:
 
     def run_post_export_intervention(self, name, image, action, *, read_only=False,
                                      creates_image=False):
+        released = getattr(self, "early_logfile_released", None)
+        if released is not None and not read_only:
+            write = action
+
+            def action():
+                released.wait()  # until the early $LogFile parse no longer has the image open
+                return write()
         journal = getattr(self, "post_export_journal", None)
         if journal is None:
             return action()
