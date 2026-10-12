@@ -524,7 +524,9 @@ def test_an_early_booted_qemu_vm_runs_the_parsers_then_is_killed(tmp_path, monke
     # The package and the script go in one copy, gathered outside the run folder, which reads no script back.
     [(copy, files, folder)] = copied
     assert copy == {"src": str(folder) + os.sep, "dest": appliance.GUEST_ROOT + "\\"} and not folder.exists()
-    assert files == {"inputs.zip": b"inputs", "run_parsers.ps1": appliance.GUEST_SCRIPT.encode()}
+    # The script as the host writes text, with CRLF line ends on Windows, as when it was copied on its own.
+    script = appliance.GUEST_SCRIPT.replace("\n", os.linesep).encode()
+    assert files == {"inputs.zip": b"inputs", "run_parsers.ps1": script}
     assert not folder.is_relative_to(stage)
     assert str(stage / appliance.APPLIANCE_DIR_NAME / "run_parsers.ps1") not in opened
     assert killed == [True] and not state.exists()
