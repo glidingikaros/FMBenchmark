@@ -39,7 +39,7 @@ APPLIANCE_VMX_SETTINGS = {
     "time.synchronize.tools.startup": "FALSE",
     "time.synchronize.tools.enable": "FALSE",
     "time.synchronize.resume.host": "FALSE",
-    "memsize": "8192",
+    "memsize": "4096",
     "numvcpus": "4",
 }
 

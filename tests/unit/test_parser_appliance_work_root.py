@@ -76,7 +76,7 @@ def test_parser_success_preserves_resources_and_removes_only_owned_clone(parser_
     before = parser_case.source.read_bytes()
     result = parser_case.run(parser_case.work_root if relocated else None)
     call = parser_case.calls[0]
-    assert 'memsize = "8192"' in call["settings"]
+    assert 'memsize = "4096"' in call["settings"]
     assert 'numvcpus = "4"' in call["settings"]
     assert result["status"] == "completed" and result["vm_cleanup"]["removed"] is True
     assert not call["vmx"].parent.exists()
@@ -293,7 +293,7 @@ def test_vmware_clone_selection_uses_only_explicit_work_directory(tmp_path, monk
     assert preflight[0]["stage_dir"] == (work if relocated else stage)
     assert preflight[0]["receipt_dir"] == (stage if relocated else None)
     assert preflight[0]["apfs_clone"] is relocated
-    assert 'memsize = "8192"' in result.read_text() and 'numvcpus = "4"' in result.read_text()
+    assert 'memsize = "4096"' in result.read_text() and 'numvcpus = "4"' in result.read_text()
     assert source.read_bytes() == before
 
 
