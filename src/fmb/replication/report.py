@@ -17,7 +17,7 @@ KEY_RECEIPTS = {"image.json": "Image definition", "recipe.json": "Generation rec
 
 def _f1(value) -> str:
     """F1 in percent, as in the paper's table."""
-    return "–" if value is None else f"{value * 100:.1f}"
+    return "–" if value is None else f"{value * 100:.1f}%"
 
 
 def _span(values: list, form=str) -> str:

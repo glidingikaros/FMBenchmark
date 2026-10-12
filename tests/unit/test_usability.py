@@ -59,6 +59,26 @@ def test_the_pipeline_shows_figure_1_stages_and_the_llm_plan():
         "left, which covers 36 of them for sure"]
 
 
+def test_the_two_recipe_checks_have_their_own_names_and_an_interruption_is_not_a_failure():
+    interrupted = json.dumps({"elapsed_seconds": 213.0, "error_type": "KeyboardInterrupt", "outcome": "error",
+                              "phase": "qemu_boot"})
+    assert shown([phase("source_recipe_verification", "start"), phase("source_recipe_verification", "ok"),
+                  phase("source_recipe_verification", "start"), phase("source_recipe_verification", "ok", 12),
+                  phase("qemu_boot", "start"), "fmb: interrupted: SIGTERM\n",
+                  "FMB_GENERATION_PHASE " + interrupted + "\n"]) == [
+        "[fmb] I1  check the frozen recipe ...",
+        "[fmb] I1  check the frozen recipe: 0s",
+        "[fmb] I1  check this machine's tools against the recipe's lock ...",
+        "[fmb] I1  check this machine's tools against the recipe's lock: 12s",
+        "[fmb] I1  boot the Windows guest ...",
+        "[fmb] I1  boot the Windows guest: interrupted after 3m33s"]
+    log = phase("source_recipe_verification", "start") + phase("source_recipe_verification", "ok") \
+        + phase("source_recipe_verification", "start") + phase("source_recipe_verification", "error") \
+        + "fmb: host libraries differ from their lock\n"
+    assert run.failure(log) == (" at 'check this machine's tools against the recipe's lock': host libraries differ "
+                                "from their lock")
+
+
 def test_verbose_shows_everything_as_it_comes():
     lines = [phase("qemu_boot", "start"), "QEMU says a lot\n"]
     assert shown(lines, verbose=True) == [line.rstrip("\n") for line in lines]
@@ -142,14 +162,21 @@ def test_generation_stops_before_booting_without_the_disk_it_needs(tmp_path, mon
         (published / "manifest.json").write_text("{}")
     monkeypatch.setattr(host, "image_need_gib", lambda: 30.0)
     monkeypatch.setattr(host, "free_gib", lambda path: 22.4)
-    with pytest.raises(SystemExit, match=r"I3: generating and analysing it needs about 30 GiB free, and 22 GiB are "
-                                         r"free at .*Generated images there: I1, I2; fmb run with --delete-image"):
+    with pytest.raises(SystemExit, match=r"I3: not generated: generating and analysing it needs about 30\.0 GiB free, "
+                                         r"and only 22\.4 GiB are free at .*; free 7\.6 GiB more\. Generated images "
+                                         r"there: I1, I2; fmb run with --delete-image"):
         run.disk_space("I3", tmp_path)
-    monkeypatch.setattr(host, "free_gib", lambda path: 31.0)
+    # Just short: the message must not read as if there were enough.
+    monkeypatch.setattr(host, "image_need_gib", lambda: 35.97)
+    monkeypatch.setattr(host, "free_gib", lambda path: 35.66)
+    with pytest.raises(run.NoSpace, match=r"needs about 36\.0 GiB free, and only 35\.6 GiB are free at .*; free "
+                                          r"0\.4 GiB more"):
+        run.disk_space("I3", tmp_path)
+    monkeypatch.setattr(host, "free_gib", lambda path: 36.0)
     run.disk_space("I3", tmp_path)
 
 
-def test_fmb_run_generates_runs_and_deletes_one_image_at_a_time(tmp_path, monkeypatch):
+def test_fmb_run_generates_runs_and_deletes_one_image_at_a_time(tmp_path, monkeypatch, capsys):
     from fmb.replication import report
 
     root, results = tmp_path / "generated", tmp_path / "results"
@@ -177,6 +204,20 @@ def test_fmb_run_generates_runs_and_deletes_one_image_at_a_time(tmp_path, monkey
     assert order == [("prepare", ["I1", "I2"]), ("generate", "I1", []), ("run", "I1"), ("generate", "I2", []),
                      ("run", "I2")]
     assert list(root.iterdir()) == []
+    assert capsys.readouterr().out.splitlines()[-1] == "[fmb] 2 of 2 images passed admission (I1, I2)"
+
+    def no_space(image, *_, **__):
+        if image.name != "I1":
+            raise run.NoSpace(f"{image.name}: not generated: ...")
+        return generate_one(image, *_, **__)
+
+    monkeypatch.setattr(run, "generate_one", no_space)
+    assert run.run_images(["I1", "I2", "I3"], None, root, tmp_path / "later", delete_image=True) == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "fmb: I2: not generated: ...", "fmb: I3: not generated: ...",
+        "fmb: 1 of 3 images passed admission (I1); I2, I3: not run, too little free disk"]
+    assert run.closing(["I1", "I2", "I3"], {"I1": "admission failed", "I2": "generation failed"}) == (
+        "0 of 3 images passed admission; I1: admission failed; I2: generation failed; I3: not run")
 
 
 def test_an_llm_comparison_reuses_the_latest_collection_of_the_same_image_and_code(tmp_path, monkeypatch):

@@ -47,8 +47,9 @@ at a time, so only one image is on the disk. It then writes the results table of
 An image replicates when its admission passes. For admission, S3 must be exact on all the questions of the image
 (nine for the images of the paper).
 
-Before each image, `fmb generate` and `fmb run` check the free disk. They stop before the guest boots if it is
-not sufficient. To generate an image again, run `uv run fmb generate NAME --again`. It deletes
+Before each image, `fmb generate` and `fmb run` check the free disk. If it is not sufficient, they skip the image
+before the guest boots and say how much disk to free. The last line of `fmb run` says which images passed admission
+and why the others did not. To generate an image again, run `uv run fmb generate NAME --again`. It deletes
 `generated/NAME/` first.
 
 The first image after a base build waits until approximately 5 min after the build, or 63 min after a Mac box built in

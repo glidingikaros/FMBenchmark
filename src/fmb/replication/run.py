@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -189,7 +190,8 @@ def failure(text: str) -> str:
     phase = json.loads(phases[-1])["phase"] if phases else None
     errors = ERROR_LINE.findall(text)
     error = next((part for part in errors[-1] if part), "") if errors else ""
-    where = f" at '{terminal.PHASES.get(phase, phase)}'" if phase else ""
+    started = text.count(f'"outcome": "start", "phase": {json.dumps(phase)}') if phase else 0
+    where = f" at '{terminal.phase_title(phase, started)}'" if phase else ""
     return where + (f": {error[:400]}" if error else "")
 
 
@@ -368,15 +370,25 @@ def prepare(images: list, root: Path) -> Path:
     return dependency_lock(root)
 
 
+class NoSpace(SystemExit):
+    """Too little free disk to generate and analyse one more image."""
+
+
+def warn(text: str) -> None:
+    print(f"fmb: {text}", file=sys.stderr, flush=True)
+
+
 def disk_space(name: str, root: Path) -> None:
     need, free = host.image_need_gib(), host.free_gib(root)
     if free >= need:
         return
+    # Rounded down and up, so a refusal never reads as enough.
+    shown, short = math.floor(round(free * 10, 6)) / 10, math.ceil(round((need - free) * 10, 6)) / 10
     others = [folder.name for folder in sorted(root.iterdir()) if completed(folder / "generation") is not None]
-    raise SystemExit(f"{name}: generating and analysing it needs about {need:.0f} GiB free, and {free:.0f} GiB are "
-                     f"free at {root}"
-                     + (f". Generated images there: {', '.join(others)}; fmb run with --delete-image deletes each "
-                        "image after its passing run" if others else ""))
+    raise NoSpace(f"{name}: not generated: generating and analysing it needs about {need:.1f} GiB free, and only "
+                  f"{shown:.1f} GiB are free at {root}; free {short:.1f} GiB more"
+                  + (f". Generated images there: {', '.join(others)}; fmb run with --delete-image deletes each "
+                     "image after its passing run" if others else ""))
 
 
 def generate_one(image, lock: Path, root: Path, attempts: int, again: bool = False) -> Path:
@@ -424,8 +436,10 @@ def generate_images(paths: list[Path], attempts: int, root: Path | None = None, 
             generate_one(image, lock, root, attempts, again)
             log(f"{image.name}: analyse it with: fmb run {image.name}")
         except SystemExit as error:
-            log(str(error))
+            warn(str(error))
             failed.append(image.name)
+    if failed and len(images) > 1:
+        warn(f"{len(images) - len(failed)} of {len(images)} images generated; not generated: {', '.join(failed)}")
     return 1 if failed else 0
 
 
@@ -472,15 +486,16 @@ def run_images(names: list[str], llm: dict | None, root: Path | None = None, res
         log(f"not generated yet: {', '.join(images)}; fmb run generates "
             + ("each one just before it runs it" if len(images) > 1 else "it first"))
         lock = prepare(list(images.values()), root)
-    rows, outputs, failed = [], [], []
+    rows, outputs, outcome = [], [], {}
     for name in names:
         folder = root / name
         if name in images:
             try:
                 generate_one(images[name], lock, root, attempts)
             except SystemExit as error:
-                log(str(error))
-                failed.append(name)
+                warn(str(error))
+                outcome[name] = "not run, too little free disk" if isinstance(error, NoSpace) else \
+                    "generation failed"
                 continue
         generation = completed(folder / "generation")
         output = (results / name / datetime.now().strftime("%Y%m%d-%H%M%S")).resolve()
@@ -495,6 +510,7 @@ def run_images(names: list[str], llm: dict | None, root: Path | None = None, res
         report.complete(output, row, folder, generation)
         rows.append(row)
         outputs.append(output)
+        outcome[name] = row["admission"] if row["admission"] == "passed" else f"admission {row['admission']}"
         print("\n".join(report.headline(row, output)), flush=True)
         if row["admission"] != "passed":
             continue
@@ -506,4 +522,20 @@ def run_images(names: list[str], llm: dict | None, root: Path | None = None, res
             log(f"{name}: the generated image ({size:.0f} GiB) stays in {folder} for further runs, such as an LLM "
                 f"comparison; --delete-image removes it after a passing run")
     summarise(outputs, results)
-    return 0 if not failed and all(row["admission"] == "passed" for row in rows) else 1
+    text = closing(names, outcome)
+    if all(outcome.get(name) == "passed" for name in names):
+        log(text)
+        return 0
+    warn(text)
+    return 1
+
+
+def closing(names: list[str], outcome: dict[str, str]) -> str:
+    """The last line of fmb run: which images passed and what stopped the others."""
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        groups.setdefault(outcome.get(name, "not run"), []).append(name)
+    passed = groups.pop("passed", [])
+    return "; ".join([f"{len(passed)} of {len(names)} images passed admission"
+                      + (f" ({', '.join(passed)})" if passed else ""),
+                      *(f"{', '.join(group)}: {reason}" for reason, group in groups.items())])

@@ -11,7 +11,8 @@ from fmb.core.progress import PREFIX
 GENERATION_PREFIX = "FMB_GENERATION_PHASE "
 # The generation's own phases (FMB_GENERATION_PHASE), in plain words.
 PHASES = {
-    "source_recipe_verification": "check the recipe against this machine's locked tools",
+    # Generation checks its recipe twice: the frozen files first, then this machine's tools against the lock.
+    "source_recipe_verification": ("check the frozen recipe", "check this machine's tools against the recipe's lock"),
     "preflight": "check the host",
     "population_media": "prepare the files and USB media to plant",
     "independent_apfs_clone": "clone the Windows box",
@@ -42,6 +43,11 @@ TASK = re.compile(r"^TASK \[(?:[\w.-]+ : )?(.+?)\] \*")
 INTERVENTION = re.compile(r"^\[\*\] Post-export intervention (\d+) (\S+) on ")
 
 
+def phase_title(phase: str, occurrence: int = 1) -> str:
+    title = PHASES.get(phase, phase.replace("_", " "))
+    return title[min(max(occurrence, 1), len(title)) - 1] if isinstance(title, tuple) else title
+
+
 def duration(seconds: float) -> str:
     seconds = int(round(seconds))
     if seconds < 60:
@@ -64,6 +70,7 @@ class Lines:
         self.scenarios: list[str] = []
         self.shown = 0
         self.failed: str | None = None
+        self.starts: dict[str, int] = {}
 
     def write(self, text: str) -> None:
         try:
@@ -96,13 +103,13 @@ class Lines:
         else:
             self.line(title + " ...")
 
-    def end(self, title: str, outcome: str, elapsed: float, extra: str = "") -> None:
+    def end(self, title: str, outcome: str, elapsed: float, extra: str = "", interrupted: bool = False) -> None:
         self.current = None
         if outcome in ("ok", "completed"):
             self.line(f"{title}: {duration(elapsed)}{extra}")
         else:
             self.failed = title
-            self.line(f"{title}: failed after {duration(elapsed)}")
+            self.line(f"{title}: {'interrupted' if interrupted else 'failed'} after {duration(elapsed)}")
 
     def feed(self, raw: str) -> None:
         if self.verbose:
@@ -116,6 +123,8 @@ class Lines:
                 return self.progress(json.loads(text[len(PREFIX):]))
         except (ValueError, KeyError, TypeError):
             return
+        if text.startswith("fmb: interrupted: SIG"):
+            return  # fmb itself says that the step was interrupted
         if text.startswith(("fmb: ", "[fmb] ", "[!] Warning")):
             self.clear()
             self.write(text + "\n")
@@ -135,11 +144,15 @@ class Lines:
             self.status(f"{PHASES['ansible_provisioning']}: {found.group(1)}"[:200])
 
     def generation(self, record: dict) -> None:
-        title = PHASES.get(record["phase"], record["phase"].replace("_", " "))
+        phase = record["phase"]
         if record["outcome"] == "start":
-            self.begin(record["phase"], title)
+            self.starts[phase] = self.starts.get(phase, 0) + 1
+        title = phase_title(phase, self.starts.get(phase, 1))
+        if record["outcome"] == "start":
+            self.begin(phase, title)
         else:
-            self.end(title, record["outcome"], record["elapsed_seconds"])
+            self.end(title, record["outcome"], record["elapsed_seconds"],
+                     interrupted=record.get("error_type") == "KeyboardInterrupt")
 
     def progress(self, record: dict) -> None:
         kind = record.get("kind")
