@@ -155,6 +155,7 @@ def test_vmware_generation_never_exports_after_a_failed_soft_halt(
         raise __import__("subprocess").CalledProcessError(1, args)
 
     instance.run_vmrun = fail_soft
+    instance.is_vmware_vm_running = lambda _vmx: False
 
     with pytest.raises(RuntimeError, match="soft VMware halt failed"):
         instance.halt_vm()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from copy import deepcopy
 
 import pytest
@@ -88,3 +89,76 @@ def test_a_late_monitor_error_is_read_up_to_the_prompt():
     backend.monitor_port = hmp_monitor(b"Could not open '/x.vmdk': No space left on device", 1.5)
     with pytest.raises(RuntimeError, match="(?i)QEMU refused .*no space left on device"):
         backend.attach_media({"uuid_bios": "u"}, [{"unit": 8, "port": 1, "path": "/x.vmdk"}])
+
+
+class Guest:
+    """A QEMU process that exits on the given wait() call."""
+
+    def __init__(self, exits_on_wait: int, code: int = 0):
+        self.returncode, self.waits, self.exits_on_wait, self.code = None, 0, exits_on_wait, code
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        self.waits += 1
+        if self.waits < self.exits_on_wait:
+            raise subprocess.TimeoutExpired("qemu", timeout)
+        self.returncode = self.code
+        return self.code
+
+
+def qemu_guest(process, shutdown_code: int):
+    from fmb.generation.backends import QemuBackend
+
+    backend = QemuBackend.__new__(QemuBackend)
+    backend.process, sent = process, []
+    backend._guest_powershell = lambda script, timeout=180: subprocess.CompletedProcess([], shutdown_code, "", "")
+    backend._monitor = lambda command, timeout=30: sent.append(command) or "(qemu) "
+    return backend, sent
+
+
+def test_a_guest_that_shut_down_is_halted_as_before(capsys):
+    backend, sent = qemu_guest(Guest(1), 0)
+    backend.halt()
+    assert sent == [] and "ACPI" not in capsys.readouterr().out
+
+
+def test_a_failed_shutdown_request_falls_back_to_the_acpi_power_button(capsys):
+    backend, sent = qemu_guest(Guest(2), 1)
+    backend.halt()
+    assert sent == ["system_powerdown"]
+    assert "(asking it over WinRM failed with exit code 1); pressing its ACPI power button" in capsys.readouterr().out
+    backend, sent = qemu_guest(Guest(3), 1)
+    with pytest.raises(RuntimeError, match="guest shutdown did not finish"):
+        backend.halt()
+
+
+def test_a_qemu_that_died_says_its_exit_code():
+    backend, _ = qemu_guest(Guest(1, code=137), 0)
+    backend.process.returncode = 137
+    with pytest.raises(RuntimeError, match=r"not running \(QEMU exited with 137\)"):
+        backend.halt()
+
+
+@pytest.mark.parametrize("second", [True, False])
+def test_a_failed_soft_vmware_halt_is_asked_once_more_while_the_vm_runs(tmp_path, second):
+    from fmb.generation.pipeline import GenerationPipeline
+
+    instance = GenerationPipeline.__new__(GenerationPipeline)
+    instance.discover_current_vmware_vmx_path = lambda: tmp_path / "box.vmx"
+    instance.is_vmware_vm_running = lambda vmx: True
+    calls = []
+
+    def vmrun(args, **_):
+        calls.append(args[0])
+        if len(calls) == 1 or not second:
+            raise subprocess.CalledProcessError(124, args)
+
+    instance.run_vmrun = vmrun
+    if second:
+        instance.halt_vm()
+    else:
+        with pytest.raises(RuntimeError, match="soft VMware halt failed"):
+            instance.halt_vm()
+    assert calls == ["stop", "stop"]

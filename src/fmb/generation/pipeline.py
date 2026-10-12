@@ -1670,12 +1670,22 @@ class GenerationPipeline:
     def halt_vm(self):
         print("[*] Halting VM for forensic consistency...")
         vmx_path = self.discover_current_vmware_vmx_path()
+        for attempt in (1, 2):
+            try:
+                self.run_vmrun(["stop", str(vmx_path), "soft"], timeout_seconds=240)
+                return
+            except subprocess.CalledProcessError as error:
+                if attempt == 2 or not self.still_running(vmx_path):
+                    raise RuntimeError(
+                        "soft VMware halt failed; refusing forensic export from an uncleanly stopped guest"
+                    ) from error
+                print(f"[!] Warning: the soft VMware halt failed (exit code {error.returncode}); asking once more")
+
+    def still_running(self, vmx_path):
         try:
-            self.run_vmrun(["stop", str(vmx_path), "soft"], timeout_seconds=240)
-        except subprocess.CalledProcessError as error:
-            raise RuntimeError(
-                "soft VMware halt failed; refusing forensic export from an uncleanly stopped guest"
-            ) from error
+            return self.is_vmware_vm_running(vmx_path)
+        except (subprocess.CalledProcessError, OSError):
+            return False
 
     def discover_disk_path(self):
         return self.vmware_disk_from_vmx(self.vmware_run_vmx_path)

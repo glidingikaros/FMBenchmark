@@ -549,21 +549,43 @@ class QemuBackend:
                 "password": self.WINRM_USER[1]}
 
     def halt(self) -> None:
+        if self.process is None or self.process.poll() is not None:
+            exited = "" if self.process is None else f" (QEMU exited with {self.process.returncode})"
+            raise RuntimeError(f"the QEMU guest is not running{exited}; refusing forensic export")
+        asked = self._ask_shutdown()
+        if not self._exited(300):
+            # Only where the shutdown above failed: a power-button press makes Windows shut down cleanly too.
+            print(f"[!] Warning: the guest did not shut down within 5 minutes{asked}; pressing its ACPI power button",
+                  flush=True)
+            try:
+                self._monitor("system_powerdown")
+            except OSError as error:
+                raise RuntimeError("guest shutdown did not finish and QEMU's monitor did not answer; refusing "
+                                   "forensic export") from error
+            if not self._exited(300):
+                raise RuntimeError("guest shutdown did not finish; refusing forensic export from "
+                                   "an uncleanly stopped guest")
+        if self.process.returncode != 0:
+            raise RuntimeError(f"QEMU exited with {self.process.returncode}; refusing forensic export")
+
+    def _ask_shutdown(self) -> str:
+        """Asks Windows to shut down; returns how asking failed, if it did."""
         import subprocess
 
-        if self.process is None or self.process.poll() is not None:
-            raise RuntimeError("the QEMU guest is not running; refusing forensic export")
         try:
-            self._guest_powershell("shutdown.exe /s /t 5 /f", timeout=120)
+            asked = self._guest_powershell("shutdown.exe /s /t 5 /f", timeout=120)
         except subprocess.TimeoutExpired:
-            pass
+            return " (asking it over WinRM got no answer within 2 minutes)"
+        return "" if asked.returncode == 0 else f" (asking it over WinRM failed with exit code {asked.returncode})"
+
+    def _exited(self, seconds: int) -> bool:
+        import subprocess
+
         try:
-            code = self.process.wait(timeout=300)
-        except subprocess.TimeoutExpired as error:
-            raise RuntimeError("guest shutdown did not finish; refusing forensic export from "
-                               "an uncleanly stopped guest") from error
-        if code != 0:
-            raise RuntimeError(f"QEMU exited with {code}; refusing forensic export")
+            self.process.wait(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            return False
+        return True
 
     def system_disk(self) -> Path:
         return self.pipeline.vagrant_state_dir / "system.qcow2"
