@@ -158,6 +158,11 @@ def parser_build(path: Path) -> str | None:
     return validated_builds(path.name).get(file_sha256(path)) if path.is_file() else None
 
 
+def unfit_parsers() -> list[str]:
+    """The Windows parsers that are missing, damaged or not a validated build; S2 of fmb run needs both."""
+    return [name for name in host.PINS["windows_parsers"] if not parser_build(windows_parsers() / name)]
+
+
 def parsers() -> None:
     """PECmd.exe and SBECmd.exe as builds fmb run accepts; their URLs serve upstream's newest build."""
     from fmb.collection.tools.host.parser_appliance import validated_builds
@@ -343,6 +348,7 @@ def interruptible():
 
 
 def all_steps(*, build_base: bool = True, iso: Path | None = None, unpinned_iso: bool = False) -> None:
+    parsers()  # first, as upstream may serve a build fmb has not validated, and that stop should not wait for the base
     dotnet_runtime()
     ansible()
     toolchain()
@@ -350,4 +356,3 @@ def all_steps(*, build_base: bool = True, iso: Path | None = None, unpinned_iso:
         log(f"base guest: {base(iso, unpinned_iso=unpinned_iso)}")
     elif build_base:
         log(f"Windows box: {box(iso, unpinned_iso=unpinned_iso)}")
-    parsers()

@@ -194,6 +194,7 @@ def test_fmb_run_generates_runs_and_deletes_one_image_at_a_time(tmp_path, monkey
 
     monkeypatch.setattr(run, "implementation", lambda paper: {})
     monkeypatch.setattr(run, "prepare", lambda images, where: order.append(("prepare", [i.name for i in images])))
+    monkeypatch.setattr(run, "unfit_parsers", lambda: [])
     monkeypatch.setattr(run, "list_space", lambda *_: None)
     monkeypatch.setattr(run, "generate_one", generate_one)
     monkeypatch.setattr(run, "analyse", lambda name, *_: order.append(("run", name)) or {"image": name,
@@ -318,6 +319,7 @@ def test_fmb_run_generates_an_image_given_as_a_path(tmp_path, monkeypatch, capsy
 
     monkeypatch.setattr(run, "implementation", lambda paper: {})
     monkeypatch.setattr(run, "prepare", lambda images, where: None)
+    monkeypatch.setattr(run, "unfit_parsers", lambda: [])
     monkeypatch.setattr(run, "generate_one", generate_one)
     monkeypatch.setattr(run, "paper_image", lambda folder: False)
     monkeypatch.setattr(run, "analyse", lambda name, *_: {"image": name, "admission": "passed"})

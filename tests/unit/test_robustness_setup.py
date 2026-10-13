@@ -117,6 +117,48 @@ def test_setup_check_reports_whether_the_parsers_are_validated_builds(tmp_path, 
     assert row()[1:] == (True, "the validated build; the validated build")
 
 
+def test_setup_checks_the_parsers_before_the_long_steps(monkeypatch):
+    done = []
+    for name in ("dotnet_runtime", "ansible", "toolchain", "base", "box"):
+        monkeypatch.setattr(setup, name, lambda *_, name=name, **__: done.append(name))
+    monkeypatch.setattr(host, "provider", lambda: "qemu")
+
+    def unvalidated():
+        raise SystemExit("https://example.invalid/PECmd.zip now serves a PECmd.exe that fmb has not validated")
+
+    monkeypatch.setattr(setup, "parsers", unvalidated)
+    with pytest.raises(SystemExit, match="has not validated"):
+        setup.all_steps()
+    assert done == []
+    monkeypatch.setattr(setup, "parsers", lambda: done.append("parsers"))
+    setup.all_steps()
+    assert done == ["parsers", "dotnet_runtime", "ansible", "toolchain", "base"]
+
+
+def test_fmb_run_checks_the_parsers_before_it_generates_anything(tmp_path, monkeypatch):
+    from fmb.replication import run
+
+    good = b"MZ validated"
+    validated_only(monkeypatch, tmp_path, good)
+    monkeypatch.setattr(run, "implementation", lambda paper: {})
+    monkeypatch.setattr(run, "prepare", lambda images, where: pytest.fail("went on to generate"))
+    folder = tmp_path / "windows-parsers"
+    folder.mkdir()
+    (folder / "PECmd.exe").write_bytes(good)
+    with pytest.raises(SystemExit, match=rf"^SBECmd\.exe in {re.escape(str(folder))}: missing or not a validated "
+                                         r"build, and S2 needs both, so fmb run stops before generating I1, I2; "
+                                         r"run: fmb setup$"):
+        run.run_images(["I1", "I2"], None, tmp_path / "generated", tmp_path / "results")
+
+    def reached(images, where):
+        raise SystemExit("reached the generation")
+
+    (folder / "SBECmd.exe").write_bytes(good)
+    monkeypatch.setattr(run, "prepare", reached)
+    with pytest.raises(SystemExit, match="reached the generation"):
+        run.run_images(["I1", "I2"], None, tmp_path / "generated", tmp_path / "results")
+
+
 def pinned_eztools(monkeypatch, tmp_path, content: bytes):
     archive = tmp_path / "eztools.tar.gz"
     with tarfile.open(archive, "w:gz") as tar:
