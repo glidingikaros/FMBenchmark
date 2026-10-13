@@ -1,6 +1,8 @@
 name: Firmware
 
 on:
+  schedule:
+    - cron: "41 4 * * 1"   # weekly: catches a distribution that renames its QEMU or OVMF files
   workflow_dispatch:
   push:
     branches: [main]

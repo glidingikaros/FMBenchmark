@@ -55,9 +55,13 @@ and why the others did not. To generate an image again, run `uv run fmb generate
 The first image after a base build waits until approximately 5 min after the build, or 63 min after a Mac box built in
 summer (Pacific daylight time). The guest clock must be after the last event of the base build.
 
+From 31 December 12:00 to 15 January 00:00 (UTC), `fmb generate` does not start an image that has the same-year case
+of BQ-TIME-01, such as I1, I2 and I3. That case moves a file 14 days back, and the file must stay in its year.
+`fmb generate` says from when to run it. Images generated before stay available to `fmb run`.
+
 If you stop `fmb generate` (Ctrl-C, closing the terminal or `kill`), it removes its virtual machine first. If a
 crash leaves one behind on Linux or macOS, `fmb setup --check` lists it and the next `fmb generate` removes it. On
-Windows, end `qemu-system-x86_64.exe` in the Task Manager, then run `uv run fmb generate NAME --again`. On macOS, Windows
+Windows, end `qemu-system-x86_64.exe` in the Task Manager, then run `uv run fmb generate NAME --again`. Windows
 activity in the guest sometimes overwrites a timestamp change in the `$LogFile` before the export. `fmb generate`
 then deletes the disk of that attempt and tries again with the same recipe.
 
@@ -221,8 +225,14 @@ the images (`results.md`, `table-results.csv`) and the data of the F1 and cost f
 Each host needs internet access during setup. While an image is generated and analysed, it needs free disk of
 approximately the Windows guest plus 19 GB on macOS (45 GB with the box of the paper) and twice the Windows
 base plus 10 GB on Linux and Windows (30 GB). `fmb setup --check` computes this for your machine. The Windows
-base takes approximately 10 GB. A generated image keeps approximately 25 GB and a result approximately 2 GB.
+base takes approximately 10 GB. Its build needs approximately 40 GB free in the cache of `fmb` (`~/.cache/fmb`, or
+`FMB_CACHE`). A generated image keeps approximately 25 GB and a result approximately 2 GB.
 `fmb run NAME --delete-image` deletes the image after a passing run; the result stays.
+
+`fmb setup` downloads PECmd and SBECmd from their author and accepts only the builds that FMBenchmark validated.
+When the author publishes a new build, `fmb setup` stops and names it. Then copy a validated `PECmd.exe` or
+`SBECmd.exe` from a machine set up earlier to the folder that the message names, or use a later version of
+FMBenchmark that validates the new build.
 
 **Linux.** Install QEMU and OVMF:
 
@@ -264,7 +274,8 @@ the USB media. Without the box of the paper, build a box from the Windows 11 ARM
 select *Windows 11 (multi-edition ISO for Arm64)*, then *English (United States)*. Then run
 `uv run fmb setup --iso <ISO>`. It checks the SHA-256 of `Windows11_Client_arm64_en-us_26300_9457.iso`, as on
 Linux and Windows, and builds the box with `tools/base-image/windows11-arm64/build-vmware-box.sh`. The build
-needs Packer and approximately 60 GB of free disk, and takes approximately 30 min. The box records its Windows build and its
+needs Packer and approximately 60 GB of free disk in `tools/base-image/windows11-arm64` (or in `FMB_BASE_BUILD_DIR`),
+and takes approximately 30 min. The box records its Windows build and its
 ISO, and each result names them. I1, I2 and I3 replicate on a box built from the pinned ISO as on the box of
 the paper.
 

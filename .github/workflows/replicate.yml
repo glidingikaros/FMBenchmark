@@ -2,7 +2,8 @@ name: Replicate
 
 on:
   schedule:
-    - cron: "23 3 * * 1,4"
+    - cron: "23 3 * * 1,4"   # linux: I1 and a random image
+    - cron: "53 3 * * 1"     # windows: I1 and a random image
   workflow_dispatch:
     inputs:
       iso_url:
@@ -30,8 +31,31 @@ env:
   ISO: Windows11_Client_x64_en-us_26300_9457.iso
 
 jobs:
+  window:
+    name: "runner: a scheduled run outside fmb generate's January window"
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.date.outputs.run }}
+    steps:
+      - name: "runner: fmb generate refuses from 31 Dec 12:00 to 15 Jan 00:00 UTC (BQ-TIME-01's same-year case), so a scheduled run skips those days"
+        id: date
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          read -r month day hour <<< "$(date -u '+%m %d %H')"
+          blocked=false
+          if [ "$month" = 01 ] && [ "$((10#$day))" -le 14 ]; then blocked=true; fi
+          if [ "$month$day" = 1231 ] && [ "$((10#$hour))" -ge 11 ]; then blocked=true; fi
+          if [ "$EVENT" = schedule ] && [ "$blocked" = true ]; then
+            echo "::notice::scheduled run skipped: fmb generate refuses images with BQ-TIME-01's same-year case until 15 Jan 00:00 UTC"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   linux:
-    if: inputs.hosts != 'windows' && inputs.hosts != 'distros'
+    needs: window
+    if: needs.window.outputs.run == 'true' && inputs.hosts != 'windows' && inputs.hosts != 'distros' && github.event.schedule != '53 3 * * 1'
     name: linux ${{ matrix.image }}
     runs-on: ubuntu-24.04
     timeout-minutes: 355
@@ -157,7 +181,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: ["fedora:42", "archlinux:latest", "opensuse/tumbleweed:latest"]
+        distro: ["fedora:latest", "archlinux:latest", "opensuse/tumbleweed:latest"]
         image: ${{ fromJSON(inputs.images || '["I1"]') }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -241,7 +265,8 @@ jobs:
           include-hidden-files: true
 
   windows:
-    if: inputs.hosts == 'windows' || inputs.hosts == 'both'
+    needs: window
+    if: needs.window.outputs.run == 'true' && (inputs.hosts == 'windows' || inputs.hosts == 'both' || github.event.schedule == '53 3 * * 1')
     name: windows ${{ matrix.image }}
     runs-on: windows-2025
     timeout-minutes: 355
